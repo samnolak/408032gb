@@ -1,0 +1,66 @@
+{
+  "name": "4x RTX 4080 Super 32GB, EPYC 7H43, 128 GB DDR4-3200",
+  "gpus": [
+    {
+      "name": "RTX 4080 Super 32GB",
+      "vram_gib": 32.0,
+      "mem_bw_gbs": 736.0,
+      "sm": "sm_89"
+    },
+    {
+      "name": "RTX 4080 Super 32GB",
+      "vram_gib": 32.0,
+      "mem_bw_gbs": 736.0,
+      "sm": "sm_89"
+    },
+    {
+      "name": "RTX 4080 Super 32GB",
+      "vram_gib": 32.0,
+      "mem_bw_gbs": 736.0,
+      "sm": "sm_89"
+    },
+    {
+      "name": "RTX 4080 Super 32GB",
+      "vram_gib": 32.0,
+      "mem_bw_gbs": 736.0,
+      "sm": "sm_89"
+    }
+  ],
+  "gpu_reserve_gib": 1.75,
+  "ram_gib": 128.0,
+  "ram_reserve_gib": 12.0,
+  "ram_channels": null,
+  "ram_bw_gbs_by_channels": {
+    "4": 102.4,
+    "8": 204.8
+  },
+  "cpu": {
+    "model": "AMD EPYC 7H43",
+    "cores": 48,
+    "avx512": false,
+    "amx": false
+  },
+  "nvme": [
+    {
+      "model": "Samsung 990 Pro 1TB",
+      "seq_read_gbs": 7.45
+    },
+    {
+      "model": "Samsung 990 Pro 1TB",
+      "seq_read_gbs": 7.45
+    },
+    {
+      "model": "Samsung 990 Pro 1TB",
+      "seq_read_gbs": 7.45
+    }
+  ],
+  "p2p": true,
+  "_labels": {
+    "gpus/ram/cpu/nvme/p2p": "CONFIRMED (stated by the customer)",
+    "mem_bw_gbs": "PROVISIONAL: 4080 Super reference spec 23 Gbps x 256-bit; the 32 GB variant is assumed to keep the bus",
+    "gpu_reserve_gib": "PROVISIONAL: CUDA context + cuBLAS workspace + activations + safety margin",
+    "ram_channels": "UNKNOWN: measure in G0 (dmidecode -t memory)",
+    "ram_bw_gbs_by_channels": "PROVISIONAL: theoretical DDR4-3200 x 8 B x channels",
+    "seq_read_gbs": "PROVISIONAL: vendor spec, not fetched"
+  }
+}

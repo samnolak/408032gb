@@ -1,0 +1,48 @@
+{
+  "name": "GLM-5.3-Flash",
+  "hf_repo": "zai-org/GLM-5.3-Flash",
+  "llama_cpp_arch": "glm5next",
+  "hidden_size": 4096,
+  "n_layers": 45,
+  "vocab_size": 154880,
+  "moe": {
+    "n_routed": 288,
+    "top_k": 8,
+    "n_shared": 1,
+    "expert_ff": 2048,
+    "expert_mats": 3,
+    "moe_layers": 42,
+    "mtp_moe_layers": 1,
+    "extra_expert_params_b": 0.0
+  },
+  "params_b": {
+    "total": 320.0,
+    "active": 18.0,
+    "vision": 0.56,
+    "embedding": 0.634
+  },
+  "native_expert_quant": "FP8",
+  "kv": {
+    "bytes_per_token": 30720,
+    "fixed_bytes": 0,
+    "recurrent_state_bytes": 152600000
+  },
+  "engram": null,
+  "_labels": {
+    "hidden_size": "CONFIRMED",
+    "n_layers": "CONFIRMED",
+    "vocab_size": "CONFIRMED",
+    "moe": "CONFIRMED",
+    "params_b.total": "CONFIRMED (model card)",
+    "params_b.active": "CONFIRMED (model card)",
+    "params_b.vision": "CONFIRMED (arXiv 2609.09793, secondary)",
+    "params_b.embedding": "PROVISIONAL (vocab*hidden)",
+    "kv.bytes_per_token": "PROVISIONAL: 12 DSA layers (11 + MTP) x (MLA latent 512 x f16 + indexer row 3x128 f32)",
+    "kv.recurrent_state_bytes": "PROVISIONAL: 34 KDA layers x 64 heads x 128x128 f32 + q/k/v conv states"
+  },
+  "_sources": {
+    "config": "https://huggingface.co/zai-org/GLM-5.3-Flash/blob/main/config.json (retrieved 2026-10-01)",
+    "graph": "llama.cpp src/models/glm5-next.cpp @ec7630a",
+    "model_card": "https://build.nvidia.com/z-ai/glm-5-3-flash/modelcard"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "Qwen3.8-Flash-Next (Strata reference)",
+  "hf_repo": "Qwen/Qwen3.8-Flash-Next",
+  "llama_cpp_arch": "qwen4exp",
+  "hidden_size": 2560,
+  "n_layers": 48,
+  "vocab_size": null,
+  "moe": {
+    "n_routed": 512,
+    "top_k": 10,
+    "n_shared": 1,
+    "expert_ff": 640,
+    "expert_mats": 3,
+    "moe_layers": 48,
+    "mtp_moe_layers": 0,
+    "extra_expert_params_b": 0.0
+  },
+  "params_b": {
+    "total": 125.0,
+    "active": null,
+    "vision": 0.0,
+    "embedding": 0.0
+  },
+  "native_expert_quant": "IQ2_XS",
+  "kv": {
+    "bytes_per_token": 0,
+    "fixed_bytes": 0,
+    "recurrent_state_bytes": 0
+  },
+  "engram": {
+    "params_b": 51.2,
+    "native_bpw": 4.5,
+    "layers": null,
+    "rows_per_table": null,
+    "dim": 160
+  },
+  "_labels": {
+    "geometry": "CONFIRMED: Strata include/strata/core/layout.hpp @c499bd1 (n_embd 2560, 48 layers, 512 x 640)",
+    "top_k": "CONFIRMED: Strata generate.cpp K = 10",
+    "engram": "CONFIRMED: Strata ngram.hpp (51.2e9 elements IQ4_NL, 28.8 GB)",
+    "use": "reference for size tests only; kv/active not modelled"
+  },
+  "_sources": {
+    "strata": "https://github.com/Niko1221/Strata @c499bd1"
+  }
+}

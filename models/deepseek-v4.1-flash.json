@@ -1,0 +1,57 @@
+{
+  "name": "DeepSeek-V4.1-Flash",
+  "hf_repo": "deepseek-ai/DeepSeek-V4.1-Flash",
+  "llama_cpp_arch": null,
+  "hidden_size": 5120,
+  "n_layers": 40,
+  "vocab_size": 129280,
+  "moe": {
+    "n_routed": 384,
+    "top_k": 6,
+    "n_shared": 1,
+    "expert_ff": 2304,
+    "expert_mats": 3,
+    "moe_layers": 40,
+    "mtp_moe_layers": 0,
+    "extra_expert_params_b": 13.6
+  },
+  "params_b": {
+    "total": 552.0,
+    "active": 16.0,
+    "vision": 0.0,
+    "embedding": 0.662,
+    "dense": 9.4
+  },
+  "native_expert_quant": "MXFP4",
+  "kv": {
+    "bytes_per_token": 890,
+    "fixed_bytes": 0,
+    "recurrent_state_bytes": 0
+  },
+  "engram": {
+    "params_b": 196.6,
+    "native_bpw": 8.25,
+    "layers": [
+      1,
+      14
+    ],
+    "rows_per_table": 384006168,
+    "dim": 256
+  },
+  "_labels": {
+    "hidden_size": "CONFIRMED (HF config.json)",
+    "moe.n_routed/top_k/n_shared": "CONFIRMED (HF config.json)",
+    "moe.expert_ff": "CONFIRMED (rs-gallium issue quoting config.json: moe_intermediate_size 2304)",
+    "moe.extra_expert_params_b": "PROVISIONAL: DSpark experts = 557.2B (routed+DSpark, vLLM recipe) - 543.6B routed",
+    "params_b.active": "CONFIRMED (model card: 8B prefill / 16B decode; decode used)",
+    "kv.bytes_per_token": "PROVISIONAL (890 B/token FP4 KV, DeepSeek figure via secondary source)",
+    "engram": "CONFIRMED (vLLM recipe + MLX build: 2 tables x 384,006,168 x 256, FP8 E4M3 + E8M0 per 32)",
+    "llama_cpp_arch": "CONFIRMED: no deepseek41 graph in llama.cpp src/models @ec7630a",
+    "params_b.dense": "CONFIRMED (vLLM recipe memory table: attention/dense/routers 7.4B + embedding/head 2.0B); 552B 'backbone' excludes DSpark, so total-routed is not usable"
+  },
+  "_sources": {
+    "config": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/blob/main/config.json",
+    "recipe": "https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4.1-Flash",
+    "sizes": "https://huggingface.co/LibertAIDAI/DeepSeek-V4.1-Flash-NVFP4 (routed experts 268.9 GiB, Engram 189.1 GiB)"
+  }
+}

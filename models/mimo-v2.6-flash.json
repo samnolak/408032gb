@@ -1,0 +1,44 @@
+{
+  "name": "MiMo-V2.6-Flash",
+  "hf_repo": "XiaomiMiMo/MiMo-V2.6-Flash-RL",
+  "llama_cpp_arch": "mimo2",
+  "hidden_size": 4096,
+  "n_layers": 48,
+  "vocab_size": 152576,
+  "moe": {
+    "n_routed": 256,
+    "top_k": 8,
+    "n_shared": 0,
+    "expert_ff": 2048,
+    "expert_mats": 3,
+    "moe_layers": 47,
+    "mtp_moe_layers": 0,
+    "extra_expert_params_b": 0.0
+  },
+  "params_b": {
+    "total": 309.0,
+    "active": 15.0,
+    "vision": 0.0,
+    "embedding": 0.625
+  },
+  "native_expert_quant": "MXFP4",
+  "kv": {
+    "bytes_per_token": 23040,
+    "fixed_bytes": 28900000,
+    "recurrent_state_bytes": 0
+  },
+  "engram": null,
+  "_labels": {
+    "hidden_size": "CONFIRMED (vLLM/Vultr model page, secondary)",
+    "n_layers": "CONFIRMED (vLLM recipe: 1 dense + 47 MoE)",
+    "moe": "CONFIRMED (vLLM recipe: 256 routed, top-8; expert_ff 2048 PROVISIONAL from apxml)",
+    "native_expert_quant": "CONFIRMED (vLLM recipe: stored as mxfp4)",
+    "kv.bytes_per_token": "PROVISIONAL: 9 global layers x 4 KV heads x (192 K + 128 V) x f16; head dims from the V2 report",
+    "kv.fixed_bytes": "PROVISIONAL: 39 SWA + 5 MTP SWA layers x window 128 x 8 KV heads x 320 x f16"
+  },
+  "_sources": {
+    "recipe": "https://recipes.vllm.ai/XiaomiMiMo/MiMo-V2.6-Flash-RL",
+    "v2_report": "https://arxiv.org/pdf/2601.02780",
+    "graph": "llama.cpp src/models/mimo2.cpp @ec7630a"
+  }
+}
