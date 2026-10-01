@@ -48,7 +48,7 @@ jobs:
         run: |
           wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb && sudo apt-get update -q
-          sudo apt-get install -y -q cuda-nvcc-13-0 cuda-cudart-dev-13-0 libcublas-dev-13-0 ninja-build
+          sudo apt-get install -y -q cuda-nvcc-13-0 cuda-cudart-dev-13-0 libcublas-dev-13-0 cuda-cuobjdump-13-0 ninja-build
       - name: strata-glm at the pinned commit
         run: |
           git clone https://github.com/sergqwer/strata-glm.git
@@ -60,5 +60,10 @@ jobs:
             -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc 2>&1 | tail -40
       - name: build strata-glm
         run: cmake --build build -j4 --target strata-glm 2>&1 | tail -60
-      - name: binary
-        run: ls -la build/strata-glm* && file build/strata-glm*
+      - name: binary contains sm_89 code
+        run: |
+          bin=$(find build -type f -name 'strata-glm' -perm -u+x | head -1)
+          test -n "$bin" || { echo "strata-glm binary not found"; find build -maxdepth 3 -type f -perm -u+x; exit 1; }
+          ls -la "$bin"
+          /usr/local/cuda-13.0/bin/cuobjdump --list-elf "$bin" | sort | uniq -c | head -20
+          /usr/local/cuda-13.0/bin/cuobjdump --list-elf "$bin" | grep -q sm_89
