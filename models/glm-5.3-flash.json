@@ -44,5 +44,12 @@
     "config": "https://huggingface.co/zai-org/GLM-5.3-Flash/blob/main/config.json (retrieved 2026-10-01)",
     "graph": "llama.cpp src/models/glm5-next.cpp @ec7630a",
     "model_card": "https://build.nvidia.com/z-ai/glm-5-3-flash/modelcard"
+  },
+  "checkpoints": {
+    "nvidia/GLM-5.3-Flash-NVFP4": {
+      "expert_quant": "NVFP4",
+      "engine": "sergqwer/strata-glm",
+      "_label": "CONFIRMED (strata-glm README: 204 GB checkpoint, 42 MoE layers x 288 = 12,096 routed experts of 14.16 MB)"
+    }
   }
 }

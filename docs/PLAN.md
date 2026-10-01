@@ -6,9 +6,9 @@
 |---|---|---|---|
 | G0 | замеры железа, гистограммы экспертов GLM, бейзлайн llama.cpp | VM (GPU) | READY TO DISPATCH: инструменты собраны, промпт `docs/prompts/G0-dispatch.md` |
 | G1 | эталоны numpy для всех новых операций + parity с дампами llama.cpp | песочница (CPU) | **ACCEPTED 2026-10-02** на CPU-референсе, `docs/evidence/2026-10-02-g1-parity.md` |
-| G2 | рефакторинг Strata: геометрия эксперта в рантайме | CPU-first (ADR-006) | READY: G1 принят |
-| G3 | backend `glm5next`, 1 GPU + эксперты в RAM, совпадение токенов | VM | BLOCKED |
-| G4 | 4 GPU конвейер + кэш экспертов + MTP | VM | BLOCKED |
+| G2 | strata-glm (ADR-007) собирается под sm_89 на Linux; его GLM-операции = наши эталоны | CI + CPU | IN PROGRESS: 7/7 GLM-ядер компилируются под sm_89 |
+| G3 | strata-glm на одной 4080 сервера: совпадение с llama.cpp и с FP32-эталоном автора (`tools/glm_ref.py`) | VM | BLOCKED: нужен сервер или облачный GPU |
+| G4 | GLM-путь на разбиении слоёв Strata: 4 карты, свой VRAM-ярус на каждой, без диска | VM | BLOCKED |
 | G5 | выбор квантования по качеству и скорости | VM | BLOCKED |
 | G6 | TP/EP на 4 карты через P2P | VM | BLOCKED |
 | G7 | MiMo-V2.6-Flash, затем DeepSeek-V4.1-Flash | VM | BLOCKED |

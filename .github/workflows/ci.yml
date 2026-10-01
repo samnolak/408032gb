@@ -39,3 +39,26 @@ jobs:
           shopt -s nullglob; files=(kernels/*.cu)
           if [ ${#files[@]} -eq 0 ]; then echo "no kernels yet"; exit 0; fi
           for f in "${files[@]}"; do /usr/local/cuda-13.0/bin/nvcc -arch=sm_89 -c "$f" -o /dev/null; done
+  strata-glm-sm89:
+    # ADR-007: the GLM engine base (sergqwer/strata-glm, MIT) built for the server's GPUs on Linux.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: CUDA 13 toolkit + cuBLAS (no GPU on the runner)
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb && sudo apt-get update -q
+          sudo apt-get install -y -q cuda-nvcc-13-0 cuda-cudart-dev-13-0 libcublas-dev-13-0 ninja-build
+      - name: strata-glm at the pinned commit
+        run: |
+          git clone https://github.com/sergqwer/strata-glm.git
+          git -C strata-glm checkout ed37419fccd0c52e07d26d526a29c2098f547843
+      - name: configure (sm_89 = RTX 4080 Super)
+        run: |
+          cmake -G Ninja -S strata-glm -B build -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_CUDA=ON \
+            -DSTRATA_BUILD_TESTS=OFF -DCMAKE_CUDA_ARCHITECTURES=89 \
+            -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc 2>&1 | tail -40
+      - name: build strata-glm
+        run: cmake --build build -j4 --target strata-glm 2>&1 | tail -60
+      - name: binary
+        run: ls -la build/strata-glm* && file build/strata-glm*

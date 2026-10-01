@@ -34,6 +34,9 @@ GGML_BLOCKS = {
 OTHER_BPW = {
     # FP8 E4M3 weights with one fp32 scale per 128x128 block (GLM-5.3-Flash quantization_config).
     "FP8": 8.0 + 32.0 / (128 * 128),
+    # NVFP4 (ModelOpt): E2M1 codes + one E4M3 scale per 16 values (the per-tensor fp32 scale is negligible).
+    # Cross-check: sergqwer/strata-glm README gives 14.16 MB per GLM-5.3-Flash expert, ~171 GB for 12,096.
+    "NVFP4": 4.0 + 8.0 / 16,
     # FP8 E4M3 with one E8M0 scale per 32 values (DeepSeek-V4.1 Engram tables).
     "FP8_E8M0_32": 8.0 + 8.0 / 32,
 }

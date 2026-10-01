@@ -122,3 +122,14 @@ class QuantTable(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StrataGlmSizes(unittest.TestCase):
+    def test_nvfp4_expert_and_pack(self):
+        # sergqwer/strata-glm README @ed37419: 12,096 routed experts of 14.16 MB each, a ~171 GB pack
+        m = load("glm-5.3-flash")
+        per = fitplan.expert_params(m) * bpw("NVFP4") / 8
+        self.assertAlmostEqual(per / 1e6, 14.16, delta=0.01)
+        main_layers = m["moe"]["moe_layers"] * m["moe"]["n_routed"]
+        self.assertEqual(main_layers, 12096)
+        self.assertAlmostEqual(main_layers * per / 1e9, 171.0, delta=1.0)
