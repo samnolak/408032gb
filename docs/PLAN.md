@@ -4,8 +4,8 @@
 
 | гейт | суть | где выполняется | статус |
 |---|---|---|---|
-| G0 | замеры железа, гистограммы экспертов GLM, бейзлайн llama.cpp | VM (GPU) | READY TO DISPATCH |
-| G1 | эталоны numpy для всех новых операций + parity с дампами llama.cpp | песочница + VM | IN PROGRESS (KDA готов) |
+| G0 | замеры железа, гистограммы экспертов GLM, бейзлайн llama.cpp | VM (GPU) | READY TO DISPATCH: инструменты собраны, промпт `docs/prompts/G0-dispatch.md` |
+| G1 | эталоны numpy для всех новых операций + parity с дампами llama.cpp | песочница + VM | IN PROGRESS: KDA/GDN совпадает с ggml (2.9e-8) |
 | G2 | рефакторинг Strata: геометрия эксперта в рантайме | VM | BLOCKED by G1 |
 | G3 | backend `glm5next`, 1 GPU + эксперты в RAM, совпадение токенов | VM | BLOCKED |
 | G4 | 4 GPU конвейер + кэш экспертов + MTP | VM | BLOCKED |
@@ -39,7 +39,7 @@
 
 | операция | эталон | имя в llama.cpp | статус |
 |---|---|---|---|
-| KDA (gated delta rule, поканальный gate) | `ref/kda.py` | `kda_scan_out` | эталон готов, сверка NOT RUN |
+| KDA (gated delta rule, поканальный gate) | `ref/kda.py` | `kda_scan_out` | эталон = ggml_gated_delta_net (CPU) до 2.9e-8, CONFIRMED; дамп полной модели NOT RUN |
 | KDA gate (lower bound) | `ref/kda.py` | `kda_g1` | эталон готов, сверка NOT RUN |
 | mHC Sinkhorn | — | `build_hc_sinkhorn` | TODO |
 | k-pool индексер, выбор top-k | — | `build_kpool_select` | TODO |
