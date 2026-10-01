@@ -1,0 +1,20 @@
+Write a Python function that merges overlapping intervals and explain its complexity.
+Объясни, чем отличается TCP от UDP, тремя предложениями.
+Here is a failing test: assert parse("1,2,,3") == [1,2,3]. Fix parse.
+List the planets of the solar system in order with one fact each.
+Translate to English: «Сервер изолирован от интернета, синхронизация идёт через git bundle».
+Write a bash one-liner that finds the 10 largest files under /var.
+What is the derivative of x^3 * sin(x)?
+Draft a short commit message for adding a CUDA kernel for KDA decay.
+Summarize the idea of mixture-of-experts models in two sentences.
+Write a SQL query: top 5 customers by total order value in 2025.
+Explain what a Sinkhorn iteration does to a matrix.
+Write a C function that reverses a singly linked list.
+Give three test cases for a function that validates IPv4 addresses.
+Напиши функцию на Rust, которая считает частоты слов в строке.
+What does PCIe P2P mean for multi-GPU inference?
+Rewrite this sentence more formally: the build broke again lol.
+Explain the difference between prefill and decode in LLM inference.
+Write a JSON schema for a tool call with name and arguments.
+What is 17 * 23? Show the steps.
+Describe the producer-consumer problem and one solution.
