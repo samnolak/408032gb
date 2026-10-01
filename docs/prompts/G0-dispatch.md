@@ -5,7 +5,7 @@
 Prerequisites the customer provides on the VM (no internet there):
 - this repo, applied from a git bundle (skill bundle-sync);
 - llama.cpp source at commit ec7630a640789c393694fb194f1bbbf0369fc62d (bundle or tarball);
-- one GLM-5.3-Flash GGUF (arch `glm5next`), Q2_K or IQ3 class, in `/models/glm53/`;
+- one GLM-5.3-Flash GGUF (general.architecture `glm5-next`), Q2_K or IQ3 class, in `/models/glm53/`;
 - 12+ real agent transcripts as `*.txt` in `/data/g0-traces/`.
 
 ---

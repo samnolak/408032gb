@@ -16,7 +16,7 @@ Source: HF zai-org/GLM-5.3-Flash config.json (retrieved 2026-10-01) unless noted
 | SwiGLU | `swiglu_limit` 10.0 (clamp) |
 | weights | FP8 E4M3, 128x128 blocks; hc_*, KDA small projections, A_log/dt_bias, norms, lm_head, router kept high precision |
 | vision | 24-layer ViT, 1024 hidden (optional; skip for text) |
-| llama.cpp | arch `glm5next`, src/models/glm5-next.cpp @ec7630a; GGUF quants exist (DevQuasar) |
+| llama.cpp | GGUF arch string `glm5-next` (CONFIRMED: src/llama-arch.cpp:156), src/models/glm5-next.cpp @ec7630a; GGUF quants exist (DevQuasar) |
 
 Numerics risks (PROVISIONAL): swiglu clamp must be applied before the down projection in every
 expert path (GPU and CPU); Sinkhorn in fp32; KDA decay exp(g) with g in (-5, 0) underflows

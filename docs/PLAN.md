@@ -5,8 +5,8 @@
 | гейт | суть | где выполняется | статус |
 |---|---|---|---|
 | G0 | замеры железа, гистограммы экспертов GLM, бейзлайн llama.cpp | VM (GPU) | READY TO DISPATCH: инструменты собраны, промпт `docs/prompts/G0-dispatch.md` |
-| G1 | эталоны numpy для всех новых операций + parity с дампами llama.cpp | песочница + VM | IN PROGRESS: KDA/GDN совпадает с ggml (2.9e-8) |
-| G2 | рефакторинг Strata: геометрия эксперта в рантайме | VM | BLOCKED by G1 |
+| G1 | эталоны numpy для всех новых операций + parity с дампами llama.cpp | песочница (CPU) | **ACCEPTED 2026-10-02** на CPU-референсе, `docs/evidence/2026-10-02-g1-parity.md` |
+| G2 | рефакторинг Strata: геометрия эксперта в рантайме | CPU-first (ADR-006) | READY: G1 принят |
 | G3 | backend `glm5next`, 1 GPU + эксперты в RAM, совпадение токенов | VM | BLOCKED |
 | G4 | 4 GPU конвейер + кэш экспертов + MTP | VM | BLOCKED |
 | G5 | выбор квантования по качеству и скорости | VM | BLOCKED |
@@ -39,12 +39,16 @@
 
 | операция | эталон | имя в llama.cpp | статус |
 |---|---|---|---|
-| KDA (gated delta rule, поканальный gate) | `ref/kda.py` | `kda_scan_out` | эталон = ggml_gated_delta_net (CPU) до 2.9e-8, CONFIRMED; дамп полной модели NOT RUN |
-| KDA gate (lower bound) | `ref/kda.py` | `kda_g1` | эталон готов, сверка NOT RUN |
-| mHC Sinkhorn | — | `build_hc_sinkhorn` | TODO |
-| k-pool индексер, выбор top-k | — | `build_kpool_select` | TODO |
-| MLA без RoPE (DSA-слой) | — | `build_dsa_layer` | TODO |
-| роутер sigmoid + noaux_tc | — | `ffn_moe_topk` | TODO |
+| KDA: gate, короткая свёртка, рекуррентность | `ref/kda.py` | `kda_g1`, `kda_*_conv`, `kda_scan_out` | PASS, 9 слоёв; рекуррентность = ggml до 3e-8 |
+| mHC: pre, post, Sinkhorn, вход миксера, новые потоки | `ref/mhc.py` | `hc_pre`, `hc_post`, `hc_comb`, `hc_attn_pre/post` | PASS, 12 слоёв |
+| k-pool индексер: ключи, пулы, оценки, видимость, выбор | `ref/dsa.py` | `indexer_*`, `kq_mask_dsa` | PASS, 3 слоя; выбор проверяется с учётом ничьих |
+| MLA без RoPE (DSA-слой) | `ref/dsa.py` | `q_resid`, `q_absorbed`, `kv_cmpr`, `kqv_out`, `attn_out` | PASS, 3 слоя |
+| роутер sigmoid + noaux_tc | `ref/router.py` | `ffn_moe_logits/topk/weights_scaled` | PASS, 11 слоёв |
+| SwiGLU с clamp до активации | `ref/router.py` | `ffn_moe_swiglu_limited` | PASS, 11 слоёв, clamp срабатывает |
+
+Референс: llama.cpp на CPU, крошечная модель `tools/tinygen`, кэши f32, flash attention выключен
+(`tools/tinygen/run_parity.sh`). Решение о приёмке: lead-architect, 2026-10-02; все проверки прошли
+на CPU (литеральный вывод в evidence). Сверка НАШИХ ядер с этими же дампами — часть G2–G3.
 
 **Приёмка:** max относительная ошибка ≤ 1e-3 (fp32) на 3 слоях каждого типа.
 

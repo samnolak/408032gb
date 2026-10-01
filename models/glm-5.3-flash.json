@@ -1,7 +1,7 @@
 {
   "name": "GLM-5.3-Flash",
   "hf_repo": "zai-org/GLM-5.3-Flash",
-  "llama_cpp_arch": "glm5next",
+  "llama_cpp_arch": "glm5-next",
   "hidden_size": 4096,
   "n_layers": 45,
   "vocab_size": 154880,

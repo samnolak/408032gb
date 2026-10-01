@@ -17,7 +17,7 @@
 | индексер разреженного attention | k-pool 4, top-k 2048, dim 128, 4 головы | k-pool 4, top-k 2048, dim 128, 32 головы | CONFIRMED: `qsa.hpp:95-112`, HF `config.json` |
 | остаточный поток | hyper-connections, 4 потока | mHC, 4 потока + Sinkhorn (20 итераций) | CONFIRMED: `gr.hpp`, HF `config.json` |
 | общие builder'ы в llama.cpp | `build_inp_kpool`, `build_input_k_idxs`, `build_delta_net_base`, `build_gdn_l2_norm`, `build_recurrent_attn`, `build_rs`, `build_moe_ffn` | те же | CONFIRMED: `src/models/qwen4exp.cpp`, `src/models/glm5-next.cpp` |
-| GGUF-кванты | есть | есть (arch `glm5next`, DevQuasar) | CONFIRMED: HF DevQuasar/zai-org.GLM-5.3-Flash-GGUF |
+| GGUF-кванты | есть | есть (GGUF arch `glm5-next`; HF показывает тег `glm5next`; DevQuasar) | CONFIRMED: HF DevQuasar/zai-org.GLM-5.3-Flash-GGUF |
 
 **Что придётся написать для GLM:** KDA-gate (поканальный), attention MLA без RoPE (`qk_rope_head_dim = 0`, `kv_lora_rank = 512`) для DSA-слоёв, Sinkhorn для mHC, 3 плотных FFN-слоя (`first_k_dense_replace = 3`), роутер sigmoid + `noaux_tc` + `e_score_correction_bias` + `routed_scaling_factor = 2.5`, shared expert, `swiglu_limit = 10`, геометрия эксперта 4096×2048 (в Strata зашито 2560×640).
 
@@ -58,3 +58,21 @@ EPYC 7H43 (Zen 3) не умеет AVX-512. CPU-ядра каноническог
 **Статус:** принято.
 
 На 4×32 GB IQ2_XS/IQ3_XXS для GLM и MiMo помещаются в VRAM почти целиком (PROVISIONAL, `tools/fitplan.py`). Ярус RAM/CPU используется, чтобы запускать Q4-класс (~160+ GiB экспертов) вместо 2–3 бит. Выбор квантования делается в G5 по замерам качества (KLD/перплексия) и скорости, а не по вкусу.
+
+---
+
+## ADR-006. Режим разработки без GPU и без ПК заказчика
+
+**Статус:** принято (lead-architect, 2026-10-02). Контекст: сервер с GPU сейчас недоступен, у заказчика только телефон.
+
+| что | где выполняется | чем проверяется |
+|---|---|---|
+| корректность операций и графа | CPU: песочница агента или бесплатный раннер GitHub Actions | крошечные модели `tools/tinygen` + настоящий граф llama.cpp + дампы (G1 так и принят) |
+| компиляция CUDA под sm_89 | GitHub Actions, nvcc без GPU | job `cuda-compile` в `ci/github-actions.yml` |
+| корректность CUDA-ядер | бесплатный T4 в Kaggle или Colab, запускается с телефона | те же дампы; T4 = sm_75, поэтому только корректность |
+| скорость, память, многокарточность | только сервер 4×4080 | G0, G4–G6 ждут сервер |
+| запуск команды агентов | Claude Code в облаке из приложения Claude на телефоне | репозиторий подключается через GitHub, агенты из `.claude/agents` |
+
+Следствие: G2–G3 делаются CPU-first. CPU-путь экспертов Strata (AVX2) и наш backend проверяются на
+крошечных моделях без GPU; CUDA-ядра компилируются в CI, их корректность проверяется на T4.
+Числа скорости до появления сервера не публикуются.
