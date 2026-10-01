@@ -61,9 +61,16 @@ jobs:
       - name: build strata-glm
         run: cmake --build build -j4 --target strata-glm 2>&1 | tail -60
       - name: binary contains sm_89 code
+        # no early-exit pipes (head/grep -q) under pipefail; results go to annotations, readable via the API
         run: |
-          bin=$(find build -type f -name 'strata-glm' -perm -u+x | head -1)
-          test -n "$bin" || { echo "strata-glm binary not found"; find build -maxdepth 3 -type f -perm -u+x; exit 1; }
-          ls -la "$bin"
-          /usr/local/cuda-13.0/bin/cuobjdump --list-elf "$bin" | sort | uniq -c | head -20
-          /usr/local/cuda-13.0/bin/cuobjdump --list-elf "$bin" | grep -q sm_89
+          bin=$(find build -type f -name strata-glm -perm -u+x -print -quit)
+          if [ -z "$bin" ]; then
+            echo "::error::strata-glm binary not found"
+            find build -maxdepth 4 -type f -perm -u+x > exes.txt; echo "::notice::executables: $(tr '\n' ' ' < exes.txt)"
+            exit 1
+          fi
+          echo "::notice::binary $bin, $(stat -c %s "$bin") bytes"
+          /usr/local/cuda-13.0/bin/cuobjdump --list-elf "$bin" > elf.txt 2>&1 || true
+          sed -E 's/.*\.(sm_[0-9a-z]+)\..*/\1/' elf.txt | sort | uniq -c > arch.txt
+          echo "::notice::cubin archs: $(tr '\n' ' ' < arch.txt)"
+          grep sm_89 elf.txt > /dev/null
