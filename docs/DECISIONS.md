@@ -1,0 +1,60 @@
+# Архитектурные решения (ADR)
+
+Метки: CONFIRMED / PROVISIONAL / UNKNOWN (см. AGENTS.md). Пины: Strata `c499bd1`, llama.cpp `ec7630a`.
+
+---
+
+## ADR-001. Первая цель — GLM-5.3-Flash, затем MiMo-V2.6-Flash, затем DeepSeek-V4.1-Flash
+
+**Статус:** принято (lead-architect, 2026-10-01).
+
+**Почему GLM первым:** по коду он ближайший родственник модели, под которую написан Strata.
+
+| признак | Qwen3.8-Flash-Next (Strata) | GLM-5.3-Flash | метка |
+|---|---|---|---|
+| схема слоёв | 36 GDN + 12 QSA, разреженный слой при `layer % 4 == 3` | 34 KDA + 11 DSA, разреженные слои 3, 7, …, 43 | CONFIRMED: `include/strata/core/layout.hpp`, HF `config.json` |
+| линейное attention | GDN, скалярный gate на голову | KDA, gate на каждый канал | CONFIRMED: `ggml.h` — `ggml_gated_delta_net` принимает gate `[1,H]` или `[S_v,H]` |
+| индексер разреженного attention | k-pool 4, top-k 2048, dim 128, 4 головы | k-pool 4, top-k 2048, dim 128, 32 головы | CONFIRMED: `qsa.hpp:95-112`, HF `config.json` |
+| остаточный поток | hyper-connections, 4 потока | mHC, 4 потока + Sinkhorn (20 итераций) | CONFIRMED: `gr.hpp`, HF `config.json` |
+| общие builder'ы в llama.cpp | `build_inp_kpool`, `build_input_k_idxs`, `build_delta_net_base`, `build_gdn_l2_norm`, `build_recurrent_attn`, `build_rs`, `build_moe_ffn` | те же | CONFIRMED: `src/models/qwen4exp.cpp`, `src/models/glm5-next.cpp` |
+| GGUF-кванты | есть | есть (arch `glm5next`, DevQuasar) | CONFIRMED: HF DevQuasar/zai-org.GLM-5.3-Flash-GGUF |
+
+**Что придётся написать для GLM:** KDA-gate (поканальный), attention MLA без RoPE (`qk_rope_head_dim = 0`, `kv_lora_rank = 512`) для DSA-слоёв, Sinkhorn для mHC, 3 плотных FFN-слоя (`first_k_dense_replace = 3`), роутер sigmoid + `noaux_tc` + `e_score_correction_bias` + `routed_scaling_factor = 2.5`, shared expert, `swiglu_limit = 10`, геометрия эксперта 4096×2048 (в Strata зашито 2560×640).
+
+**MiMo вторым:** граф `mimo2.cpp` в llama.cpp есть (CONFIRMED); attention простое (SWA 128 + global); родные MXFP4-эксперты ≈150 GiB (PROVISIONAL, расчёт `tools/fitplan.py`, сверка с публичными ~150 GiB) — это ровно режим Strata без переквантования.
+
+**DeepSeek третьим:** графа V4.1 в llama.cpp на пине нет (CONFIRMED: нет `src/models/deepseek41*`); архитектура самая новая (CED 20+20, CSA2, DSpark); routed-эксперты в FP4 занимают 268.9 GiB (CONFIRMED публично, воспроизведено fitplan), что больше VRAM+RAM (128+128 GB) → нужен переквант ≤3 бит; Engram 189 GiB → SSD-ярус.
+
+---
+
+## ADR-002. Новый backend рядом с `qwen4exp`, а не параметризация всего Strata
+
+**Статус:** принято.
+
+Strata — однопородный движок (CONFIRMED): guard архитектуры `qwen4exp` (`gguf_reader.hpp:12`), геометрия — константы компиляции (`layout.hpp: ModelGeometry`), ядра экспертов прошиты `constexpr int H = 2560; FF = 640;` (`s2_expert_grouped.cu:37-38`), из GGUF читаются только `expert_count`, `expert_used_count` и RoPE (`generate.cpp:1749-1755`).
+
+**Решение:** форк Strata с backend'ом `glm5next`, переиспользующим подсистемы `expert_source`, `expert_cache`, `pinned`, CPU-пул, MTP/verify и сервер. **Первый рефакторинг (G2)** — сделать геометрию эксперта (H, FF, раскладку блоба) параметром времени выполнения: это нужно всем трём моделям.
+
+---
+
+## ADR-003. Мульти-GPU: сначала конвейер Strata, TP/EP — отдельным гейтом
+
+**Статус:** принято.
+
+Конвейер по слоям в Strata уже есть, P2P ему не нужен (CONFIRMED: `docs/MULTI_GPU.md:9-10`). При одном потоке декода конвейер в каждый момент нагружает одну карту, поэтому при полностью резидентном IQ3 главный рычаг скорости — TP/EP на 4 карты с P2P (G6). Сначала корректность (G3–G4), потом скорость.
+
+---
+
+## ADR-004. CPU-путь — только AVX2 i-quant
+
+**Статус:** принято.
+
+EPYC 7H43 (Zen 3) не умеет AVX-512. CPU-ядра канонического Q2_0-пака Strata требуют AVX-512, native i-quant-паки работают на AVX2 (CONFIRMED: `generate.cpp:1725-1730`). Q2_0-путь не используем.
+
+---
+
+## ADR-005. Ярусность покупает качество
+
+**Статус:** принято.
+
+На 4×32 GB IQ2_XS/IQ3_XXS для GLM и MiMo помещаются в VRAM почти целиком (PROVISIONAL, `tools/fitplan.py`). Ярус RAM/CPU используется, чтобы запускать Q4-класс (~160+ GiB экспертов) вместо 2–3 бит. Выбор квантования делается в G5 по замерам качества (KLD/перплексия) и скорости, а не по вкусу.
