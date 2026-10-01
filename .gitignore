@@ -1,0 +1,4 @@
+tests/ggml_parity/gdn_harness
+__pycache__/
+*.pyc
+*.bundle
