@@ -18,7 +18,7 @@ jobs:
         run: python3 -m unittest discover -s tests -v
       - name: ggml delta-net parity (CPU)
         run: |
-          cmake -S ../llama.cpp/ggml -B ../ggml-build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF
+          cmake -S ../llama.cpp/ggml -B ../ggml-build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_OPENMP=OFF -DGGML_BACKEND_DL=OFF -DGGML_BUILD_TESTS=OFF -DGGML_BUILD_EXAMPLES=OFF
           cmake --build ../ggml-build -j4 --target ggml
           tests/ggml_parity/build.sh ../llama.cpp ../ggml-build
           GGML_GDN_HARNESS=tests/ggml_parity/gdn_harness LLAMA_CPP_GGUF_PY=../llama.cpp/gguf-py \
