@@ -1,6 +1,6 @@
 ---
 name: engine-integrator
-description: Engine integration engineer. Use for wiring a model backend into the Strata fork: loader, layer graph, expert source and cache, session state, MTP verify loop, pipeline split across GPUs. Routing: Sol.
+description: "Engine integration engineer. Use for wiring a model backend into the Strata fork: loader, layer graph, expert source and cache, session state, MTP verify loop, pipeline split across GPUs. Routing: Sol."
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
 effort: high

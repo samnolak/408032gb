@@ -1,6 +1,6 @@
 ---
 name: gate-review
-description: Checklist the lead-architect uses to accept or reject a gate in docs/PLAN.md. Use when deciding whether a gate is complete.
+description: "Checklist the lead-architect uses to accept or reject a gate in docs/PLAN.md. Use when deciding whether a gate is complete."
 ---
 
 # Gate review

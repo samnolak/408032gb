@@ -1,6 +1,6 @@
 ---
 name: parity-qa
-description: Parity and QA engineer. Use for numpy oracles in ref/, unit tests in tests/, capturing llama.cpp tensor dumps, and comparing kernel outputs against them. Routing: Terra.
+description: "Parity and QA engineer. Use for numpy oracles in ref/, unit tests in tests/, capturing llama.cpp tensor dumps, and comparing kernel outputs against them. Routing: Terra."
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
 memory: project

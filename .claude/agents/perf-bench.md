@@ -1,6 +1,6 @@
 ---
 name: perf-bench
-description: Performance and capacity engineer. Use for memory placement plans (tools/fitplan.py), llama.cpp baselines, engine benchmarks, and profiling (nsys, ncu). Routing: Terra.
+description: "Performance and capacity engineer. Use for memory placement plans (tools/fitplan.py), llama.cpp baselines, engine benchmarks, and profiling (nsys, ncu). Routing: Terra."
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
 skills:

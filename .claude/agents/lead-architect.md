@@ -1,6 +1,6 @@
 ---
 name: lead-architect
-description: Tech lead. Use for planning, splitting work into tasks per role, writing ADRs, and accepting or rejecting gates in docs/PLAN.md. Routing: Sol.
+description: "Tech lead. Use for planning, splitting work into tasks per role, writing ADRs, and accepting or rejecting gates in docs/PLAN.md. Routing: Sol."
 tools: Read, Grep, Glob, Bash, Edit, Write, Agent
 model: inherit
 effort: high

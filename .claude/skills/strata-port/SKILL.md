@@ -1,6 +1,6 @@
 ---
 name: strata-port
-description: Map of the Strata codebase (pinned c499bd1) and the checklist for porting a new model architecture into it. Use when reading Strata code or planning a backend.
+description: "Map of the Strata codebase (pinned c499bd1) and the checklist for porting a new model architecture into it. Use when reading Strata code or planning a backend."
 ---
 
 # Porting into Strata

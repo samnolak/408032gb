@@ -1,6 +1,6 @@
 ---
 name: parity-oracle
-description: How to build numpy oracles in ref/ and compare kernels against llama.cpp tensor dumps. Use when adding or verifying any numerical operation.
+description: "How to build numpy oracles in ref/ and compare kernels against llama.cpp tensor dumps. Use when adding or verifying any numerical operation."
 ---
 
 # Parity oracles

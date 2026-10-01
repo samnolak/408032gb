@@ -1,6 +1,6 @@
 ---
 name: evidence-auditor
-description: Read-only auditor. Use after any role reports work as done, to verify claims against git history, files and command output before the lead accepts it. Routing: Luna.
+description: "Read-only auditor. Use after any role reports work as done, to verify claims against git history, files and command output before the lead accepts it. Routing: Luna."
 tools: Read, Grep, Glob, Bash
 disallowedTools: Write, Edit
 model: inherit

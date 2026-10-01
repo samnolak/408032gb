@@ -1,6 +1,6 @@
 ---
 name: infra-ops
-description: Infrastructure engineer for the Proxmox VM and GPUs. Use for drivers, CUDA toolkit, builds, hugepages, NUMA, pinned-memory limits, disk layout for models, and git bundle sync. Routing: Terra.
+description: "Infrastructure engineer for the Proxmox VM and GPUs. Use for drivers, CUDA toolkit, builds, hugepages, NUMA, pinned-memory limits, disk layout for models, and git bundle sync. Routing: Terra."
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
 skills:

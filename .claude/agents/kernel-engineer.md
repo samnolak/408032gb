@@ -1,6 +1,6 @@
 ---
 name: kernel-engineer
-description: CUDA kernel engineer for sm_89. Use for writing or optimizing kernels (KDA, MLA-nope attention, k-pool indexer, mHC Sinkhorn, MoE GEMV with runtime geometry). Routing: Sol.
+description: "CUDA kernel engineer for sm_89. Use for writing or optimizing kernels (KDA, MLA-nope attention, k-pool indexer, mHC Sinkhorn, MoE GEMV with runtime geometry). Routing: Sol."
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
 effort: high

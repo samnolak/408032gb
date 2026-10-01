@@ -1,6 +1,6 @@
 ---
 name: bundle-sync
-description: How to move git history between the internet-connected Windows PC and the isolated inference VM with git bundles. Use when syncing code in either direction.
+description: "How to move git history between the internet-connected Windows PC and the isolated inference VM with git bundles. Use when syncing code in either direction."
 ---
 
 # Bundle sync

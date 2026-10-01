@@ -1,6 +1,6 @@
 ---
 name: evidence-labels
-description: How to label claims CONFIRMED / PROVISIONAL / UNKNOWN and how to report work as done with literal command output. Use for every report, doc edit, commit message and status update in this repo.
+description: "How to label claims CONFIRMED / PROVISIONAL / UNKNOWN and how to report work as done with literal command output. Use for every report, doc edit, commit message and status update in this repo."
 ---
 
 # Evidence labels

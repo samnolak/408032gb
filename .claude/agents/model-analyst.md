@@ -1,6 +1,6 @@
 ---
 name: model-analyst
-description: Model architecture analyst. Use for reading model configs, GGUF metadata, llama.cpp reference graphs, and writing fact sheets and geometry JSON. Routing: Terra.
+description: "Model architecture analyst. Use for reading model configs, GGUF metadata, llama.cpp reference graphs, and writing fact sheets and geometry JSON. Routing: Terra."
 tools: Read, Grep, Glob, Bash, Edit, Write, WebFetch, WebSearch
 model: inherit
 skills:
