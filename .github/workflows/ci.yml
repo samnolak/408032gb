@@ -54,13 +54,28 @@ jobs:
           git clone https://github.com/sergqwer/strata-glm.git
           git -C strata-glm checkout ed37419fccd0c52e07d26d526a29c2098f547843
       - name: configure (sm_89 = RTX 4080 Super)
+        shell: bash
         run: |
-          cmake -G Ninja -S strata-glm -B build -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_CUDA=ON \
-            -DSTRATA_BUILD_TESTS=OFF -DCMAKE_CUDA_ARCHITECTURES=89 \
-            -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc 2>&1 | tail -40
+          set -o pipefail
+          if ! cmake -G Ninja -S strata-glm -B build -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_CUDA=ON \
+               -DSTRATA_BUILD_TESTS=OFF -DCMAKE_CUDA_ARCHITECTURES=89 \
+               -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc > cfg.log 2>&1; then
+            grep -n "CMake Error" -A3 cfg.log | head -40 > err.txt || true
+            while IFS= read -r l; do echo "::error::$l"; done < err.txt
+            exit 1
+          fi
       - name: build strata-glm
-        run: cmake --build build -j4 --target strata-glm 2>&1 | tail -60
+        shell: bash
+        # the exit code must not be lost in a pipe; the first compiler errors are reported as annotations
+        run: |
+          if ! cmake --build build -j4 --target strata-glm > build.log 2>&1; then
+            grep -nE "error|Error|FAILED" build.log | head -25 > err.txt || true
+            while IFS= read -r l; do echo "::error::${l:0:900}"; done < err.txt
+            exit 1
+          fi
+          echo "::notice::strata-glm build OK, $(grep -c 'Building CUDA' build.log) CUDA objects"
       - name: binary contains sm_89 code
+        shell: bash
         # no early-exit pipes (head/grep -q) under pipefail; results go to annotations, readable via the API
         run: |
           bin=$(find build -type f -name strata-glm -perm -u+x -print -quit)
