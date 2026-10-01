@@ -1,0 +1,41 @@
+# Copy to .github/workflows/ci.yml (pushing workflow files needs the token's Workflows permission).
+# Runs on GitHub's free runners: no GPU, no customer PC needed.
+name: ci
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  cpu-parity:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: llama.cpp at the pinned commit
+        run: |
+          git clone --filter=blob:none https://github.com/ggml-org/llama.cpp.git ../llama.cpp
+          git -C ../llama.cpp checkout ec7630a640789c393694fb194f1bbbf0369fc62d
+          touch ../llama.cpp/ggml/ggml.pc.in   # needed only for the standalone ggml build below
+      - name: deps
+        run: pip install numpy pyyaml
+      - name: unit tests
+        run: python3 -m unittest discover -s tests -v
+      - name: ggml delta-net parity (CPU)
+        run: |
+          cmake -S ../llama.cpp/ggml -B ../ggml-build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF
+          cmake --build ../ggml-build -j4 --target ggml
+          tests/ggml_parity/build.sh ../llama.cpp ../ggml-build
+          GGML_GDN_HARNESS=tests/ggml_parity/gdn_harness LLAMA_CPP_GGUF_PY=../llama.cpp/gguf-py \
+            python3 -m unittest tests.test_kda_vs_ggml tests.test_fitplan -v
+      - name: G1 tiny-model parity against the real glm5-next graph (CPU)
+        run: tools/tinygen/run_parity.sh ../llama.cpp ../build-tools
+  cuda-compile:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: CUDA toolkit (compile only, no GPU on the runner)
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb && sudo apt-get update -q
+          sudo apt-get install -y -q cuda-nvcc-13-0 cuda-cudart-dev-13-0
+      - name: compile kernels for sm_89
+        run: |
+          shopt -s nullglob; files=(kernels/*.cu)
+          if [ ${#files[@]} -eq 0 ]; then echo "no kernels yet"; exit 0; fi
+          for f in "${files[@]}"; do /usr/local/cuda-13.0/bin/nvcc -arch=sm_89 -c "$f" -o /dev/null; done
