@@ -20,3 +20,8 @@ add_subdirectory(${LLAMA_CPP_DIR} llama.cpp)
 add_executable(g0-expert-hist expert_hist.cpp)
 target_link_libraries(g0-expert-hist PRIVATE llama-common llama)
 target_compile_features(g0-expert-hist PRIVATE cxx_std_17)
+
+# Tensor dump tool for parity tests (tools/dump/dump_tensors.cpp); same pinned llama.cpp.
+add_executable(dump-tensors ../dump/dump_tensors.cpp)
+target_link_libraries(dump-tensors PRIVATE llama-common llama)
+target_compile_features(dump-tensors PRIVATE cxx_std_17)
