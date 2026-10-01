@@ -15,7 +15,7 @@ Every number or factual claim gets exactly one label.
 
 Examples:
 - `n_routed_experts = 288` CONFIRMED (HF zai-org/GLM-5.3-Flash config.json)
-- `IQ3_XXS experts = 113.8 GiB` PROVISIONAL (tools/fitplan.py, uniform bpw, no per-tensor overrides)
+- `GLM-5.3-Flash IQ3_XXS experts = 111.1 GiB` PROVISIONAL (tools/fitplan.py, uniform bpw, no per-tensor overrides)
 - `RAM channels` UNKNOWN (confirm with `dmidecode -t memory`)
 
 ## Reporting "done"
