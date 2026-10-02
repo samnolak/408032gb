@@ -100,3 +100,18 @@ jobs:
           sed -E 's/.*\.(sm_[0-9a-z]+)\..*/\1/' elf.txt | sort | uniq -c > arch.txt
           echo "::notice::cubin archs: $(tr '\n' ' ' < arch.txt)"
           grep sm_89 elf.txt > /dev/null
+      - name: new flags are validated before any CUDA call (no GPU needed)
+        shell: bash
+        run: |
+          bin=build/strata-glm; echo "1 2 3" > t.txt; fail=0
+          expect() {   # expect <exit code> <text in stderr> <args...>
+            local want=$1 text=$2; shift 2
+            set +e; "$bin" "$@" > out.txt 2> err.txt; got=$?; set -e
+            if [ "$got" = "$want" ] && grep -q -- "$text" err.txt; then echo "::notice::ok: $* -> $got"
+            else echo "::error::$* -> exit $got, stderr: $(head -c 300 err.txt)"; fail=1; fi
+          }
+          expect 2 "unknown argument" --pack p --tokens t.txt --bogus
+          expect 2 "increasing layers" --pack p --tokens t.txt --layer-split 50
+          expect 2 "increasing layers" --pack p --tokens t.txt --layer-split 25,14
+          expect 2 "needs 4 devices" --pack p --tokens t.txt --layer-split 14,25,35 --gpus 0,1
+          exit $fail
