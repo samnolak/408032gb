@@ -12,3 +12,7 @@
 | attention sinks | per-head sinks tensor | CONFIRMED (llama.cpp src/models/mimo2.cpp) |
 | numerics | layer 47: some expert intermediates exceed fp16 range | PROVISIONAL (EXL3 builder note) — keep expert intermediates fp32/bf16 |
 | llama.cpp | arch `mimo2`; V2.6 support specifically UNKNOWN until a GGUF is loaded |
+
+Parity facts (CONFIRMED on the llama.cpp mimo2 graph, docs/evidence/2026-10-02-mimo-g1-parity.md): grouped GQA
+(h // r), window rule p1 - p0 < n_swa, sinks in the denominator only, partial NEOX RoPE with its own base on SWA
+layers, no SwiGLU clamp, routed weights unscaled unless the GGUF sets `expert_weights_scale` (UNKNOWN for real files).

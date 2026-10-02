@@ -25,6 +25,8 @@ jobs:
             python3 -m unittest tests.test_kda_vs_ggml tests.test_fitplan -v
       - name: G1 tiny-model parity against the real glm5-next graph (CPU)
         run: tools/tinygen/run_parity.sh ../llama.cpp ../build-tools
+      - name: MiMo G1 tiny-model parity against the real mimo2 graph (CPU)
+        run: tools/tinygen/run_parity_mimo.sh ../llama.cpp ../build-tools
   cuda-compile:
     runs-on: ubuntu-24.04
     steps:

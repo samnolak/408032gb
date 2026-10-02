@@ -11,7 +11,7 @@
 | G4 | GLM-путь на разбиении слоёв Strata: 4 карты, свой VRAM-ярус на каждой, без диска | VM | код этапа 1 написан (патч 0002, собирается); NOT RUN |
 | G5 | выбор квантования по качеству и скорости | VM | BLOCKED |
 | G6 | TP/EP на 4 карты через P2P | VM | BLOCKED |
-| G7 | MiMo-V2.6-Flash, затем DeepSeek-V4.1-Flash | VM | BLOCKED |
+| G7 | MiMo-V2.6-Flash, затем DeepSeek-V4.1-Flash | VM | MiMo: эталоны внимания (SWA + sinks + GQA + частичный RoPE) и роутера сверены с графом `mimo2` на CPU (`docs/evidence/2026-10-02-mimo-g1-parity.md`); движка нет |
 
 ---
 
