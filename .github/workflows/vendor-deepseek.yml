@@ -1,0 +1,36 @@
+# Fetches the DeepSeek-V4.1-Flash reference inference code from Hugging Face and commits it,
+# byte-exact, under third_party/deepseek-v41-flash (ADR-008). The agent sandbox cannot reach
+# huggingface.co; a GitHub-hosted runner can. Trigger: push a change to the REQUEST file
+# (the token used by the agents has no Actions permission, so workflow_dispatch is for humans).
+name: vendor-deepseek-ref
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['third_party/deepseek-v41-flash/REQUEST']
+permissions:
+  contents: write
+concurrency: vendor-deepseek-ref
+jobs:
+  vendor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: fetch from Hugging Face, verify git blob ids
+        shell: bash
+        run: python3 scripts/vendor_deepseek_ref.py
+      - name: commit and push
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add third_party/deepseek-v41-flash
+          if git diff --cached --quiet; then
+            echo "::notice::nothing to commit: already vendored at this revision"; exit 0
+          fi
+          rev=$(python3 -c "import json; print(json.load(open('third_party/deepseek-v41-flash/PIN.json'))['revision'])")
+          git commit -q -m "[infra-ops] vendor: DeepSeek-V4.1-Flash reference inference/ @${rev:0:12} from Hugging Face (MIT), byte-exact, git blob ids verified"
+          git pull -q --rebase origin main
+          git push -q origin HEAD:main
+          echo "::notice::vendor commit $(git rev-parse HEAD) (HF revision $rev)"
