@@ -1,0 +1,30 @@
+From 838bcddc7dd5fe7891e524f19e23f1666e6648c8 Mon Sep 17 00:00:00 2001
+From: "Claude [team]" <claude-team@localhost>
+Date: Fri, 2 Oct 2026 02:33:01 +0000
+Subject: [PATCH] strata-glm on Linux: portable 64-bit seek (_fseeki64 ->
+ fseeko)
+
+---
+ src/glm/glm_main.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/glm/glm_main.cpp b/src/glm/glm_main.cpp
+index b33d259..db774c6 100644
+--- a/src/glm/glm_main.cpp
++++ b/src/glm/glm_main.cpp
+@@ -31,6 +31,12 @@
+ #endif
+ #include <windows.h>
+ #endif
++#if !defined(_WIN32)
++#include <cstdio>
++#include <sys/types.h>
++// 408032gb: _fseeki64 is MSVC's; on Linux (64-bit off_t) fseeko is the same 64-bit seek
++#define _fseeki64(f, off, whence) fseeko((f), (off_t) (off), (whence))
++#endif
+ 
+ #include <algorithm>
+ #include <atomic>
+-- 
+2.43.0
+

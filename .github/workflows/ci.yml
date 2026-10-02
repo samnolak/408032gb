@@ -49,10 +49,18 @@ jobs:
           wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb && sudo apt-get update -q
           sudo apt-get install -y -q cuda-nvcc-13-0 cuda-cudart-dev-13-0 libcublas-dev-13-0 cuda-cuobjdump-13-0 cuda-profiler-api-13-0 ninja-build
-      - name: strata-glm at the pinned commit
+      - uses: actions/checkout@v4
+        with:
+          path: ours
+      - name: strata-glm at the pinned commit + our patches (patches/strata-glm, ADR-007)
+        shell: bash
         run: |
           git clone https://github.com/sergqwer/strata-glm.git
           git -C strata-glm checkout ed37419fccd0c52e07d26d526a29c2098f547843
+          for p in ours/patches/strata-glm/*.patch; do
+            git -C strata-glm apply --verbose "$PWD/$p" || { echo "::error::patch does not apply: $p"; exit 1; }
+            echo "::notice::applied $(basename "$p")"
+          done
       - name: configure (sm_89 = RTX 4080 Super)
         shell: bash
         run: |
