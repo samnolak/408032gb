@@ -1,0 +1,132 @@
+{
+ "repo": "deepseek-ai/DeepSeek-V4.1-Flash",
+ "revision": "2cba9e42aa026125f3ed06c6d98c1db82f7ca027",
+ "requested": "main",
+ "last_modified": "2026-10-01T05:56:24.000Z",
+ "files": [
+  {
+   "path": "config.json",
+   "size": 3311,
+   "sha256": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+   "git_blob": "09917a9139b22d5bf8be52132787f435147b1020"
+  },
+  {
+   "path": "LICENSE",
+   "size": 1084,
+   "sha256": "f2c6c602815669d292889e5be8c802f2ed950653b77999b1584e8e6aed25d040",
+   "git_blob": "d62e3bef9f054f21b7fc616365850fbf879a99ff"
+  },
+  {
+   "path": "README.md",
+   "size": 13110,
+   "sha256": "347c9db4e5506acb531cbc3b724407ab88e9af8781679152f0823d7bac16d251",
+   "git_blob": "211b83857abd5e8420df3a4f10db1096294227e6"
+  },
+  {
+   "path": "tokenizer_config.json",
+   "size": 801,
+   "sha256": "6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547",
+   "git_blob": "f3dad388a2bbfd6a8605bd02754acd86d9ca5112"
+  },
+  {
+   "path": "inference/README.md",
+   "size": 2029,
+   "sha256": "2834402823199ee24e9a42bdf36a0fc6daf94448f444cb062c042a057a798f1c",
+   "git_blob": "e0b1d6ddfb4ab06a0dc9b4542826e6d7aa07a77c"
+  },
+  {
+   "path": "inference/config.json",
+   "size": 1982,
+   "sha256": "2e84f45cf1dac8c7fcbb200e96667d4b913275690668ed496f24c7747207a809",
+   "git_blob": "7a915cc69e21abbc6d7fb939cef5d09c72aa0d24"
+  },
+  {
+   "path": "inference/convert.py",
+   "size": 9458,
+   "sha256": "035028340479145594a81d6084a8424e57363adf83c0d5983914783d95614d76",
+   "git_blob": "61bd2943648920ce599c4c86dc9bf6316e152fe8"
+  },
+  {
+   "path": "inference/engram.py",
+   "size": 8138,
+   "sha256": "11f35ecbead8150c35aa002b3d180ef290b05a25afe883a11884f94d476d3897",
+   "git_blob": "a36bc6c6b8cbf2d3dbac850863c23b55a7ecb5c7"
+  },
+  {
+   "path": "inference/examples/example.txt",
+   "size": 332,
+   "sha256": "8456a2f1d5a15b7aa1f697567e34f79af0522fb694df7ac789dae9853fff165d",
+   "git_blob": "9200d36c90f601c0648ee23279abbb29b2228f13"
+  },
+  {
+   "path": "inference/examples/example_harmony.json",
+   "size": 2156,
+   "sha256": "44ae84a3cbd360b1b8d303ed4006756afb77e5d014c4abb7c61ff9b9a094f6ea",
+   "git_blob": "fae1c2608f8e5b980fcc9dc311cda8e345ecde1c"
+  },
+  {
+   "path": "inference/generate.py",
+   "size": 8722,
+   "sha256": "8668d67f7d108e32b90d50cb0d8606889ceb2219bfe95741d84e22f70768e9f0",
+   "git_blob": "84d4873c4c59ea743e104920a77984f022bfb9f5"
+  },
+  {
+   "path": "inference/image_processor.py",
+   "size": 7699,
+   "sha256": "482759e3bcc4e9bb5ee582b244cc563f5d0e163d8b48dda91ebb7106e62f9272",
+   "git_blob": "a50311ece615b72be2c9d4b649a05619c27681e7"
+  },
+  {
+   "path": "inference/kernel.py",
+   "size": 23790,
+   "sha256": "1236c3507019ed176f5dba5e04bcea58867cf654818c6cf138ed4845398c2455",
+   "git_blob": "6fa7bd5aafbe1bc62887080963cc9fdd838d89f5"
+  },
+  {
+   "path": "inference/model.py",
+   "size": 61549,
+   "sha256": "4e9ae23620edc8028ccc5d5fef552ab7fdc7dcd6f79608754fe9f67644056f65",
+   "git_blob": "3e7dc222a6352ccc0c6469d58908934c2b4cd99b"
+  },
+  {
+   "path": "inference/requirements.txt",
+   "size": 97,
+   "sha256": "171eebfbfb7ad4d98c0ec6631b1ae91df730ca8bcdc27611856523b2768fb1d0",
+   "git_blob": "b9201e446c0d2509156f46014931d359e439d2f2"
+  },
+  {
+   "path": "inference/run.sh",
+   "size": 1759,
+   "sha256": "91eddd7895f9fcd9bace53c21128c506e741e770f3c1a02464eff51f60401dfb",
+   "git_blob": "e2d52080a88d3053d963bac4bba75116ce73aed4"
+  },
+  {
+   "path": "inference/vision.py",
+   "size": 4457,
+   "sha256": "5d49edc196a4ef22384abe76d35a40098cbe1e74b586c8f66a2edff4f076b26c",
+   "git_blob": "77af0bdef9f4649edebac2876cd1df50a147ce98"
+  }
+ ],
+ "not_vendored": [
+  {
+   "path": "generation_config.json",
+   "why": "absent upstream"
+  },
+  {
+   "path": "inference/examples/images/carrots.jpeg",
+   "why": "212495 bytes, not a small text source"
+  },
+  {
+   "path": "inference/examples/images/corn.jpeg",
+   "why": "56122 bytes, not a small text source"
+  }
+ ],
+ "reported_only": [
+  {
+   "path": "tokenizer.json",
+   "size": 6367257,
+   "oid": "6a15814dd25c934028034531da744c689f87ff21",
+   "lfs_sha256": null
+  }
+ ]
+}
