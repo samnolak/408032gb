@@ -53,8 +53,8 @@ Exact cut points: chosen by measured free VRAM per card in G4 (Strata's `auto` d
 | # | task | owner | routing | acceptance |
 |---|---|---|---|---|
 | 1 | Linux build + run on one 4080 with the real checkpoint | infra-ops | Terra | `strata-glm --tokens` runs; teacher-forced KL vs author's BF16 reference within their table |
-| 2 | Stage object: layers [lo, hi) on one device; everything else unchanged | engine-integrator | Sol | 4 stages on GPU0 = unsplit engine, tokens identical |
-| 3 | Real split on 4 GPUs with P2P hand-off | engine-integrator | Sol | tokens identical to task 2 |
+| 2 | Stage object: layers [lo, hi) on one device; everything else unchanged | engine-integrator | Sol | 4 stages on GPU0 = unsplit engine, tokens identical — **written: patches/strata-glm/0002, compiles; NOT RUN** |
+| 3 | Real split on 4 GPUs with P2P hand-off | engine-integrator | Sol | tokens identical to task 2 — **in 0002 (`--gpus`, cudaMemcpyPeer); NOT RUN** |
 | 4 | Per-stage tiers + router replication for prefetch | engine-integrator | Sol | VRAM hit rate logged per stage |
 | 5 | Measurements: decode/prefill tok/s, hit rate, PCIe use per card | perf-bench | Terra | numbers with commands in docs/evidence |
 
