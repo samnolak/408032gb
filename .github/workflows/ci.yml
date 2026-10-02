@@ -61,6 +61,9 @@ jobs:
             git -C strata-glm apply --verbose "$PWD/$p" || { echo "::error::patch does not apply: $p"; exit 1; }
             echo "::notice::applied $(basename "$p")"
           done
+      - name: Linux disk tier (patch 0003) functional test, CPU
+        shell: bash
+        run: ours/tests/strata_glm/run_diskreader_test.sh strata-glm
       - name: configure (sm_89 = RTX 4080 Super)
         shell: bash
         run: |
