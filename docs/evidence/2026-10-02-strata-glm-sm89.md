@@ -30,3 +30,9 @@ Arch-specific constructs found (grep): WMMA fp16 (glm_mla.cu, glm_select.cu), mm
 
 CONFIRMED: sergqwer/strata-glm @ed37419 + patches/strata-glm/0001-0003 builds and links for sm_89 on Linux (CUDA 13.0, Ubuntu 24.04).
 NOT RUN: any execution on a GPU.
+
+## First execution of the patched binary (CI 36999802756, commit 4d16513, GPU-less runner)
+
+The sm_89 binary starts, parses arguments and validates the new flags before any CUDA call (annotations):
+`--bogus -> 2` (unknown argument), `--layer-split 50 -> 2`, `--layer-split 25,14 -> 2` (increasing layers),
+`--layer-split 14,25,35 --gpus 0,1 -> 2` (--gpus needs 4 devices). CONFIRMED. No GPU code path executed.
