@@ -36,7 +36,13 @@
       14
     ],
     "rows_per_table": 384006168,
-    "dim": 256
+    "dim": 256,
+    "rows": [
+      384006168,
+      384016682
+    ],
+    "n_heads": 8,
+    "bucket_base": 16000000
   },
   "_labels": {
     "hidden_size": "CONFIRMED (HF config.json)",
@@ -45,7 +51,7 @@
     "moe.extra_expert_params_b": "PROVISIONAL: DSpark experts = 557.2B (routed+DSpark, vLLM recipe) - 543.6B routed",
     "params_b.active": "CONFIRMED (model card: 8B prefill / 16B decode; decode used)",
     "kv.bytes_per_token": "PROVISIONAL (890 B/token FP4 KV, DeepSeek figure via secondary source)",
-    "engram": "CONFIRMED (vLLM recipe + MLX build: 2 tables x 384,006,168 x 256, FP8 E4M3 + E8M0 per 32)",
+    "engram": "CONFIRMED (third_party/deepseek-v41-flash/inference/config.json @2cba9e4: engram_num_embeddings [384006168, 384016682], 8 heads x 256, FP8 E4M3 + E8M0 per 32); rows_per_table kept for older tools = table 1 only",
     "llama_cpp_arch": "CONFIRMED: no deepseek41 graph in llama.cpp src/models @ec7630a",
     "params_b.dense": "CONFIRMED (vLLM recipe memory table: attention/dense/routers 7.4B + embedding/head 2.0B); 552B 'backbone' excludes DSpark, so total-routed is not usable"
   },
