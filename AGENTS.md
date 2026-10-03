@@ -16,6 +16,14 @@ server, for these models, in this order (see docs/DECISIONS.md ADR-001):
 
 The customer is Ribrad. The team is fully autonomous inside the gates in docs/PLAN.md.
 
+## Canonical weights (user decision, 2026-10-03)
+
+The canonical GLM-5.3-Flash weights are the GGUF files
+`/mnt/data/home/grishberg/models/GLM-5.3-Flash-GGUF/UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-*-of-00006.gguf`.
+There are no other real weights and none are to be downloaded. Do not describe any safetensors
+checkpoint as the original/canonical weights anywhere. Packs for strata-glm are to be converted
+from this GGUF (converter pending).
+
 ## Hardware (stated by the customer, see hardware/4x4080s-32g.json)
 
 - 4x RTX 4080 Super 32 GB (sm_89, Ada: FP8 tensor cores yes, FP4 tensor cores NO)

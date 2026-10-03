@@ -6,7 +6,7 @@ Upstream stays untouched; every change lives here.
 | patch | what | verified |
 |---|---|---|
 | 0001 | Linux: `_fseeki64` (MSVC) -> `fseeko` | syntax on Linux; CI build |
-| 0002 | G4 stage 1: layer-pipeline stages, `--layer-split K1,K2,..` `--gpus D0,D1,..` | syntax, no new warnings; **NOT RUN on a GPU** |
+| 0002 | G4 stage 1: layer-pipeline stages, `--layer-split K1,K2,..` `--gpus D0,D1,..` | **RUN on 1×3090 sm_86** (2026-10-03): bit-exact single-GPU split (`--layer-split 14,25,35 --gpus 0,0,0,0`), logits byte-identical, same tokens; synthetic checkpoint (`glm-synthetic`), real weights and 4 GPUs NOT RUN |
 | 0003 | Linux disk tier: `DiskReader` via `O_DIRECT` `pread`, buffered fallback on `EINVAL` | functional test on real files (`tests/strata_glm/run_diskreader_test.sh`, CI): mirrors, unaligned offsets, file tail, unaligned buffer fallback, priorities, missing file |
 
 ## 0002: how to check it (needs a GPU, in this order)
@@ -25,7 +25,8 @@ Upstream stays untouched; every change lives here.
    ```
    `--vram-experts` per stage keeps the stages from taking each other's VRAM on one card.
    Expected: identical tokens. Logits: identical if the expert kernels' results do not depend on where a
-   blob is read from (VRAM or pinned RAM through UVA); UNKNOWN until run.
+   blob is read from (VRAM or pinned RAM through UVA); **CONFIRMED identical** on 1×3090 (2026-10-03,
+   synthetic checkpoint, `--dense-fp4 all` to fit 24 GiB).
 3. **Four GPUs.** `--layer-split 14,25,35 --gpus 0,1,2,3`: same tokens as step 2.
 
 Known limits of stage 1 (documented, to be done in later patches): no expert prediction across a stage
