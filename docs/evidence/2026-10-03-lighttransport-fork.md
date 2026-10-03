@@ -88,3 +88,22 @@ Job `lt-strata-sm89` on commit b2401c0, check-run 111158460817, conclusion succe
 ```
 Targets built: strata-glm-decode, strata-model-inspect, gguf_reader_test, model_test (CUDA 13.0 toolkit, -DCMAKE_CUDA_ARCHITECTURES=89,
 no patches of ours). Not covered: glm_parity and the other GPU tests (need a GPU), any run of the decoder, any model file.
+
+## Probe: base B on our tiny GLM GGUF (CI, no GPU) - CONFIRMED
+Job `lt-strata-sm89` on commit 69f8c32, check-run 111168779834 (success; the probe step is exploratory and never fails the job).
+`tools/tinygen/glm5next_tiny.py --layers 12 --arch <arch>`, then `strata-model-inspect`. Annotations, literal:
+```
+[notice] strata-model-inspect, tiny GGUF arch=glm5next (4157568 bytes): exit 1
+[notice] arch=glm5next output head: model: missing or invalid integer glm5next.expert_group_count|
+[notice] strata-model-inspect, tiny GGUF arch=glm5-next (4157600 bytes): exit 1
+[notice] arch=glm5-next output head: model: unsupported architecture glm5-next|
+```
+There are two GGUF dialects of GLM-5.3-Flash and they are not interchangeable by renaming the architecture string:
+- `glm5-next`: llama.cpp master (PR #27773), our reference graph and the G1 oracles; base B refuses it by name;
+- `glm5next`: the Unsloth UD files; read by base B and by ik_llama.cpp. Its metadata has keys our generator does not write
+  (first one hit: `glm5next.expert_group_count`), so the schemas differ beyond the name.
+Consequence: a parity run of base B against our reference needs the same weights in both dialects - either a second tinygen
+writer for the `glm5next` schema (keys from the fork's include/strata/core/model.hpp) or a converter. Whether tensor names and
+layouts also differ: UNKNOWN (the fork's author states only the name mapping was needed for the reverse direction).
+The same split is seen on the 3090 host: ik_llama.cpp loads the `glm5next` UD-Q4_K_XL and refuses a `glm5-next` Q4_K file
+(PROBLEMS.md, PROVISIONAL: measured there).
