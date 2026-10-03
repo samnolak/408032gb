@@ -45,6 +45,10 @@ jobs:
     # ADR-007: the GLM engine base (sergqwer/strata-glm, MIT) built for the server's GPUs on Linux.
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [89, 86]      # 89 = RTX 4080 Super (the server), 86 = RTX 3090 (the test host, branch 3090)
     steps:
       - name: CUDA 13 toolkit + cuBLAS (no GPU on the runner)
         run: |
@@ -71,7 +75,7 @@ jobs:
         run: |
           set -o pipefail
           if ! cmake -G Ninja -S strata-glm -B build -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_CUDA=ON \
-               -DSTRATA_BUILD_TESTS=OFF -DCMAKE_CUDA_ARCHITECTURES=89 \
+               -DSTRATA_BUILD_TESTS=OFF -DCMAKE_CUDA_ARCHITECTURES=${{ matrix.arch }} \
                -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc > cfg.log 2>&1; then
             grep -n "CMake Error" -A3 cfg.log | head -40 > err.txt || true
             while IFS= read -r l; do echo "::error::$l"; done < err.txt
@@ -101,7 +105,7 @@ jobs:
           /usr/local/cuda-13.0/bin/cuobjdump --list-elf "$bin" > elf.txt 2>&1 || true
           sed -E 's/.*\.(sm_[0-9a-z]+)\..*/\1/' elf.txt | sort | uniq -c > arch.txt
           echo "::notice::cubin archs: $(tr '\n' ' ' < arch.txt)"
-          grep sm_89 elf.txt > /dev/null
+          grep "sm_${{ matrix.arch }}" elf.txt > /dev/null
       - name: new flags are validated before any CUDA call (no GPU needed)
         shell: bash
         run: |
