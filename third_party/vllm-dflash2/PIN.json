@@ -1,0 +1,11 @@
+{
+ "repo": "vllm-project/vllm", "revision": "bc21cba9673cfc2256a2726b4bc32f062237cd35", "license": "Apache-2.0",
+ "files": [
+  {"path": "LICENSE", "size": 11357, "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4", "git_blob": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64"},
+  {"path": "vllm/model_executor/models/qwen3_dflash.py", "size": 38244, "sha256": "3e63a04df42b64eebbbac149e08305cda1e496d258d1ac5b98e84f62924bee4f", "git_blob": "3161cf22616fe94291b2bc1fc768ce02c93b657e"},
+  {"path": "vllm/model_executor/models/qwen3_dflash2.py", "size": 13587, "sha256": "11ac6ba8c6db702375970e68cd042b98783a5c43b87f9bfa27e88463316bf499", "git_blob": "861a7c5412eae543c8a112a10f19a0e77dde5ab8"},
+  {"path": "vllm/v1/worker/gpu/spec_decode/dflash/speculator.py", "size": 32932, "sha256": "36d5bccd28eb64de1af348cbdd4d630bfd7d781479be472570e14c0865826058", "git_blob": "57110e0b05f16012e356fba70dac850703b5158b"},
+  {"path": "vllm/v1/worker/gpu/spec_decode/dflash2/speculator.py", "size": 8939, "sha256": "f9f5b5d2623e09fb9f16d4a2e1353c7014d6a01939563e511d9f3eeec7c8163d", "git_blob": "bb14621129127a07cc1d266067b89d5cbd87dc1e"},
+  {"path": "tests/v1/spec_decode/test_dflash2.py", "size": 15874, "sha256": "425bc65233a50e48a5c27ea0629ea8de5aeb045f51c483c7a009f01d1361082f", "git_blob": "558bb38e6bc91e9147d3278bc38bb8b80e91429f"}
+ ]
+}

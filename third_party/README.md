@@ -10,3 +10,5 @@ Upstream sources kept in the repo because the agent sandbox cannot download them
 | directory | upstream | license | how it gets here |
 |---|---|---|---|
 | `deepseek-v41-flash/` | huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash: `inference/` (reference implementation), `config.json`, `LICENSE` | MIT | job `vendor-deepseek-ref` runs `scripts/vendor_deepseek_ref.py`; write the wanted revision (40 hex, or `main`) into `deepseek-v41-flash/REQUEST` and push |
+| `vllm-dflash2/` | github.com/vllm-project/vllm: DFlash2 draft model, speculators and their tests (reference for ADR-011) | Apache-2.0 | `scripts/vendor_vllm_dflash2.sh [commit]` (GitHub is reachable from the sandbox; git blob ids verified) |
+| `hf/<name>/` | small text files of Hugging Face repos (configs, cards, licences; never weights) listed in `hf/<name>/REQUEST.json` | per repo, recorded in `PIN.json` | job `vendor-hf` runs `scripts/vendor_hf_files.py`; edit `REQUEST.json` and push |
