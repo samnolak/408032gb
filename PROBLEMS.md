@@ -12,7 +12,7 @@
 | RAM | 251 GiB всего; свободно ~173 GiB (движок Strata/Qwen3.8 держит 59.2 GiB RSS, порт 8082) |
 | swap | 8 GiB, уже 6.3 GiB занято до нашего запуска |
 | CPU | 96 потоков |
-| движок | `ik_llama.cpp` build 59 @`9cba2e3`, `build-cuda` — единственный на машине, кто понимает `glm5next` |
+| движок | `ik_llama.cpp` `build-cuda` — единственный на машине, кто понимает `glm5next`; обновлён 03.10 до `5f89bfc` (с `9cba2e3`, glm5next цел) |
 
 ## Модель (замер из GGUF)
 
@@ -96,16 +96,32 @@ pp   16.5 tok/s | tg  7.0 tok/s | gen 64 tok / 9079 ms
 
 ---
 
-## Рабочая конфигурация (повторить)
+## Рабочая конфигурация (повторить) — тюнинг 03.10
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 GGML_CUDA_NO_PINNED=1 \
-scripts/run-glm-3090-1gpu.sh          # порт 8090
+GPU=2 scripts/run-glm-3090-1gpu.sh    # порт 8090; дефолты уже GPU2/ncmoe39/ub1024/t96/pinned
 ```
 
-Ключи: `-ngl 999 -sm none -ncmoe 40 -fa on --dsa -ctk q8_0 -ctv q8_0 -b 2048 -ub 512 --ctx-size 8192 -muge -t 48 --threads-batch 90`.
+Ключи: `-ngl 999 -sm none -ncmoe 39 -fa on --dsa -ctk q8_0 -ctv q8_0 -b 2048 -ub 1024 --ctx-size 8192 -muge -t 96 --threads-batch 90`, pinned ON.
 
-Проверка: `POST /v1/chat/completions` на «17*23» даёт `391` с корректным reasoning; `/health` → `{"status":"ok"}`; `nvidia-smi` по GPU1 — 18878 MiB.
+Матрица (промпт 2027 токена, `-n 128`, temp 0; логи и `results.tsv` — `../ik-llama-run/bench-0310/`):
+
+| конфигурация | pp tok/s | tg tok/s |
+|---|---|---|
+| ncmoe40 ub512 pinned-off (база 02.10 была pp 115.5 / tg 8.9) | 129.5 | 10.3 |
+| ncmoe40 ub1024 pinned-off | 144.7 | 5.6 (аномалия, цифра из лога) |
+| ncmoe40 ub2048 pinned-off | 131.1 | 15.0 |
+| ncmoe39 ub512 pinned-off | 140.7 | 15.3 |
+| **ncmoe39 ub1024 pinned-on t96/tb90** | **166.8** | **15.0** |
+| ncmoe39 ub1024 pinned-on t48 | 165.0 | 15.4 |
+| ncmoe39 ub2048 pinned-off | CUDA OOM (21079 + 3620 > 24576 MiB) | |
+| ncmoe38 все ub | CUDA OOM (CUDA0 buffer 25255 MiB > VRAM) | |
+
+Итог: **pp +44%, tg +68% к базе**. Pinned 161.13 GiB влез рядом с движком Strata (available RAM падал до
+~9 GB, oom-killer не сработал) — проблема 4 от 02.10 снята наблюдением. По pp прежний pinned-рекорд (290)
+не превзойдён: он был на другом разрезе без `-dsa`/KV-кванта; по tg — вдвое выше. Сервер на 127.0.0.1:8090
+(GPU2, 22.6 GiB) оставлен работать; `/completion` отвечает, warm tg 15.4. Для сравнения: strata-glm с
+портированным ярусом — 19.65 tok/s decode (`../strata-glm/PROBLEMS.md`).
 
 ---
 
