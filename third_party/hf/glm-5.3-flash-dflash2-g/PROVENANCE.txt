@@ -1,0 +1,10 @@
+run=dflash2G
+written_utc=2026-09-25T11:50:36Z
+head=dflash2 layers=8 taps=5,9,14,19,24,28,33,38,42 block_size=8 serve: method dflash, num_speculative_tokens 7, default head_dtype
+k7 mean_acceptance_length=3.676 results=s3://glm53-w4a16-quant-771947438029/h200-bench/dspark2/results/dflash2G-k7.json
+k7-c1 mean_acceptance_length=3.697 results=s3://glm53-w4a16-quant-771947438029/h200-bench/dspark2/results/dflash2G-k7-c1.json
+k4 mean_acceptance_length=3.088 results=s3://glm53-w4a16-quant-771947438029/h200-bench/dspark2/results/dflash2G-k4.json
+warm_start_from=dflash2F
+train_data=/data/dspark2/data/selfgen_v15_train.jsonl (736675 samples), 70000 steps
+protocol=500 holdout prompts, thinking ON, T=1.0/top_p 0.95, max_tokens 1024, c16 (c1: 100 prompts), greedy drafts; incoai reference 3.602 @K7 / 3.123 @K4
+docs=canada-quant/dgx-spark-sm121 angelspec-glm53/release/SPARK_NOTES.md

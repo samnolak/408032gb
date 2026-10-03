@@ -1,0 +1,76 @@
+{
+ "repo": "canada-quant/GLM-5.3-Flash-DFlash2-G",
+ "revision": "bd03d3a38c55490fdcd9cafcfe0825b9957933ec",
+ "requested": "main",
+ "gated": false,
+ "license_tags": [
+  "license:apache-2.0"
+ ],
+ "files": [
+  {
+   "path": "config.json",
+   "size": 1971,
+   "sha256": "699bdf29cf329fb07a3f16de7e6e97abf807ea1e4a1be0f6416bf26967c51778",
+   "git_blob": "3054ff131ac75edf5131f843bad9ee44d99c91e8"
+  },
+  {
+   "path": "PROVENANCE.txt",
+   "size": 881,
+   "sha256": "3be6ac17dde086ac880376a961590bca69ccdb4111333910b3f991a91ac07cec",
+   "git_blob": "9302975e05cf450e83160081e140e264aeffec54"
+  },
+  {
+   "path": "README.md",
+   "size": 9619,
+   "sha256": "f924ab65305e1b03c4d4e0048e4dd3ed39493a9949adf40d4de42f0abaf32bd7",
+   "git_blob": "9d435d191b2673dc0e713319b33277a2e006d766"
+  }
+ ],
+ "not_vendored": [
+  {
+   "path": "LICENSE",
+   "why": "absent upstream"
+  },
+  {
+   "path": "generation_config.json",
+   "why": "absent upstream"
+  }
+ ],
+ "upstream_listing": [
+  {
+   "path": ".gitattributes",
+   "size": 1519,
+   "lfs": false
+  },
+  {
+   "path": "PROVENANCE.txt",
+   "size": 881,
+   "lfs": false
+  },
+  {
+   "path": "README.md",
+   "size": 9619,
+   "lfs": false
+  },
+  {
+   "path": "config.json",
+   "size": 1971,
+   "lfs": false
+  },
+  {
+   "path": "launch_dflash2_tp2.sh",
+   "size": 6092,
+   "lfs": false
+  },
+  {
+   "path": "mask_embedding.pt",
+   "size": 9882,
+   "lfs": true
+  },
+  {
+   "path": "model.safetensors",
+   "size": 6222153560,
+   "lfs": true
+  }
+ ]
+}
