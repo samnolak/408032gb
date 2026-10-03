@@ -1,0 +1,33 @@
+# Fetches small text files (configs, cards, licences - never weights) of Hugging Face repos listed in
+# third_party/hf/*/REQUEST.json and commits them byte-exact. The agent sandbox cannot reach huggingface.co.
+name: vendor-hf
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['third_party/hf/*/REQUEST.json']
+permissions:
+  contents: write
+concurrency: vendor-hf
+jobs:
+  vendor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: fetch from Hugging Face, verify git blob ids
+        shell: bash
+        run: python3 scripts/vendor_hf_files.py
+      - name: commit and push
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add third_party/hf
+          if git diff --cached --quiet; then
+            echo "::notice::nothing to commit: already vendored at these revisions"; exit 0
+          fi
+          git commit -q -m "[infra-ops] vendor: Hugging Face config files under third_party/hf, byte-exact, git blob ids verified"
+          git pull -q --rebase origin main
+          git push -q origin HEAD:main
+          echo "::notice::vendor commit $(git rev-parse HEAD)"

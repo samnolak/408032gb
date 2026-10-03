@@ -27,6 +27,23 @@ jobs:
         run: tools/tinygen/run_parity.sh ../llama.cpp ../build-tools
       - name: MiMo G1 tiny-model parity against the real mimo2 graph (CPU)
         run: tools/tinygen/run_parity_mimo.sh ../llama.cpp ../build-tools
+  ref-torch-cpu:
+    # Oracles whose reference is torch code (vendored, pinned): DFlash2 primitives against vLLM (ADR-011).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps (CPU torch)
+        run: pip install -q numpy && pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+      - name: DFlash2 oracle against the vendored vLLM functions
+        shell: bash
+        run: |
+          set +e
+          python3 -m unittest tests.test_dflash2_ref -v > t.log 2>&1; rc=$?
+          echo "::notice::dflash2 oracle vs vLLM: $(grep -E '^Ran |^OK|^FAILED' t.log | tr '\n' ' ') torch $(python3 -c 'import torch; print(torch.__version__)')"
+          if [ $rc -ne 0 ]; then grep -nE 'FAIL|ERROR|Error' t.log | head -8 | while IFS= read -r l; do echo "::error::${l:0:600}"; done; fi
+          grep -q 'skipped' t.log && { echo "::error::reference tests were skipped: torch did not import"; rc=1; }
+          exit $rc
   cuda-compile:
     runs-on: ubuntu-24.04
     steps:
