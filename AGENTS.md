@@ -31,6 +31,8 @@ The customer is Ribrad. The team is fully autonomous inside the gates in docs/PL
 |---|---|---|
 | Niko1221/Strata | c499bd102e7a4135c0de389dcfe38c399759ccc8 | engine we port from (MIT) |
 | ggml-org/llama.cpp | ec7630a640789c393694fb194f1bbbf0369fc62d | reference graphs: glm5-next.cpp, mimo2.cpp, qwen4exp.cpp |
+| sergqwer/strata-glm | ed37419fccd0c52e07d26d526a29c2098f547843 | GLM engine base A: NVFP4, tiers VRAM/RAM/disk (MIT, ADR-007); patches in patches/strata-glm |
+| lighttransport/Strata (branch glm53f) | e486a95d78876989b853b16c7056bcd96880afc3 | GLM engine base B: native GGUF backend in Strata (MIT, ADR-009); patches go to patches/lt-strata |
 
 Strata transcribes llama.cpp's `qwen4exp` graph; we transcribe `glm5-next` the same way.
 Changes to upstream code live as patches or as our own sources, never as silent edits.
