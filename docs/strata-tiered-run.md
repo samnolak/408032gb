@@ -35,8 +35,9 @@ cmake --build build --target strata-glm -j
 Движок читает **только pack-формат** (`dense.txt` + `experts.bin` + опц. `native_experts.txt`);
 GGUF он не открывает.
 
-- **Боевые веса:** `tools/glm_pack.py` собирает pack из safetensors-весов модели. Скрипт пока
-  Windows-only (`psapi`), на Linux требует портирования — см. `strata-glm/PROBLEMS.md`, п. 1.
+- **Боевые веса:** канонические — GGUF `UD-Q4_K_XL` (путь в `../AGENTS.md`); pack строится из них
+  конвертером GGUF→pack (в разработке). Апстрим-скрипт `tools/glm_pack.py` ждёт другой формат
+  входных файлов и Windows-only — на этой машине не используется.
 - **Тестовый пак (на машине уже готов: `/mnt/data/apps/glm-synthetic/`):**
   `python3 gen_synth.py` строит `ckpt/weights.bin` + `pack/dense.txt` + `pack/experts.bin`
   (случайные значения, структура боевая). Для ярусного пути нужны ещё два файла:

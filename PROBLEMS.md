@@ -89,7 +89,7 @@ pp   16.5 tok/s | tg  7.0 tok/s | gen 64 tok / 9079 ms
 
 - `docs/PLAN.md`: G3 `BLOCKED`, G4 `код этапа 1 написан; NOT RUN`, G5/G6 `BLOCKED`;
 - GLM-движок — форк `sergqwer/strata-glm @ed37419` + `patches/strata-glm/000{1,2,3}`, на машине не склонирован и не собран (CI проверял только сборку под sm_89, на GPU не запускал);
-- `scripts/gpu_day.sh` требует `CKPT=<safetensors-веса>` (204 GB) — в `/mnt/data/home/grishberg/models` таких весов нет, есть только GGUF;
+- `scripts/gpu_day.sh` ждёт веса в формате safetensors — не требуется: канонические веса — GGUF `UD-Q4_K_XL` (путь в `AGENTS.md`), pack строится из них конвертером (в разработке);
 - `hardware/4x4080s-32g.json` и `tools/fitplan.py` описывают 4×32 GiB; на 3×24 GiB с двумя занятыми картами их расклады неприменимы.
 
 Рабочий путь сегодня один: `ik_llama.cpp` (см. `scripts/run-glm-3090-1gpu.sh`).
