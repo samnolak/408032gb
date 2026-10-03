@@ -5,9 +5,10 @@
 | режим | prompt (1024 токена) | decode |
 |---|---|---|
 | `--chunk 0` (per-token) | 19.58 tok/s | 19.69 tok/s |
-| `--chunk 512` | **66.18 tok/s** | 19.85 tok/s |
+| `--chunk 512` | 66.18 tok/s | 19.85 tok/s |
+| `--chunk 1024` | **124.18 tok/s** | 19.81 tok/s |
 
-Логи: `prefill_chunk0.log`, `prefill_chunk512.log`; разбивка `GLM_TIMING` в них же. Движок — `strata-glm` с четырьмя патчами
+Логи: `prefill_chunk{0,512,1024}.log`; разбивка `GLM_TIMING` в них же. Движок — `strata-glm` с четырьмя патчами
 из `../patches/strata-glm/` (без 0004 ярусный путь на Linux не работает).
 
 ## 0. Требования
