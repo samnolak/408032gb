@@ -22,7 +22,25 @@ layer: the deferred `hc_post` of the previous layer is applied to the four mHC s
 one vector of `hidden_size`. Layers without mHC already return the summed stream. vLLM main at `bc21cba` has no such code for
 GLM (grep `aux_hidden` in `vllm/models/glm5next`: no matches), so this PR is the only reference for the pairing.
 
-## The vendor drafter `incoai/GLM-5.3-Flash-DFlash2` (PROVISIONAL: cards and PR texts, not its config)
+## The drafter we use: `canada-quant/GLM-5.3-Flash-DFlash2-G` (ADR-011, customer's choice of an open licence)
+Pinned revision `bd03d3a38c55490fdcd9cafcfe0825b9957933ec`; `config.json`, `PROVENANCE.txt`, `README.md` vendored byte-exact in
+`third_party/hf/glm-5.3-flash-dflash2-g/` (CI check-run 111268345038, git blob ids verified).
+| fact | label | source |
+|---|---|---|
+| licence Apache-2.0, not gated | CONFIRMED | Hugging Face API: `gated=False`, tag `license:apache-2.0` (PIN.json) |
+| `DFlash2DraftModel`, Qwen3-style: hidden 4096, FF 12288, 8 layers, 32 heads / 8 KV heads, head_dim 128, RMS eps 1e-5, RoPE theta 10000 | CONFIRMED | config.json |
+| every layer is full attention and non-causal (`is_causal: false`, `layer_types` all `full_attention`, no sliding window) | CONFIRMED | config.json |
+| 9 taps of the target at layers 5, 9, 14, 19, 24, 28, 33, 38, 42; target hidden 4096; fusion = concatenation + `fc` (36864 -> 4096) | CONFIRMED | config.json (`target_layer_ids`, `angelspec_source_config.fusion_type`) |
+| block size 8 (7 drafted tokens); convolution kernel 2, group 16 (256 groups); selector rank 256, top-16 | CONFIRMED | config.json `dflash_config` |
+| vocabulary 154880; mask token id 154856, its embedding ships separately (`mask_embedding.pt`, 9882 bytes) | CONFIRMED | config.json; upstream file listing in PIN.json |
+| weights: `model.safetensors`, 6,222,153,560 bytes, bf16, includes its own (untied) embedding and output head | CONFIRMED (size, listing); "untied" per config `ships_embed_tokens`, `ships_lm_head` | PIN.json, config.json |
+| trained from scratch against a 4-bit quant of the target (W4A16), no vendor weights in the training path | PROVISIONAL | model card, PROVENANCE.txt (the author's statement) |
+| mean accepted length 3.676 of 7 at K=7; per-position acceptance 0.753, 0.562, 0.422, 0.324, 0.253, 0.201, 0.161 | PROVISIONAL | model card: the author's hardware (8x B300), W4A16 target, vLLM |
+
+Derived (PROVISIONAL arithmetic from CONFIRMED config): drafter KV per context token = 8 layers x 2 (K, V) x 8 KV heads x 128 x
+2 bytes = 32 KiB, i.e. about 1.0 GiB per 32K tokens of context, since attention is full (no window).
+
+## The vendor drafter `incoai/GLM-5.3-Flash-DFlash2` - NOT used (licence) (PROVISIONAL: cards and PR texts, not its config)
 | fact | source |
 |---|---|
 | 5 sliding-window layers, window 2048, block size 8, hence 7 drafted tokens per step | description of vLLM PR #56983; community cards ("num_speculative_tokens must be 7") |

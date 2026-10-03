@@ -41,9 +41,9 @@ patches/strata-glm/README.md. Источник истины — репозито
    Всё, что требует GPU, помечай NOT RUN и добавляй шагом в scripts/gpu_day.sh.
 7. Цифры автора форка (7.3–8.4 tok/s декода, 98–158 tok/s префилла) — чужие замеры на Threadripper 1950X + RTX 5060 Ti:
    в отчётах только с меткой PROVISIONAL и без переноса на наш сервер.
-8. DFlash2 (incoai/GLM-5.3-Flash-DFlash2): доступ по ручной заявке, лицензия CC-BY-NC-ND-4.0 — веса не изменять и не
-   переквантовывать; блок 8, 7 спекулятивных токенов (PROVISIONAL: карточки моделей на HF). Паспорт: docs/models/glm-5.3-flash-dflash2.md;
-   эталон алгоритма — vLLM @bc21cba (ADR-011).
+8. DFlash2: драфтер `canada-quant/GLM-5.3-Flash-DFlash2-G` (Apache-2.0, открытый доступ; ADR-011, дополнение). Вендорский
+   incoai/GLM-5.3-Flash-DFlash2 (CC-BY-NC-ND) не использовать. Паспорт: docs/models/glm-5.3-flash-dflash2.md; эталон: ref/dflash2.py;
+   референс алгоритма: third_party/vllm-dflash2 (vLLM @bc21cba).
 9. Правила AGENTS.md сильнее формата отчёта ТЗ: метки CONFIRMED/PROVISIONAL/UNKNOWN, литеральный вывод команд, хеши только из
    вывода git, NOT RUN вместо выдуманного результата. Отчёт — в формате ТЗ плюс вывод `git log --oneline -n 5` и `git status --short`.
 10. При противоречии между ТЗ, репозиторием, llama.cpp и чекпойнтом остановись и напиши `CONFLICT REQUIRES DECISION`, как требует ТЗ.

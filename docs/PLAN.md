@@ -101,4 +101,4 @@ MiMo-V2.6-Flash (граф `mimo2.cpp`, MXFP4-эксперты), затем DeepS
 | База B (lighttransport/Strata, GGUF) | собирается под sm_89, её CPU-тесты проходят; нашу крошечную GGUF не открывает (другой диалект метаданных) | CONFIRMED (CI 111168779834) |
 | База A (strata-glm, NVFP4) | патчи 0001–0006 собираются под sm_89 и sm_86; запасной трек | CONFIRMED (CI на 69f8c32) |
 | Веса на сервере | GGUF `glm5next`: UD-Q2_K_XL, затем UD-Q4_K_XL (нужны ядра Q4_K в базе B) | решение ADR-010; запусков нет |
-| DFlash2 | паспорт и дизайн готовы; эталон и движок не начаты | ADR-011; NOT RUN |
+| DFlash2 | драфтер выбран: canada-quant/GLM-5.3-Flash-DFlash2-G (Apache-2.0); эталон свёртки и селектора совпадает с кодом vLLM; движок не начат | CONFIRMED для эталона (CI 111268345246); движок NOT RUN |
