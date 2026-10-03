@@ -117,3 +117,74 @@ jobs:
           expect 2 "increasing layers" --pack p --tokens t.txt --layer-split 25,14
           expect 2 "needs 4 devices" --pack p --tokens t.txt --layer-split 14,25,35 --gpus 0,1
           exit $fail
+
+  lt-strata-sm89:
+    # ADR-009: GLM engine base B (lighttransport/Strata, branch glm53f, MIT): native GGUF backend, built for the
+    # server's GPUs on Linux, plus its CPU-only tests. No GPU on the runner: nothing here measures speed.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: CUDA 13 toolkit + cuBLAS (no GPU on the runner)
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb && sudo apt-get update -q
+          sudo apt-get install -y -q cuda-nvcc-13-0 cuda-cudart-dev-13-0 libcublas-dev-13-0 cuda-cuobjdump-13-0 cuda-profiler-api-13-0 ninja-build
+      - uses: actions/checkout@v4
+        with:
+          path: ours
+      - name: lighttransport/Strata at the pinned commit + our patches (patches/lt-strata, ADR-009)
+        shell: bash
+        run: |
+          git clone https://github.com/lighttransport/Strata.git lt-strata
+          git -C lt-strata checkout e486a95d78876989b853b16c7056bcd96880afc3
+          shopt -s nullglob
+          for p in ours/patches/lt-strata/*.patch; do
+            git -C lt-strata apply --verbose "$PWD/$p" || { echo "::error::patch does not apply: $p"; exit 1; }
+            echo "::notice::applied $(basename "$p")"
+          done
+          echo "::notice::lt-strata at $(git -C lt-strata rev-parse HEAD)"
+      - name: configure (sm_89 = RTX 4080 Super)
+        shell: bash
+        run: |
+          if ! cmake -G Ninja -S lt-strata -B build-lt -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_CUDA=ON \
+               -DSTRATA_BUILD_TESTS=ON -DCMAKE_CUDA_ARCHITECTURES=89 \
+               -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc > cfg.log 2>&1; then
+            grep -n "CMake Error" -A3 cfg.log | head -40 > err.txt || true
+            while IFS= read -r l; do echo "::error::${l:0:900}"; done < err.txt
+            exit 1
+          fi
+          echo "::notice::configure OK"
+      - name: build the GLM decoder, the model inspector and the CPU tests
+        shell: bash
+        run: |
+          if ! cmake --build build-lt -j4 --target strata-glm-decode strata-model-inspect gguf_reader_test model_test > build.log 2>&1; then
+            grep -nE "error|Error|FAILED" build.log | head -25 > err.txt || true
+            while IFS= read -r l; do echo "::error::${l:0:900}"; done < err.txt
+            exit 1
+          fi
+          echo "::notice::lt-strata build OK, $(grep -c 'Building CUDA' build.log) CUDA objects"
+      - name: decoder binary contains sm_89 code
+        shell: bash
+        run: |
+          bin=$(find build-lt -type f -name strata-glm-decode -perm -u+x -print -quit)
+          if [ -z "$bin" ]; then echo "::error::strata-glm-decode binary not found"; exit 1; fi
+          echo "::notice::binary $bin, $(stat -c %s "$bin") bytes"
+          /usr/local/cuda-13.0/bin/cuobjdump --list-elf "$bin" > elf.txt 2>&1 || true
+          sed -E 's/.*\.(sm_[0-9a-z]+)\..*/\1/' elf.txt | sort | uniq -c > arch.txt
+          echo "::notice::cubin archs: $(tr '\n' ' ' < arch.txt)"
+          grep sm_89 elf.txt > /dev/null
+      - name: CPU-only tests of the fork (GGUF reader, model description)
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:${LD_LIBRARY_PATH:-}
+          rc=0
+          for t in gguf_reader_test model_test; do
+            if (cd build-lt && ctest -R "^${t}\$" --output-on-failure > "../$t.log" 2>&1); then
+              echo "::notice::$t: $(grep -E 'tests passed|Passed' "$t.log" | tr '\n' ' ')"
+            else
+              grep -nE "FAILED|Failed|error|Error" "$t.log" | head -8 > err.txt || true
+              while IFS= read -r l; do echo "::error::$t: ${l:0:600}"; done < err.txt
+              rc=1
+            fi
+          done
+          exit $rc
