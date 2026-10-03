@@ -15,6 +15,13 @@ model cards and pull-request descriptions found by web search. The vendor weight
 | candidate selector: top-k candidate tokens per block position; edge score = unary logit + (predecessor_codebook[previous token] * projected hidden) . successor_codebook[candidate]; a walk from the anchor token picks one token per position | `qwen3_dflash2.py`: `_score_edges` (:290); `vllm/v1/worker/gpu/spec_decode/dflash2/speculator.py`: `_selector_walk_kernel` (:16) |
 | config keys the code reads: `conv_kernel_size`, `conv_group_size`, `selector_rank`, `selector_top_k`, `mask_token_id`, `target_hidden_size`, `use_aux_hidden_state`, `sliding_window`, `input_embedding_scale`, `output_multiplier`, `final_logit_softcapping` | grep of the three files |
 
+## What the GLM target hands to the drafter (PROVISIONAL: unmerged vLLM PR #56983, head `8a1cf967f87e5ba3cad0c44b5939379fcd5f5cb0`)
+`vllm/models/glm5next/common/model.py` in that PR, `_aux_hidden_state` (:704) and the layer loop (:753-761): for every layer
+index in `aux_hidden_state_layers` the tap is taken BEFORE the layer runs. It is the completed residual stream entering that
+layer: the deferred `hc_post` of the previous layer is applied to the four mHC streams, then `hc_contract` folds them back to
+one vector of `hidden_size`. Layers without mHC already return the summed stream. vLLM main at `bc21cba` has no such code for
+GLM (grep `aux_hidden` in `vllm/models/glm5next`: no matches), so this PR is the only reference for the pairing.
+
 ## The vendor drafter `incoai/GLM-5.3-Flash-DFlash2` (PROVISIONAL: cards and PR texts, not its config)
 | fact | source |
 |---|---|
