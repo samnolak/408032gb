@@ -195,6 +195,7 @@ jobs:
       - name: probe - does base B open our tiny GLM GGUF (not the 4096/2048 geometry)? Exploratory, never fails the job
         shell: bash
         run: |
+          set +e   # GitHub runs bash with -e: a non-zero exit of the probed tool must not end the step
           pip install -q numpy
           git clone -q --filter=blob:none --sparse https://github.com/ggml-org/llama.cpp.git llama.cpp
           git -C llama.cpp checkout -q ec7630a640789c393694fb194f1bbbf0369fc62d
@@ -208,3 +209,4 @@ jobs:
             echo "::notice::arch=$arch output head: $(head -c 700 "inspect-$arch.log" | tr '\n' '|')"
             echo "::notice::arch=$arch output tail: $(tail -c 500 "inspect-$arch.log" | tr '\n' '|')"
           done
+          exit 0
