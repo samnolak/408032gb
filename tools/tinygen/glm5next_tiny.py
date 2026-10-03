@@ -163,6 +163,10 @@ if __name__ == "__main__":
     ap.add_argument("out")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--layers", type=int, default=12, help="12 gives 3 DSA layers (3, 7, 11)")
+    ap.add_argument("--arch", default=ARCH,
+                    help="GGUF architecture string and key prefix: glm5-next (llama.cpp master, default) or "
+                         "glm5next (Unsloth UD files; what lighttransport/Strata reads, ADR-009)")
     a = ap.parse_args()
+    ARCH = a.arch
     build(a.out, cfg=dict(DEFAULT, n_layer=a.layers), seed=a.seed)
     print("wrote", a.out)

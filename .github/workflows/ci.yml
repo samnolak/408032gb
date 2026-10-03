@@ -192,3 +192,19 @@ jobs:
             fi
           done
           exit $rc
+      - name: probe - does base B open our tiny GLM GGUF (not the 4096/2048 geometry)? Exploratory, never fails the job
+        shell: bash
+        run: |
+          pip install -q numpy
+          git clone -q --filter=blob:none --sparse https://github.com/ggml-org/llama.cpp.git llama.cpp
+          git -C llama.cpp checkout -q ec7630a640789c393694fb194f1bbbf0369fc62d
+          git -C llama.cpp sparse-checkout set gguf-py
+          export LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:${LD_LIBRARY_PATH:-}
+          for arch in glm5next glm5-next; do
+            PYTHONPATH=llama.cpp/gguf-py python3 ours/tools/tinygen/glm5next_tiny.py "tiny-$arch.gguf" --layers 12 --arch "$arch" > gen.log 2>&1 \
+              || { echo "::warning::tinygen failed for $arch: $(tail -c 300 gen.log | tr '\n' ' ')"; continue; }
+            timeout 120 build-lt/strata-model-inspect "tiny-$arch.gguf" > "inspect-$arch.log" 2>&1; rc=$?
+            echo "::notice::strata-model-inspect, tiny GGUF arch=$arch ($(stat -c %s "tiny-$arch.gguf") bytes): exit $rc"
+            echo "::notice::arch=$arch output head: $(head -c 700 "inspect-$arch.log" | tr '\n' '|')"
+            echo "::notice::arch=$arch output tail: $(tail -c 500 "inspect-$arch.log" | tr '\n' '|')"
+          done
