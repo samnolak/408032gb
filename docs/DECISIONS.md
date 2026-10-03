@@ -138,7 +138,7 @@ EPYC 7H43 (Zen 3) не умеет AVX-512. CPU-ядра каноническог
 **Контекст.** Заказчик нашёл публичный форк Strata с GGUF-бэкендом GLM-5.3-Flash. ТЗ заказчика (`docs/prompts/GLM53-TZ.md`) требует именно GGUF-бэкенд внутри Strata; ADR-007 выбрал strata-glm на NVFP4. Факты — `docs/evidence/2026-10-03-lighttransport-fork.md`.
 
 - CONFIRMED: `lighttransport/Strata` @`e486a95`, 5 коммитов от 2026-10-01 поверх Strata `a790805` (0.1.27), MIT; кода 47 файлов, +6904/−93 строк. Наш пин Strata `c499bd1` новее базы форка на 253 коммита.
-- CONFIRMED (чтение CMake): sm_89 разрешён. Сборка под sm_89 — NOT RUN.
+- CONFIRMED: собирается под sm_89 на Linux без наших патчей, 18 кубинов sm_89; CPU-тесты форка `gguf_reader_test`, `model_test` проходят (CI, check-run 111158460817). Запуск декодера и GPU-тесты — NOT RUN.
 - CONFIRMED (текст автора): сквозного числового совпадения с llama.cpp нет: на одном префиксе отн. L1 0.05923, макс. |Δlogit| 0.84482, причина не выделена.
 - PROVISIONAL (заявления автора): реализованы чтение GGUF, граф GLM на CUDA, префилл, декод, MTP, снимки состояния, токенизатор, сервер; 7.3–8.4 tok/s декода на Threadripper 1950X + RTX 5060 Ti 16 GB, эксперты при декоде на CPU.
 - PROVISIONAL: артефакт UD-Q2_K_XL — 101.25 GiB целиком (по счёту автора), это меньше 128 GiB VRAM сервера.

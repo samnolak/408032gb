@@ -27,7 +27,8 @@ patches/strata-glm/README.md. Источник истины — репозито
    проверить. При ничьих в top-k индексера допустим любой корректный выбор (evidence 2026-10-02-g1-parity.md, п. 5).
 6. GPU сейчас нет (ADR-006). Выполнимы только:
    а) docs/GLM53_PORT_STATUS.md: таблица «пункт Definition of Done из ТЗ → статус → evidence»;
-   б) CI-job: сборка базы B под sm_89 и её CPU-тесты (`gguf_reader_test`, `model_test`, `tools/test_glm_*.py`, `serve/test_glm.py`);
+   б) CI-job `lt-strata-sm89`: сборка базы B под sm_89 и тесты `gguf_reader_test`, `model_test` — сделано, CONFIRMED (check-run 111158460817);
+      осталось добавить в него `tools/test_glm_*.py` и `serve/test_glm.py`;
    в) открыть крошечную GGUF из tools/tinygen через `strata-model-inspect`: принимает ли форк геометрию, отличную от 4096/2048 (UNKNOWN);
    г) если принимает — сверка CPU-пути форка с эталонами G1; метрики помимо top-1: max/mean abs, relative, cosine, top-k overlap;
    д) тесты семантики: prefill(N)+decode(1) = prefill(N+1), откат состояния KDA и кэша DSA (у форка есть snapshot/replay — проверить
@@ -43,7 +44,7 @@ patches/strata-glm/README.md. Источник истины — репозито
    вывода git, NOT RUN вместо выдуманного результата. Отчёт — в формате ТЗ плюс вывод `git log --oneline -n 5` и `git status --short`.
 10. При противоречии между ТЗ, репозиторием, llama.cpp и чекпойнтом остановись и напиши `CONFLICT REQUIRES DECISION`, как требует ТЗ.
 
-Первое действие: п. 6б (CI-сборка базы B под sm_89), затем п. 6а и отчёт.
+Первое действие: п. 6в (крошечная GGUF через `strata-model-inspect` в CI), затем п. 6а и отчёт.
 
 ## 2. Справка по модели и llama.cpp (добавление заказчика от 2026-10-02, сверено)
 

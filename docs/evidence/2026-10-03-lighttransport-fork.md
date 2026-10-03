@@ -74,3 +74,17 @@ VRAM-resident experts: 68.5% (8479)  | spill to RAM: 51.5 GiB of 116 usable
 The fork's Q2 artifact (101.25 GiB in total by the author's count) is smaller than the server's 128 GiB of VRAM, so the CPU expert
 path that limits the author's machine is not needed on ours if experts are placed on all four GPUs. That placement does not
 exist in the fork (one GPU) and is our work. No speed figure follows from this until it runs on the GPUs.
+
+## Build for sm_89 on Linux and the fork's CPU-only tests (CI, no GPU) - CONFIRMED
+Job `lt-strata-sm89` on commit b2401c0, check-run 111158460817, conclusion success. Annotations, literal:
+```
+[notice] lt-strata at e486a95d78876989b853b16c7056bcd96880afc3
+[notice] configure OK
+[notice] lt-strata build OK, 62 CUDA objects
+[notice] binary build-lt/strata-glm-decode, 32478656 bytes
+[notice] cubin archs:      18 sm_89
+[notice] gguf_reader_test: 1/1 Test #1: gguf_reader_test .................   Passed    0.00 sec 100% tests passed, 0 tests failed out of 1
+[notice] model_test: 1/1 Test #2: model_test .......................   Passed    0.00 sec 100% tests passed, 0 tests failed out of 1
+```
+Targets built: strata-glm-decode, strata-model-inspect, gguf_reader_test, model_test (CUDA 13.0 toolkit, -DCMAKE_CUDA_ARCHITECTURES=89,
+no patches of ours). Not covered: glm_parity and the other GPU tests (need a GPU), any run of the decoder, any model file.
