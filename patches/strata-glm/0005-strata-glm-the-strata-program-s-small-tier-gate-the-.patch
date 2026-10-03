@@ -1,0 +1,28 @@
+From b7ee7fb0f1b26f38956d9ef92a5f0778e5a454e0 Mon Sep 17 00:00:00 2001
+From: grishberg <grishberg@localhost>
+Date: Sat, 3 Oct 2026 02:42:29 +0300
+Subject: [PATCH] strata-glm: the strata program's small-tier gate - the
+ comment claimed a Windows-only loader, patch 0004 made it cross-platform
+ (heuristic behavior unchanged); PROBLEMS adds the tiered prompt speed (15.23
+ tok/s) and the 99.2% VRAM expert hit
+
+---
+ src/program/generate.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/program/generate.cpp b/src/program/generate.cpp
+index a9c0875..66f535b 100644
+--- a/src/program/generate.cpp
++++ b/src/program/generate.cpp
+@@ -1457,7 +1457,7 @@ int main(int argc, char** argv) {
+ #if defined(_WIN32)
+         const bool small = installed > 0 && installed < (96ull << 30) && need + (16ull << 30) > installed;
+ #else
+-        const bool small = false;   // the tier's loader is Windows-only for now
++        const bool small = false;   // the loader is cross-platform since patch 0004; the <96 GiB heuristic stays validated on Windows only
+ #endif
+         if (o.low_ram == 1 && !can) {
+             std::fprintf(stderr, "strata generate: --low-ram needs one GPU, an --expert-profile, the pack's experts.bin "
+-- 
+2.43.0
+

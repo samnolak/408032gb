@@ -16,13 +16,16 @@ server, for these models, in this order (see docs/DECISIONS.md ADR-001):
 
 The customer is Ribrad. The team is fully autonomous inside the gates in docs/PLAN.md.
 
-## Canonical weights (user decision, 2026-10-03)
+## Weights on host `epyc-ai` (3x RTX 3090, branch `3090`; decision of that host's operator, 2026-10-03)
 
-The canonical GLM-5.3-Flash weights are the GGUF files
-`/mnt/data/home/grishberg/models/GLM-5.3-Flash-GGUF/UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-*-of-00006.gguf`.
-There are no other real weights and none are to be downloaded. Do not describe any safetensors
-checkpoint as the original/canonical weights anywhere. Packs for strata-glm are to be converted
-from this GGUF (converter pending).
+On that host the only real GLM-5.3-Flash weights are the GGUF files
+`/mnt/data/home/grishberg/models/GLM-5.3-Flash-GGUF/UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-*-of-00006.gguf`
+(185.983 GiB, GGUF architecture string `glm5next`). Nothing else is to be downloaded there, and no safetensors
+checkpoint is to be described as weights present on that host.
+Scope (lead-architect, 2026-10-03): this section does not choose the weights for the 4x4080 server; that choice is
+ADR-005 / ADR-009 and is an open question to the customer (docs/evidence/2026-10-03-3090-review.md).
+Neither engine base reads this GGUF today: base A needs its own pack (GGUF->pack converter pending; it re-quantises),
+base B has no Q4_K expert kernels (PROVISIONAL, read from its docs: Q2_K, Q3_K, IQ2_S, IQ3_S, IQ4_XS only).
 
 ## Hardware (stated by the customer, see hardware/4x4080s-32g.json)
 
@@ -41,6 +44,7 @@ from this GGUF (converter pending).
 | ggml-org/llama.cpp | ec7630a640789c393694fb194f1bbbf0369fc62d | reference graphs: glm5-next.cpp, mimo2.cpp, qwen4exp.cpp |
 | sergqwer/strata-glm | ed37419fccd0c52e07d26d526a29c2098f547843 | GLM engine base A: NVFP4, tiers VRAM/RAM/disk (MIT, ADR-007); patches in patches/strata-glm |
 | lighttransport/Strata (branch glm53f) | e486a95d78876989b853b16c7056bcd96880afc3 | GLM engine base B: native GGUF backend in Strata (MIT, ADR-009); patches go to patches/lt-strata |
+| Grigory-Rylov/strata-glm-3090 | b115f38f4c1b924665e053a686d7579407db60fe | base A with patches 0001-0006 applied as commits, used on the 3x3090 test host; `src/` and `tools/` trees equal pin + patches (docs/evidence/2026-10-03-3090-review.md). patches/ stays the source of truth |
 
 Strata transcribes llama.cpp's `qwen4exp` graph; we transcribe `glm5-next` the same way.
 Changes to upstream code live as patches or as our own sources, never as silent edits.
