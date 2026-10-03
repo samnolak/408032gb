@@ -1,5 +1,15 @@
 # strata-glm: ярусный путь на Linux — пошаговый запуск
 
+> **Канонический исходник доработок:** `git@github.com:Grigory-Rylov/strata-glm-3090.git`,
+> ветка `main` (форк sergqwer/strata-glm + наши 15 коммитов; патчи 0001–0004 ниже — их же
+> git-format-экспорт, применять не нужно, они уже в ветке).
+> **Сборка:** `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=86`
+> `-DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.2/bin/nvcc -DSTRATA_ENABLE_CUDA=ON`
+> `-DSTRATA_BUILD_TESTS=OFF -DFETCHCONTENT_SOURCE_DIR_STRATA_LLAMACPP=<клон llama.cpp>`
+> (последний флаг — только когда сеть занята: ggml берётся из локального клона), затем
+> `make strata-glm -j16`. Проверено 03.10: бинарь из чистого клона форка дал
+> **437.84 tok/s @16K / 19.78 decode** — идентично локальной сборке.
+
 Рецепт, давший на 1×RTX 3090 (GPU2) 03.10.2026 на тестовом паке (`../glm-synthetic/`):
 
 | режим | prompt (1024 токена) | decode |
