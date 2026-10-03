@@ -6,7 +6,7 @@ GGUF-бэкендом GLM. Прежний конфликт «ТЗ против A
 **РОУТИНГ: Sol.** Ведёт lead-architect; kernel-engineer, engine-integrator — Sol; parity-qa, model-analyst,
 perf-bench, infra-ops — Terra; evidence-auditor — Luna.
 
-Сначала прочитай AGENTS.md, docs/PLAN.md, docs/DECISIONS.md (ADR-001…009), docs/evidence/*,
+Сначала прочитай AGENTS.md, docs/PLAN.md, docs/DECISIONS.md (ADR-001…011), docs/evidence/*,
 patches/strata-glm/README.md. Источник истины — репозиторий. Разделы 1–3 привязывают ТЗ (раздел 4) к репозиторию
 и имеют приоритет там, где они расходятся.
 
@@ -21,8 +21,9 @@ patches/strata-glm/README.md. Источник истины — репозито
    каждое «сделано» либо подтверждается нашим тестом (CONFIRMED), либо остаётся заявлением автора (PROVISIONAL).
    Этап 3 ТЗ (совпадение логитов с эталоном) автором не достигнут — он сам пишет, что сквозного совпадения с llama.cpp нет
    (отн. L1 0.05923, макс. |Δlogit| 0.84482 на одном префиксе; docs/GLM53_FLASH.md:141-154 форка). Это главная работа.
-   Этапы 8 (DFlash2) и 9 (vision) не начинать без решения заказчика.
-5. Эталоны: llama.cpp @ec7630a, граф glm5-next, прогон `-fa off -ctk f32 -ctv f32`; numpy-эталоны в `ref/`. Форк читает GGUF
+   Этап 8 (DFlash2) разрешён заказчиком 2026-10-03 в порядке ADR-011: сейчас только D2–D3 из docs/design/G8-dflash2.md,
+   движок — после G3′. Этап 9 (vision) не начинать без решения заказчика.
+5. Веса: GGUF диалекта `glm5next`, первая очередь UD-Q2_K_XL, вторая UD-Q4_K_XL (ADR-010). Эталоны: llama.cpp @ec7630a, граф glm5-next, прогон `-fa off -ctk f32 -ctv f32`; numpy-эталоны в `ref/`. Форк читает GGUF
    с именем архитектуры `glm5next`, llama.cpp на пине — `glm5-next`: тензоры совместимы по словам автора форка (PROVISIONAL),
    проверить. При ничьих в top-k индексера допустим любой корректный выбор (evidence 2026-10-02-g1-parity.md, п. 5).
 6. GPU сейчас нет (ADR-006). Выполнимы только:
@@ -41,7 +42,8 @@ patches/strata-glm/README.md. Источник истины — репозито
 7. Цифры автора форка (7.3–8.4 tok/s декода, 98–158 tok/s префилла) — чужие замеры на Threadripper 1950X + RTX 5060 Ti:
    в отчётах только с меткой PROVISIONAL и без переноса на наш сервер.
 8. DFlash2 (incoai/GLM-5.3-Flash-DFlash2): доступ по ручной заявке, лицензия CC-BY-NC-ND-4.0 — веса не изменять и не
-   переквантовывать; блок 8, 7 спекулятивных токенов (PROVISIONAL: карточки моделей на HF). До решения заказчика только паспорт в docs/models/.
+   переквантовывать; блок 8, 7 спекулятивных токенов (PROVISIONAL: карточки моделей на HF). Паспорт: docs/models/glm-5.3-flash-dflash2.md;
+   эталон алгоритма — vLLM @bc21cba (ADR-011).
 9. Правила AGENTS.md сильнее формата отчёта ТЗ: метки CONFIRMED/PROVISIONAL/UNKNOWN, литеральный вывод команд, хеши только из
    вывода git, NOT RUN вместо выдуманного результата. Отчёт — в формате ТЗ плюс вывод `git log --oneline -n 5` и `git status --short`.
 10. При противоречии между ТЗ, репозиторием, llama.cpp и чекпойнтом остановись и напиши `CONFLICT REQUIRES DECISION`, как требует ТЗ.

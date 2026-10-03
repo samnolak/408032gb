@@ -45,6 +45,7 @@ base B has no Q4_K expert kernels (PROVISIONAL, read from its docs: Q2_K, Q3_K, 
 | sergqwer/strata-glm | ed37419fccd0c52e07d26d526a29c2098f547843 | GLM engine base A: NVFP4, tiers VRAM/RAM/disk (MIT, ADR-007); patches in patches/strata-glm |
 | lighttransport/Strata (branch glm53f) | e486a95d78876989b853b16c7056bcd96880afc3 | GLM engine base B: native GGUF backend in Strata (MIT, ADR-009); patches go to patches/lt-strata |
 | Grigory-Rylov/strata-glm-3090 | b115f38f4c1b924665e053a686d7579407db60fe | base A with patches 0001-0006 applied as commits, used on the 3x3090 test host; `src/` and `tools/` trees equal pin + patches (docs/evidence/2026-10-03-3090-review.md). patches/ stays the source of truth |
+| vllm-project/vllm | bc21cba9673cfc2256a2726b4bc32f062237cd35 | DFlash2 reference implementation (Apache-2.0, ADR-011): `vllm/model_executor/models/qwen3_dflash.py`, `qwen3_dflash2.py`, `vllm/v1/worker/gpu/spec_decode/dflash2/` |
 
 Strata transcribes llama.cpp's `qwen4exp` graph; we transcribe `glm5-next` the same way.
 Changes to upstream code live as patches or as our own sources, never as silent edits.
