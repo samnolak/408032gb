@@ -1,0 +1,47 @@
+"""tools/bench/vs_roofline.py on a SYNTHETIC run dir (format of tools/bench/run_matrix.py)."""
+import io
+import json
+import os
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stdout
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools", "bench"))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import vs_roofline as vr  # noqa: E402
+import roofline  # noqa: E402
+
+
+class VsRoofline(unittest.TestCase):
+    def test_ratio_against_direct_roofline(self):
+        with tempfile.TemporaryDirectory() as d:
+            run = os.path.join(d, "run")
+            os.makedirs(run)
+            cells = [{"concurrency": 1, "input": 32768, "output": 512, "state": "cold",
+                      "metrics": {"decode_tok_s": {"p50": 20.0}, "prompt_tokens": {"p50": 32768},
+                                  "completion_tokens": {"p50": 512}}},
+                     {"concurrency": 4, "input": 32768, "output": 512, "state": "cold", "metrics": {}}]
+            with open(os.path.join(run, "summary.json"), "w") as f:
+                json.dump({"cells": cells}, f)
+            with open(os.path.join(run, "meta.json"), "w") as f:
+                json.dump({"is_mock_server": False, "engine_desc": "SYNTHETIC"}, f)
+            spec_path = os.path.join(ROOT, "models", "specs", "glm-5.3-flash.json")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                vr.main([run, "--spec", spec_path, "--hit", "0.7", "--json"])
+            rows = json.loads(buf.getvalue())
+            self.assertEqual(len(rows), 1)                   # concurrency 4 is not single-stream
+            with open(spec_path) as f:
+                spec = json.load(f)
+            with open(os.path.join(ROOT, "hardware", "target-4x4080-32g.unverified.json")) as f:
+                hw = json.load(f)
+            q = {"expert_bpw": 4.5, "dense_bpw": 8.5, "kv_bytes_per_elem": 2.0}
+            bound = roofline.decode(spec, hw, q, 32768 + 256, 0.7)["tok_s"]
+            self.assertAlmostEqual(rows[0]["bound"], bound)
+            self.assertAlmostEqual(rows[0]["ratio"], 20.0 / bound)
+
+
+if __name__ == "__main__":
+    unittest.main()
