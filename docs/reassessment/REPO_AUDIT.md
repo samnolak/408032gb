@@ -16,9 +16,11 @@
    из которых приложено 6 патчей (+397/−168 строк, CONFIRMED подсчётом строк `+`/`-` в `patches/strata-glm/*.patch`:
    Linux-порт, ярус RAM, разбиение по слоям).
 2. **Ни одного запуска на целевом сервере 4×4080.** G0 (железо) не выполнен; все цифры по серверу — модельные (`tools/fitplan.py`)
-   или заявления заказчика. Единственные реальные запуски — на чужом стенде 3×RTX 3090 (sm_86), из них **с реальными весами только
-   ik_llama.cpp**: pp 166.8 / tg 15.0 tok/s, контекст 8192, одна карта + эксперты в RAM (PROVISIONAL: замер оператора того хоста,
-   `PROBLEMS.md`).
+   или заявления заказчика. Единственные реальные запуски — на чужом стенде 3×RTX 3090 (sm_86). С реальными весами там два замера
+   (исправлено после ревью, `REVIEW-adversarial.md` п. 10): **ik_llama.cpp** UD-Q4_K_XL — pp 166.8 / tg 15.0 tok/s, контекст 8192, одна
+   карта + эксперты в RAM (PROVISIONAL: замер оператора того хоста, `PROBLEMS.md`); **база A** (strata-glm-3090 `794cd69`, NVFP4-пак
+   171.2 GB) — декод 6.85 → 13.89 tok/s с `--cpu-share`, 14.12 со `--spec 3`, повтор эксперта от предыдущего токена 24.6% (REPORTED,
+   `PROBLEMS.md`@794cd69 форка; `research/R2-engines.md` §3.4). Кванты и промпты разные — «база A не быстрее» не доказано.
 3. **Цифры strata-glm на 3090 (19.65 tok/s декод, 438 tok/s префилл) получены на синтетическом паке**, где 40 из 42 MoE-слоёв —
    нули и 99.2% экспертов отдаются из VRAM (`docs/evidence/2026-10-03-3090-review.md`, caveats 1–2). Это потолок плотной части, а не
    прогноз; в `PROBLEMS.md` они сравниваются с реальными 15 tok/s ik_llama — сравнение некорректно.
@@ -68,7 +70,7 @@ CONFIRMED: `git ls-files | grep -vE '^third_party/' | grep -E '\.(py|cpp|c|cu|sh
 ### 1.2 Патчи на чужие движки
 | набор | база | патчи | что проверено | ценность |
 |---|---|---|---|---|
-| `patches/strata-glm/0001-0006` | sergqwer/strata-glm @ed37419 (MIT; ADR-007 называет репозиторий архивным) | Linux-порт (`fseeko`), разбиение по слоям `--layer-split/--gpus`, `DiskReader` на `O_DIRECT`, ярус RAM на posix, правка комментария, `glm_pack.py` на Linux | сборка sm_89/sm_86 в CI (CONFIRMED); бит-экзактность split на **одной** 3090 и **синтетическом** паке (PROVISIONAL, чужой стенд); 4 GPU, реальные веса — NOT RUN | REVALIDATE: полезно как донор дизайна (ярусы, O_DIRECT, split), но база — односборочный движок под NVFP4 без сервера/кэша префиксов |
+| `patches/strata-glm/0001-0006` | sergqwer/strata-glm @ed37419 (MIT; ADR-007 называет репозиторий архивным, на GitHub он не помечен archived — REPORTED, R2) | Linux-порт (`fseeko`), разбиение по слоям `--layer-split/--gpus`, `DiskReader` на `O_DIRECT`, ярус RAM на posix, правка комментария, `glm_pack.py` на Linux | сборка sm_89/sm_86 в CI (CONFIRMED); бит-экзактность split на **одной** 3090 и **синтетическом** паке (PROVISIONAL, чужой стенд); 4 GPU, реальные веса — NOT RUN | REVALIDATE: полезно как донор дизайна (ярусы, O_DIRECT, split), но база — односборочный движок под NVFP4 без сервера/кэша префиксов |
 | `patches/lt-strata/` | lighttransport/Strata glm53f @e486a95 | **пусто** (директории нет) | сборка базы B без патчей, 2 CPU-теста форка (CONFIRMED, CI) | REVALIDATE: автор сам не заявляет совпадения логитов; GGUF-диалект `glm5next` ≠ `glm5-next` |
 
 ### 1.3 Тесты
@@ -91,8 +93,11 @@ CONFIRMED (`python3 -m unittest discover -s tests -v`, снимок): 60 тес�
   история (HISTORICAL), не переписываются.
 - `docs/DECISIONS.md` (ADR-001…011), `docs/PLAN.md` (G0–G7 + день GPU), `docs/design/G4`, `G8`, `docs/prompts/GLM53-TZ.md` —
   классифицированы в `LEGACY_AUDIT.md`.
-- `PROBLEMS.md` — отчёт стенда 3×3090; единственный источник реальных цифр на реальных весах.
-- `.claude/agents/*` — 8 ролей; поле «Routing: Sol/Terra/Luna» встречается в 44 местах, но у всех агентов `model: inherit`
+- `PROBLEMS.md` — отчёт стенда 3×3090; единственный источник реальных цифр на реальных весах в самом репозитории (ещё два числа базы A —
+  в `PROBLEMS.md` форка strata-glm-3090 @794cd69, см. п. 2 выше).
+- `.claude/agents/*` — 8 ролей; ярлыки Sol/Terra/Luna встречаются в репозитории 47 раз в 34 строках (CONFIRMED, команды
+  `git grep -o -E "\b(Sol|Terra|Luna)\b" eb59224 -- . ':!third_party' | wc -l` → `47` и то же без `-o` → `34`; в первой редакции
+  было «44 места» без команды), но у всех агентов `model: inherit`
   (CONFIRMED, `grep -E '^model:' .claude/agents/*.md`): маршрутизация по «Sol/Terra/Luna» — только слова, на выбор модели не влияет.
 
 ### 1.6 Ветки и форки
@@ -150,8 +155,10 @@ CONFIRMED (`python3 -m unittest discover -s tests -v`, снимок): 60 тес�
 
 ### 4.2 Модели и веса
 - «GLM active 17–18B» помечено UNKNOWN в самом ТЗ; по геометрии `models/glm-5.3-flash.json` маршрутизируемых активных
-  8 × 42 × 25.17M = 8.46B, плотных ≈ 7.1B без эмбеддинга (PROVISIONAL, арифметика fitplan) → ≈ 15.5B, не 18B. Расхождение
-  не объяснено.
+  8 × 42 × 25.17M = 8.46B, плотных ≈ 7.1B без эмбеддинга (PROVISIONAL, арифметика fitplan) → ≈ 15.5B, не 18B. **Объяснено
+  после ревью:** спецификация `models/specs/glm-5.3-flash.json` по формам тензоров llama.cpp даёт ≈ 16.7B активных без эмбеддинга и
+  17.4B с ним (PROVISIONAL, тест `test_glm_active_is_17_to_18b_with_embedding_row_counted_as_weights`; E11/E55 в `EVIDENCE_MATRIX.md`);
+  у fitplan плотная часть занижена.
 - GGUF-диалекты `glm5-next` (llama.cpp) и `glm5next` (Unsloth/ik_llama/база B) — CONFIRMED несовместимы по метаданным;
   «тензоры совместимы» — слова автора форка (PROVISIONAL).
 - Размеры чекпойнтов (NVFP4 204 GB, UD-Q4_K_XL 186 GiB, UD-Q2_K_XL 101.25 GiB) — из README авторов/замера чужого хоста;
