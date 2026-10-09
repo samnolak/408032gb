@@ -193,6 +193,30 @@ def _top(ranked, n):
     return set(ranked[:n]) if ranked is not None else set()
 
 
+# ------------------------------------------------------------------------------------------- speculation windows
+
+def window_distinct(traces, windows=(1, 2, 4, 8), part="gen"):
+    """Mean number of DISTINCT experts per layer touched by k consecutive tokens (sliding windows), vs the
+    independent-uniform expectation E * (1 - (1 - k_top/E)^k). This is the expert traffic multiplier of verifying a
+    k-token speculation window at batch 1 (tools/roofline.py --spec-k assumes the independent case)."""
+    out = {}
+    for w in windows:
+        tot, n = 0, 0
+        for tr in traces:
+            lo = tr["n_prompt"] if part == "gen" else 0
+            hi = tr["n_tokens"] if part in ("gen", "all") else tr["n_prompt"]
+            for seq in tr["per_layer"].values():
+                for i in range(lo, hi - w + 1):
+                    tot += len(set(e for t in seq[i:i + w] for e in t))
+                    n += 1
+        out[w] = tot / n if n else None
+    return out
+
+
+def independent_distinct(n_experts, k, w):
+    return n_experts * (1 - (1 - k / n_experts) ** w)
+
+
 # ------------------------------------------------------------------------------------------- driver
 
 def layer_freq(traces):
@@ -265,9 +289,15 @@ def main(argv=None):
         split = f"held-out every {a.holdout_every}th file: {len(train)} train / {len(test)} test"
     fr = [float(x) for x in a.capacity.split(",")]
     res = evaluate(train, test, a.n_experts, fr, a.policies.split(","), a.warm, a.lfu_decay)
+    k = traces[0]["k"]
+    spec = {}
+    for part in ("gen", "prompt"):
+        wd = window_distinct(traces, part=part)
+        spec[part] = {str(w): {"distinct": d, "independent": independent_distinct(a.n_experts, k, w)}
+                      for w, d in wd.items()}
     report = {"label": "CONFIRMED only for the traces given; routing of a quantized model may differ from the original",
               "files": [f.name for f in files], "split": split, "n_experts": a.n_experts, "warm": a.warm,
-              "hit_rate_by_capacity": res}
+              "hit_rate_by_capacity": res, "distinct_experts_per_window": spec}
     txt = json.dumps(report, indent=1)
     if a.out:
         pathlib.Path(a.out).write_text(txt + "\n")
@@ -276,6 +306,12 @@ def main(argv=None):
     for f in fr:
         row = res[str(f)]
         print(f"{f:8.2f}  " + "  ".join(f"{row[p]['all']:8.3f}" for p in a.policies.split(",")))
+    for part in ("gen", "prompt"):
+        cells = []
+        for w, v in spec[part].items():
+            if v["distinct"] is not None:
+                cells.append(f"k={w}: {v['distinct']:.2f} (indep. {v['independent']:.2f})")
+        print(f"distinct experts per layer per window [{part}]: " + "; ".join(cells))
 
 
 if __name__ == "__main__":

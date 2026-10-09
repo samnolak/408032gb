@@ -75,6 +75,20 @@ class Policies(unittest.TestCase):
         self.assertGreater(lru, static)
 
 
+class Windows(unittest.TestCase):
+    def test_identical_tokens_touch_k_experts(self):
+        tr = {"n_prompt": 0, "n_tokens": 10, "k": 2, "per_layer": {0: [(1, 2)] * 10}}
+        self.assertEqual(cs.window_distinct([tr], windows=(1, 4, 8)), {1: 2.0, 4: 2.0, 8: 2.0})
+
+    def test_independent_routing_matches_formula(self):
+        rng = random.Random(11)
+        E, k = 64, 4
+        seq = [tuple(rng.sample(range(E), k)) for _ in range(4000)]
+        tr = {"n_prompt": 0, "n_tokens": len(seq), "k": k, "per_layer": {0: seq}}
+        wd = cs.window_distinct([tr], windows=(4,))
+        self.assertAlmostEqual(wd[4], cs.independent_distinct(E, k, 4), delta=0.15)
+
+
 class TraceFormat(unittest.TestCase):
     def test_roundtrip_and_cli(self):
         rng = random.Random(3)

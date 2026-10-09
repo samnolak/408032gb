@@ -34,6 +34,8 @@ the top-k experts of every MoE layer (`*.trace`, format in `cachesim.py`). Input
 G0_TRACES_DIR=traces/ G0_OUT_DIR=g0-trace/ G0_GEN_TOKENS=512 build-g0/g0-expert-trace -m model.gguf -ngl 99 -c 65536 -b 2048 -ub 512
 python3 tools/g0/cachesim.py g0-trace/ --n-experts 288 --capacity 0.25,0.5,0.67,0.8 --holdout-every 4 -o docs/evidence/G0-cachesim.json
 ```
+Also reports the mean number of DISTINCT experts per layer touched by windows of k = 1, 2, 4, 8 consecutive tokens versus
+independent routing: the expert-traffic multiplier of verifying a k-token speculation window (experiment S1/S3).
 Policies: static (train profile), LRU, LFU with aging, TinyLFU-style admission, hybrid static+LRU (Strata's shape), and the
 Belady-with-bypass offline bound. Record `-b/-ub` with every trace: routing depends slightly on batch shape
 (docs/evidence/2026-10-09-g0-trace-cpu.md).
