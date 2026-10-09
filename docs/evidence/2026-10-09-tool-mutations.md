@@ -1,4 +1,4 @@
-# Мутационные проверки инструментов: bench, gguf_quant_audit, logprob_compare, slot_persist, vs_roofline, offline weights, diag summarize, gateway (2026-10-09, облачная песочница)
+# Мутационные проверки инструментов: bench, gguf_quant_audit, logprob_compare, slot_persist, vs_roofline, offline weights, diag summarize, gateway, verify pack (2026-10-09, облачная песочница)
 
 Дата: 2026-10-09. Повод: docs/reassessment/REVIEW-adversarial.md, п. 11. Коммит `0daa7bc` заявлял «34 tests, 6/6 mutations
 caught», но литерального вывода в `docs/` нет; ещё шесть наборов тестов добавлены без записанной мутационной проверки. Roofline
@@ -1199,4 +1199,87 @@ M12 upstream 5xx passed through -> CAUGHT
     FAILED (failures=1)
 restored identical: True
 caught 12/12
+```
+
+## tools/verify/pack.py (`tests/test_verify_pack.py`) — перепроверка ведущим
+
+Сборщик написан субагентом parity-qa (его отчёт: 10/10 мутаций пойманы). Ведущий повторил те же 10 мутаций своим скриптом
+(`<S>/scripts/vp_mut.py`, вне репозитория): временный worktree от `f818eb6` с незакоммиченными файлами
+`tools/verify/pack.py` (sha256 `5a6e5b20ae24b4a17d489e3f4899a49b01c07e163308df814ca8c9645f7f1e20`),
+`tools/verify/criteria.default.json` (`b9ea200e31aeef0b75f0a75aebc3f1bc196306c4be9aca16c49660e9a146d2b8`),
+`tests/test_verify_pack.py` (`eb1a32ef3f36a051eaa580fa31fb02e4ef62ec10251aaf9661c71291a6ccd05d`),
+`scripts/verify_pack.sh` (`f6e9df2bbcb1047acf8e29b9e59c58ba415f8c8a0efa16b3a2a9a392d8e1e5ff`); `PYTHONDONTWRITEBYTECODE=1`; каждая
+мутация — `str.replace` фрагмента, который встречается ровно один раз (assert). Мутации: M1 нет прогона → PASS вместо NOT RUN;
+M2 признак mock игнорируется; M3 ячейки короткого контекста засчитываются как заполненные; M4 сравнение bpw перевёрнуто; M5 сравнение
+с полом декода перевёрнуто; M6 снята проверка, что сервер не обрезал промпт; M7 общий PASS, если нет FAIL (NOT RUN игнорируется);
+M8 `--check` не сверяет sha256; M9 отключена сверка `summary.json` с `raw.jsonl`; M10 игнорируется признак `synthetic` диагностики.
+Литеральный вывод:
+```
+baseline: Ran 19 tests in 19.510s / OK
+M1 missing artifact -> PASS -> CAUGHT
+    FAIL: test_all_missing_every_criterion_not_run (tests.test_verify_pack.Verdicts.test_all_missing_every_criterion_not_run)
+    Ran 19 tests in 19.578s
+    FAILED (failures=1)
+M2 mock flag ignored (bench gate) -> CAUGHT
+    FAIL: test_mock_sourced_artifacts_are_not_run_mock (tests.test_verify_pack.Verdicts.test_mock_sourced_artifacts_are_not_run_mock)
+    FAIL: test_one_mock_run_among_real_ones_blocks_the_criterion (tests.test_verify_pack.Verdicts.test_one_mock_run_among_real_ones_blocks_the_criterion)
+    Ran 19 tests in 19.579s
+    FAILED (failures=2)
+M3 short-context cells count as filled -> CAUGHT
+    FAIL: test_short_context_decode_does_not_count (tests.test_verify_pack.Verdicts.test_short_context_decode_does_not_count)
+    Ran 19 tests in 19.581s
+    FAILED (failures=1)
+M4 bpw comparison flipped -> CAUGHT
+    FAIL: test_wrapper_script_build_and_check (tests.test_verify_pack.Manifest.test_wrapper_script_build_and_check)
+    FAIL: test_full_synthetic_passing_set_passes (tests.test_verify_pack.Verdicts.test_full_synthetic_passing_set_passes)
+    FAIL: test_mock_sourced_artifacts_are_not_run_mock (tests.test_verify_pack.Verdicts.test_mock_sourced_artifacts_are_not_run_mock)
+    FAIL: test_one_mock_run_among_real_ones_blocks_the_criterion (tests.test_verify_pack.Verdicts.test_one_mock_run_among_real_ones_blocks_the_criterion)
+    FAIL: test_quant_audit_below_4_bpw_fails (tests.test_verify_pack.Verdicts.test_quant_audit_below_4_bpw_fails)
+    FAIL: test_strict_prompt_basis_needs_the_prompt_alone_to_fill_the_window (tests.test_verify_pack.Verdicts.test_strict_prompt_basis_needs_the_prompt_alone_to_fill_the_window)
+    FAIL: test_summary_edited_against_raw_is_not_run (tests.test_verify_pack.Verdicts.test_summary_edited_against_raw_is_not_run)
+    FAIL: test_truncated_prompt_at_full_target_is_not_run (tests.test_verify_pack.Verdicts.test_truncated_prompt_at_full_target_is_not_run)
+    FAIL: test_unparseable_artifact_blocks_overall_pass (tests.test_verify_pack.Verdicts.test_unparseable_artifact_blocks_overall_pass)
+    FAIL: test_weights_roofline_and_nondeterminism (tests.test_verify_pack.Verdicts.test_weights_roofline_and_nondeterminism)
+    Ran 19 tests in 19.462s
+    FAILED (failures=10)
+M5 decode floor comparison flipped -> CAUGHT
+    FAIL: test_wrapper_script_build_and_check (tests.test_verify_pack.Manifest.test_wrapper_script_build_and_check)
+    FAIL: test_decode_below_floor_fails (tests.test_verify_pack.Verdicts.test_decode_below_floor_fails)
+    FAIL: test_full_synthetic_passing_set_passes (tests.test_verify_pack.Verdicts.test_full_synthetic_passing_set_passes)
+    FAIL: test_quant_audit_below_4_bpw_fails (tests.test_verify_pack.Verdicts.test_quant_audit_below_4_bpw_fails)
+    FAIL: test_unparseable_artifact_blocks_overall_pass (tests.test_verify_pack.Verdicts.test_unparseable_artifact_blocks_overall_pass)
+    FAIL: test_weights_roofline_and_nondeterminism (tests.test_verify_pack.Verdicts.test_weights_roofline_and_nondeterminism)
+    Ran 19 tests in 19.571s
+    FAILED (failures=6)
+M6 measured-fill check removed -> CAUGHT
+    FAIL: test_truncated_prompt_at_full_target_is_not_run (tests.test_verify_pack.Verdicts.test_truncated_prompt_at_full_target_is_not_run)
+    Ran 19 tests in 19.644s
+    FAILED (failures=1)
+M7 overall PASS when nothing FAILs -> CAUGHT
+    FAIL: test_all_missing_every_criterion_not_run (tests.test_verify_pack.Verdicts.test_all_missing_every_criterion_not_run)
+    FAIL: test_full_synthetic_passing_set_passes (tests.test_verify_pack.Verdicts.test_full_synthetic_passing_set_passes)
+    FAIL: test_logprob_and_kv_failures (tests.test_verify_pack.Verdicts.test_logprob_and_kv_failures)
+    FAIL: test_mock_sourced_artifacts_are_not_run_mock (tests.test_verify_pack.Verdicts.test_mock_sourced_artifacts_are_not_run_mock)
+    FAIL: test_one_mock_run_among_real_ones_blocks_the_criterion (tests.test_verify_pack.Verdicts.test_one_mock_run_among_real_ones_blocks_the_criterion)
+    FAIL: test_quant_audit_below_4_bpw_fails (tests.test_verify_pack.Verdicts.test_quant_audit_below_4_bpw_fails)
+    FAIL: test_short_context_decode_does_not_count (tests.test_verify_pack.Verdicts.test_short_context_decode_does_not_count)
+    FAIL: test_strict_prompt_basis_needs_the_prompt_alone_to_fill_the_window (tests.test_verify_pack.Verdicts.test_strict_prompt_basis_needs_the_prompt_alone_to_fill_the_window)
+    FAIL: test_truncated_prompt_at_full_target_is_not_run (tests.test_verify_pack.Verdicts.test_truncated_prompt_at_full_target_is_not_run)
+    FAIL: test_weights_roofline_and_nondeterminism (tests.test_verify_pack.Verdicts.test_weights_roofline_and_nondeterminism)
+    Ran 19 tests in 19.292s
+    FAILED (failures=10)
+M8 manifest ignores sha256 mismatch -> CAUGHT
+    FAIL: test_check_detects_modified_missing_and_extra_files (tests.test_verify_pack.Manifest.test_check_detects_modified_missing_and_extra_files)
+    Ran 19 tests in 19.694s
+    FAILED (failures=1)
+M9 summary vs raw cross-check disabled -> CAUGHT
+    FAIL: test_summary_edited_against_raw_is_not_run (tests.test_verify_pack.Verdicts.test_summary_edited_against_raw_is_not_run)
+    Ran 19 tests in 19.427s
+    FAILED (failures=1)
+M10 summarize.py synthetic flag ignored -> CAUGHT
+    FAIL: test_hardware_facts_synthetic_flag_and_unknown_facts (tests.test_verify_pack.Verdicts.test_hardware_facts_synthetic_flag_and_unknown_facts)
+    Ran 19 tests in 19.660s
+    FAILED (failures=1)
+restored identical: True
+caught 10/10
 ```
