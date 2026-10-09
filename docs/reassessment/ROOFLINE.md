@@ -54,7 +54,10 @@ python3 tools/roofline.py models/specs/{glm-5.3-flash,mimo-v2.6-flash,deepseek-v
 
 Сверка с внешним замером (REPORTED: Strata `docs/UNSLOTH_Q4.md:34-35` @fb58e0d, issue #498 автора): Qwen3.8-Flash-Next UD-Q4_K_XL на
 2×RTX 3090 со split — 64–78 tok/s, 55 tok/s при промпте 128K. Граница PP 97 tok/s на 4×4080 при калибровочных ~70% даёт ~68 tok/s —
-тот же порядок. (Числа 70.9/77.3/71.1 tok/s из `docs/COMMUNITY_BENCHMARKS.md` Strata получены на **IQ3_S**, не на 4-бит.)
+тот же порядок. Ещё ближе к нашему железу (REPORTED: Strata `bench/results/2026-10-01-community-rtx-pro-4500/README.md` @fb58e0d,
+замер пользователя mlfather): UD-Q4_K_XL на **одной** RTX PRO 4500 Blackwell 32 GB + Threadripper PRO 3975WX (AVX2, 8 каналов
+DDR4), engine 0.1.31: **61.5 tok/s при промпте 2.7K, 72.1 при 64K, 70.2 при 128K**; H2D 28.2 ГБ/с. (Отдельная строка
+70.9/77.3/71.1 tok/s в `docs/COMMUNITY_BENCHMARKS.md` — другой замер, на IQ3_S.)
 
 ## 3. Что из этого следует (физика, а не выбор)
 
