@@ -14,6 +14,8 @@ Policies (all exact-routing: they only decide WHERE an expert is read from, neve
   hybrid   S = C/2 static slots + C - S LRU slots (the shape of Strata's static VRAM part + VRAM LRU)
   opt      Belady's MIN with bypass and a free preload of the experts used first: the offline optimum for ANY policy
            holding C experts per layer, warm or cold (an upper bound, not an implementable policy)
+  lru_global   ONE LRU shared by all layers with the same total budget (C x layers): llama.cpp --moe-cache-mib
+  opt_global   Belady-with-bypass bound for any policy sharing that total budget across layers
 Dynamic policies start EMPTY (cold) unless --warm, which preloads them with the static set.
 
 Trace format (little endian): b"G0TR", u32 version=1, u32 n_layers, u32 k, u32 n_tokens, u32 n_prompt,
@@ -31,7 +33,9 @@ import struct
 from collections import OrderedDict, defaultdict
 
 MAGIC = b"G0TR"
-POLICIES = ("static", "lru", "lfu", "tinylfu", "hybrid", "opt")
+LAYER_POLICIES = ("static", "lru", "lfu", "tinylfu", "hybrid", "opt")      # a budget of C experts per layer
+GLOBAL_POLICIES = ("lru_global", "opt_global")                           # one budget of C x layers
+POLICIES = LAYER_POLICIES + GLOBAL_POLICIES
 
 
 # ------------------------------------------------------------------------------------------- trace I/O
@@ -84,7 +88,7 @@ def simulate_layer(seq, policy, cap, n_experts, static=None, warm=False, lfu_dec
     hits = []
     if cap <= 0:
         return [0] * len(seq)
-    if cap >= n_experts:
+    if n_experts is not None and cap >= n_experts:
         if policy == "static" or warm:
             return [len(t) for t in seq]
     if policy == "static":
@@ -193,6 +197,40 @@ def _top(ranked, n):
     return set(ranked[:n]) if ranked is not None else set()
 
 
+# ------------------------------------------------------------------------------------------- one cache for all layers
+
+def global_sequence(tr):
+    """Per token, the (layer, expert) keys in layer order: the order in which a decoder visits them."""
+    lids = tr["layer_ids"]
+    return [tuple((lid, e) for lid in lids for e in tr["per_layer"][lid][t]) for t in range(tr["n_tokens"])]
+
+
+def simulate_global(tr, policy, cap_total):
+    """'lru_global': ONE LRU over all layers' experts (how llama.cpp --moe-cache-mib works: layers of a device share
+    the slots, src/llama-moe-cache.cpp:15-120 @10a60cf30). 'opt_global': Belady with bypass over the same keys and the
+    same total capacity (offline bound for any global policy). Returns per-token hit counts."""
+    seq = global_sequence(tr)
+    if policy == "lru_global":
+        from collections import OrderedDict as _OD
+        lru = _OD()
+        hits = []
+        for t in seq:
+            h = 0
+            for key in t:
+                if key in lru:
+                    h += 1
+                    lru.move_to_end(key)
+                else:
+                    if len(lru) >= cap_total:
+                        lru.popitem(last=False)
+                    lru[key] = True
+            hits.append(h)
+        return hits
+    if policy == "opt_global":
+        return simulate_layer(seq, "opt", cap_total, n_experts=None, static=None)
+    raise ValueError(policy)
+
+
 # ------------------------------------------------------------------------------------------- speculation windows
 
 def window_distinct(traces, windows=(1, 2, 4, 8), part="gen"):
@@ -239,6 +277,19 @@ def evaluate(train, test, n_experts, fractions, policies=POLICIES, warm=False, l
         for pol in policies:
             tot = {"all": [0, 0], "prompt": [0, 0], "gen": [0, 0]}
             per_layer = {}
+            if pol.endswith("_global"):
+                for tr in test:
+                    hits = simulate_global(tr, pol, cap * len(tr["layer_ids"]))
+                    per_tok = tr["k"] * len(tr["layer_ids"])
+                    for i, h in enumerate(hits):
+                        part = "prompt" if i < tr["n_prompt"] else "gen"
+                        for key in (part, "all"):
+                            tot[key][0] += h
+                            tot[key][1] += per_tok
+                rate = {pp: (v[0] / v[1] if v[1] else None) for pp, v in tot.items()}
+                rate["layer_min"] = rate["layer_max"] = None
+                res[pol] = rate
+                continue
             for tr in test:
                 for lid, seq in tr["per_layer"].items():
                     ranked = sorted(range(n_experts), key=lambda e: (-freq[lid].get(e, 0), e))

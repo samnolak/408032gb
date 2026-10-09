@@ -42,7 +42,7 @@ class Policies(unittest.TestCase):
                 self.assertGreaterEqual(opt + 1e-12, self.hit(pol, cap, warm=True), (pol, cap, "warm"))
 
     def test_monotone_in_capacity(self):
-        for pol in cs.POLICIES:
+        for pol in cs.LAYER_POLICIES:
             rates = [self.hit(pol, c) for c in (4, 8, 16, 24)]
             self.assertEqual(rates, sorted(rates), pol)
 
@@ -73,6 +73,21 @@ class Policies(unittest.TestCase):
         static = self.hit("static", 8, seq=drifted)
         lru = self.hit("lru", 8, seq=drifted)
         self.assertGreater(lru, static)
+
+
+class GlobalCache(unittest.TestCase):
+    def test_global_bounds_and_llama_cpp_lru(self):
+        rng = random.Random(5)
+        per_layer = {lid: zipf_trace(rng, 300, 32, 4, s=1.0 + 0.2 * lid) for lid in range(4)}
+        tr = {"layer_ids": [0, 1, 2, 3], "k": 4, "n_tokens": 300, "n_prompt": 200, "per_layer": per_layer}
+        for cap in (4, 8, 16):
+            lru = sum(cs.simulate_global(tr, "lru_global", cap * 4))
+            opt = sum(cs.simulate_global(tr, "opt_global", cap * 4))
+            per_layer_lru = sum(sum(cs.simulate_layer(per_layer[l], "lru", cap, 32, static=list(range(32)))) for l in range(4))
+            self.assertGreaterEqual(opt, lru)
+            self.assertGreaterEqual(opt, per_layer_lru)      # a global budget can always mimic per-layer budgets
+        full = sum(cs.simulate_global(tr, "lru_global", 32 * 4))
+        self.assertEqual(full, 300 * 16 - len({(l, e) for l in range(4) for t in per_layer[l] for e in t}))
 
 
 class Windows(unittest.TestCase):
