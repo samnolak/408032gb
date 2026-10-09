@@ -9,8 +9,10 @@
   нужен: один переход между картами на окно проверки через pinned RAM (`MULTI_GPU.md:3-12,134`).
 - Каждая карта держит копию плотных весов и свой кэш экспертов своих слоёв; **арена всех экспертов — в RAM хоста** (`MULTI_GPU.md:143-148`).
 - Для UD-Q4_K_XL на нескольких GPU setup требует RAM ≥ размер GGUF + 24 GB (~135 GB), потому что при split все 77 GB экспертов
-  грузятся в RAM (`UNSLOTH_Q4.md:31-37`). **У нашего сервера 128 GB** — setup откажет в split; ручной запуск движка с теми же
-  флагами может уложиться (77 GB экспертов + плотные + ОС), но это **UNKNOWN** — первый риск этого пути.
+  грузятся в RAM (`UNSLOTH_Q4.md:31-37`). **У нашего сервера 128 GB.** По коду установщика это рекомендация, а не запрет:
+  «#737: a recommendation, not a wall - 128 GB ran it fine»; при нехватке setup спрашивает, `--gpus … --yes` продолжает
+  (`setup.py:1103-1124`@fb58e0d, VERIFIED чтением; сам запуск на 128 GB — REPORTED, issue #737). Риск: подкачка/остановки при
+  загрузке (страничный кэш GGUF) — смотреть `free -g` и `MemAvailable` во время старта.
 - Замеры сообщества: 2×RTX 3090 split UD-Q4_K_XL — 64–78 tok/s, 55 tok/s на промпте 128K (`UNSLOTH_Q4.md:34-35`);
   1×RTX PRO 4500 32 GB + AVX2 Threadripper — 61.5/72.1/70.2 tok/s при 2.7K/64K/128K (bench/results …rtx-pro-4500);
   **1×RTX 4080 SUPER 32 GB (модифицированная, 32 760 MiB, Gen4 x16, H2D 24.0 ГБ/с, драйвер 616.56)** на IQ3_S — 89–122 tok/s при
@@ -31,7 +33,8 @@
    **без** `--resident-budget-gib` (split его не поддерживает), `--max-context 262144`, `--spec 4 --mtp mtp/rt`.
    Записать стартовые строки движка: `layer split: …`, `MiB of VRAM free with everything loaded`, RAM (`free -g`) после загрузки.
 5. Матрица: `tools/bench/run_matrix.py` (2K/32K/128K/262K × 128/512/2048, cold/warm, 3 повтора) и `tools/bench/probes.py` на 262K.
-6. Если split не стартует из-за RAM — зафиксировать литеральную ошибку; варианты: (а) llama.cpp `qwen4exp` целиком в VRAM
+6. Запуск через setup: `./setup.sh --family unsloth --model UD-Q4_K_XL --gpus 0,1,2,3 --yes` (флаги сверить с версией).
+   Если split не стартует из-за RAM — зафиксировать литеральную ошибку; варианты: (а) llama.cpp `qwen4exp` целиком в VRAM
    (`-ngl 999 -sm layer`, n-gram-таблица — проверить, где её держит llama.cpp); (б) вопрос к заказчику о расширении RAM.
 
 ## Что считать успехом (из ADR-012 D1)
