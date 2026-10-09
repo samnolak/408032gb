@@ -27,6 +27,10 @@ jobs:
         run: tools/tinygen/run_parity.sh ../llama.cpp ../build-tools
       - name: MiMo G1 tiny-model parity against the real mimo2 graph (CPU)
         run: tools/tinygen/run_parity_mimo.sh ../llama.cpp ../build-tools
+      - name: G0 per-token routing tracer + cache simulator on the tiny glm5-next model (CPU smoke)
+        run: tools/g0/run_trace_smoke.sh ../llama.cpp ../build-tools
+      - name: roofline and cache-simulator unit tests
+        run: python3 -m unittest tests.test_roofline tests.test_cachesim -v
   ref-torch-cpu:
     # Oracles whose reference is torch code (vendored, pinned): DFlash2 primitives against vLLM (ADR-011).
     runs-on: ubuntu-24.04
