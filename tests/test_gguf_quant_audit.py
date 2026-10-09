@@ -66,12 +66,15 @@ class Audit(unittest.TestCase):
             self.assertEqual([f["tensor"] for f in r["findings"] if f["level"] == "FAIL"], ["blk.3.ffn_up_exps.weight"])
             self.assertEqual(qa.main([p]), 1)
 
-    def test_low_bit_dense_warns_only(self):
+    def test_low_bit_dense_fails_unless_warn_only(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "m.gguf")
             low = [t if t[0] != "blk.0.attn_q_a.weight" else (t[0], t[1], "Q3_K") for t in GOOD]
             write_gguf(p, low)
             r = qa.audit(p)
+            self.assertEqual(r["verdict"], "FAIL")
+            self.assertEqual([f["level"] for f in r["findings"]], ["FAIL"])
+            r = qa.audit(p, dense_warn_only=True)
             self.assertEqual(r["verdict"], "PASS")
             self.assertEqual([f["level"] for f in r["findings"]], ["WARN"])
 

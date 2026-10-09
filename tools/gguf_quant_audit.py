@@ -8,8 +8,9 @@ Classes: routed experts (`*_exps*`), shared experts (`*_shexp*`), attention/line
 `indexer*`), dense FFN (`ffn_*` without exps/shexp), embedding (`token_embd`), output head (`output.weight`), other
 (norms, router, mHC...). For each class: parameters, bytes, effective bits per weight, histogram of types.
 
-Policy (ADR-012 D5): every routed-expert tensor must be >= --min-expert-bpw (default 4.0) -> otherwise FAIL (exit 1);
-non-expert matrices below --min-dense-bpw (default 4.0) are reported as WARN. Note: by this rule a "IQ4_XS"-named pack
+Policy (ADR-012 D5: main weights at no less than a quality 4-bit class): every routed-expert tensor must be
+>= --min-expert-bpw (default 4.0) and every non-expert matrix >= --min-dense-bpw (default 4.0), otherwise FAIL (exit 1);
+--dense-warn-only downgrades the non-expert check to WARN (for exploration only, never for a delivered configuration). Note: by this rule a "IQ4_XS"-named pack
 whose experts mix IQ3_S tensors (3.44 bpw) fails, which is the point.
 
 Usage:
@@ -134,7 +135,7 @@ def classify(name):
     return "other"
 
 
-def audit(first, min_expert_bpw=4.0, min_dense_bpw=4.0):
+def audit(first, min_expert_bpw=4.0, min_dense_bpw=4.0, dense_warn_only=False):
     paths = shard_paths(first)
     classes = {}
     findings = []
@@ -162,7 +163,7 @@ def audit(first, min_expert_bpw=4.0, min_dense_bpw=4.0):
             if c == "routed_experts" and bpw < min_expert_bpw:
                 findings.append({"level": "FAIL", "tensor": name, "type": tname, "bpw": round(bpw, 3)})
             elif c != "routed_experts" and len(dims) >= 2 and bpw < min_dense_bpw:
-                findings.append({"level": "WARN", "tensor": name, "type": tname, "bpw": round(bpw, 3)})
+                findings.append({"level": "WARN" if dense_warn_only else "FAIL", "tensor": name, "type": tname, "bpw": round(bpw, 3)})
     for st in classes.values():
         st["bpw"] = st["bytes"] * 8 / st["params"] if st["params"] else None
     total_p = sum(s["params"] for s in classes.values())
@@ -191,8 +192,8 @@ def render(r):
         out.append(f"  ... {len(r['findings']) - 20} more findings")
     for name, t in r["unknown_types"]:
         out.append(f"  FAIL: {name}: unknown ggml type id {t} (update GGML_TYPES from the pinned gguf-py)")
-    out.append(f"verdict: {r['verdict']} (routed experts >= {r['min_expert_bpw']} bpw: {n_fail} failing tensors; "
-               f"non-expert matrices < {r['min_dense_bpw']} bpw: {n_warn} warnings)")
+    out.append(f"verdict: {r['verdict']} (routed experts >= {r['min_expert_bpw']} bpw, non-expert matrices >= "
+               f"{r['min_dense_bpw']} bpw: {n_fail} failing tensors, {n_warn} warnings)")
     return "\n".join(out)
 
 
@@ -201,9 +202,10 @@ def main(argv=None):
     ap.add_argument("gguf", help="a .gguf file or the first shard (-00001-of-0000N.gguf)")
     ap.add_argument("--min-expert-bpw", type=float, default=4.0)
     ap.add_argument("--min-dense-bpw", type=float, default=4.0)
+    ap.add_argument("--dense-warn-only", action="store_true")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
-    r = audit(a.gguf, a.min_expert_bpw, a.min_dense_bpw)
+    r = audit(a.gguf, a.min_expert_bpw, a.min_dense_bpw, a.dense_warn_only)
     if a.json:
         json.dump(r, sys.stdout, indent=1)
         print()
