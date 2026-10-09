@@ -98,6 +98,7 @@ ExecStart=/usr/bin/python3 /srv/llm/repo/tools/gateway/gateway.py \
   --drain-s 120
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=150
 [Install]
 WantedBy=multi-user.target
 ```
@@ -121,6 +122,8 @@ OPENAI_API_KEY="$(head -1 /srv/llm/etc/api-keys)" python3 tools/bench/probes.py 
   --contexts 8192 --out-dir /srv/llm/logs/smoke-$(date +%F)    # каталог вывода — по --help probes.py
 ```
 Остановка: `sudo systemctl stop llm-gateway` (дожидается текущих запросов до `--drain-s`), затем `sudo systemctl stop llm-engine`.
+`TimeoutStopSec` юнита шлюза должен быть больше `--drain-s` (иначе systemd убьёт шлюз до конца drain; по умолчанию у
+systemd 90 с — PROVISIONAL, сверить `systemctl show -p TimeoutStopUSec` на сервере).
 Статус и журналы: `systemctl status llm-engine llm-gateway`, `tail -f /srv/llm/logs/engine/engine.log`,
 `tail -f /srv/llm/logs/gateway/requests.jsonl`.
 
