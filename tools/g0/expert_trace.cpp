@@ -13,6 +13,9 @@
 //   b"G0TR", u32 version=1, u32 n_layers, u32 k, u32 n_tokens, u32 n_prompt, u32 layer_ids[n_layers],
 //   then n_tokens x n_layers x k u16 expert ids (token-major).
 // Rows of one layer arrive in token order (ubatches are processed in order), so each layer is a simple append.
+// A prompt that does not fit (prompt + G0_GEN_TOKENS > n_ctx) is an error; G0_TRUNCATE=1 keeps the old behaviour (cut the
+// tail of the prompt) and says so on stderr. *.txt is tokenized as plain text: NO chat template is applied, so agent
+// traces must be rendered with the model's template beforehand (or given as *.ids from the serving engine's /tokenize).
 #include "arg.h"
 #include "common.h"
 #include "llama.h"
@@ -99,6 +102,8 @@ int main(int argc, char ** argv) {
         return 2;
     }
     const int32_t n_gen = gen_env ? std::atoi(gen_env) : 256;
+    const char * trunc_env = std::getenv("G0_TRUNCATE");
+    const bool allow_truncate = trunc_env && std::strcmp(trunc_env, "1") == 0;
     fs::create_directories(out_dir);
 
     TraceState st;
@@ -163,6 +168,13 @@ int main(int argc, char ** argv) {
         }
         const int32_t n_ctx = (int32_t) llama_n_ctx(ctx);
         if ((int32_t) tokens.size() + n_gen > n_ctx) {
+            if (!allow_truncate) {
+                LOG_ERR("%s: prompt %zu + G0_GEN_TOKENS %d exceeds n_ctx %d; raise -c or set G0_TRUNCATE=1\n",
+                        path.c_str(), tokens.size(), n_gen, n_ctx);
+                return 1;
+            }
+            LOG_WRN("%s: prompt truncated from %zu to %d tokens (G0_TRUNCATE=1)\n", path.c_str(), tokens.size(),
+                    std::max(1, n_ctx - n_gen));
             tokens.resize((size_t) std::max(1, n_ctx - n_gen));
         }
         const int32_t n_prompt = (int32_t) tokens.size();

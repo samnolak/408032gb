@@ -41,3 +41,8 @@ Belady-with-bypass offline bound, and with one budget for all layers: lru_global
 --moe-cache-mib: one LRU per device, prompt ubatches read-only) and the opt_global bound. `--session` keeps caches across
 requests; the printed table scores generated tokens (`--part`). Record `-b/-ub` with every trace: routing depends slightly on batch shape
 (docs/evidence/2026-10-09-g0-trace-cpu.md).
+
+Caveats (review 2026-10-09, item 18): `*.txt` is tokenized as plain text with no chat template, so for agent traces (M1) render
+the conversation with the model's template first, or capture token ids from the serving engine (`/tokenize`) and pass `*.ids`.
+The `.txt` path has only been exercised on a tiny test model without a real tokenizer (NOT RUN on a real tokenizer). A prompt that
+does not fit `-c` together with `G0_GEN_TOKENS` is an error; `G0_TRUNCATE=1` cuts the tail of the prompt and logs it.
