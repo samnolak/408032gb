@@ -1,5 +1,9 @@
 # План работ: гейты G0–G7
 
+> **2026-10-09: план G0–G8 — HISTORICAL.** Действующий план — `docs/reassessment/ROADMAP.md` (гейты R0–R6) по
+> `docs/reassessment/ADR-012-reassessment.md`; классификация гейтов ниже — `docs/reassessment/LEGACY_AUDIT.md`.
+> Текст ниже не изменён.
+
 Двигать гейт в ACCEPTED может только lead-architect со ссылкой на доказательства в `docs/evidence/`.
 
 | гейт | суть | где выполняется | статус |
