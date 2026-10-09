@@ -1,0 +1,37 @@
+{
+  "name": "target server: 4x RTX 4080 Super 32 GB (modded?), EPYC 7H43, 128 GB DDR4-3200, 4x NVMe 1 TB - UNVERIFIED",
+  "gpus": [
+    {"name": "RTX 4080 Super 32GB", "vram_gib": 32.0, "hbm_bw_gbs": 736.0, "bw_eff": 0.75, "tflops_fp16": 52.2, "mma_eff": 0.5, "sm": "sm_89"},
+    {"name": "RTX 4080 Super 32GB", "vram_gib": 32.0, "hbm_bw_gbs": 736.0, "bw_eff": 0.75, "tflops_fp16": 52.2, "mma_eff": 0.5, "sm": "sm_89"},
+    {"name": "RTX 4080 Super 32GB", "vram_gib": 32.0, "hbm_bw_gbs": 736.0, "bw_eff": 0.75, "tflops_fp16": 52.2, "mma_eff": 0.5, "sm": "sm_89"},
+    {"name": "RTX 4080 Super 32GB", "vram_gib": 32.0, "hbm_bw_gbs": 736.0, "bw_eff": 0.75, "tflops_fp16": 52.2, "mma_eff": 0.5, "sm": "sm_89"}
+  ],
+  "gpu_reserve_gib": 2.0,
+  "pcie": {"gen": 4, "width": 16, "h2d_gbs": 25.0, "latency_us": 10.0, "allreduce_us": 30.0, "p2p": null},
+  "ram": {"gib": 128.0, "reserve_gib": 12.0, "channels": null, "assume_channels": 8,
+          "bw_gbs_by_channels": {"4": 102.4, "8": 204.8}, "bw_eff": 0.7},
+  "cpu": {"model": "AMD EPYC 7H43", "cores": 48, "avx2": true, "avx512": false},
+  "nvme": [
+    {"model": null, "tib": 1.0, "seq_read_gbs": 7.0},
+    {"model": null, "tib": 1.0, "seq_read_gbs": 7.0},
+    {"model": null, "tib": 1.0, "seq_read_gbs": 7.0},
+    {"model": null, "tib": 1.0, "seq_read_gbs": 7.0}
+  ],
+  "nvme_eff": 0.6,
+  "_labels": {
+    "everything": "UNVERIFIED customer statements (master prompt 2026-10-09) until docs/reassessment/HARDWARE_FACTS.md is filled from scripts/diag output",
+    "gpus.vram_gib": "stated by the customer; real usable size UNKNOWN until scripts/diag gpu_vram_check",
+    "gpus.hbm_bw_gbs": "PROVISIONAL: stock 4080 Super spec (23 Gbps x 256-bit); the 32 GB modded boards may differ",
+    "gpus.bw_eff": "PROVISIONAL assumption: share of peak a batch-1 quantised GEMV reaches; replace with a measurement",
+    "gpus.tflops_fp16": "PROVISIONAL: stock 4080 Super dense FP16 tensor with FP32 accumulate (GeForce rate); see research/R4-hardware.md",
+    "gpus.mma_eff": "PROVISIONAL assumption for MoE prefill GEMMs",
+    "gpu_reserve_gib": "PROVISIONAL: CUDA context, cuBLAS workspace, activations, margin",
+    "pcie": "PROVISIONAL: Gen4 x16 pinned H2D ~25 GB/s practical, ~10 us small-transfer latency, ~30 us small all-reduce over PCIe without NVLink; P2P UNKNOWN",
+    "ram.channels": "UNKNOWN (4 or 8); assume_channels only selects the default row of the bound",
+    "ram.bw_gbs_by_channels": "PROVISIONAL: theoretical DDR4-3200 x 8 B x channels",
+    "ram.bw_eff": "PROVISIONAL assumption: share of theoretical bandwidth an AVX2 expert GEMV reaches; replace with STREAM/membw",
+    "nvme": "customer says 4 x 1 TB (old file said 3 x Samsung 990 Pro); models UNKNOWN; 7.0 GB/s is a PCIe 4.0 x4 class placeholder",
+    "nvme_eff": "PROVISIONAL assumption for 13-18 MiB expert reads with O_DIRECT across all drives"
+  },
+  "_supersedes": "hardware/4x4080s-32g.json (kept for tools/fitplan.py and its tests; its NVMe count and p2p=true are outdated, see docs/reassessment/REPO_AUDIT.md C1, C2)"
+}
