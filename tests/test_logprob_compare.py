@@ -115,6 +115,20 @@ class Compare(unittest.TestCase):
         self.assertTrue(m["ref_in_cand"])
         self.assertGreater(m["kl_topk"], 0.0)
 
+    def test_compare_exact_kl_direction_and_floor(self):
+        # Pins KL(ref || cand) and the missing-token floor min(side) - log 2 from the module docstring
+        # (mutations L1, L2 of docs/evidence/2026-10-09-tool-mutations.md survived the tests above).
+        # ref {a: .6, b: .4}, cand {a: .5, c: .5}; floors: ref c -> .4/2 = .2, cand b -> .5/2 = .25;
+        # renormalised on {a, b, c}: P = (.6, .4, .2)/1.2, Q = (.5, .25, .5)/1.25.
+        ref = {"a": math.log(0.6), "b": math.log(0.4)}
+        cand = {"a": math.log(0.5), "c": math.log(0.5)}
+        P = [0.6 / 1.2, 0.4 / 1.2, 0.2 / 1.2]
+        Q = [0.5 / 1.25, 0.25 / 1.25, 0.5 / 1.25]
+        want = sum(p * math.log(p / q) for p, q in zip(P, Q))
+        rev = sum(q * math.log(q / p) for p, q in zip(P, Q))
+        self.assertGreater(abs(want - rev), 1e-3)          # this case tells KL(ref||cand) from KL(cand||ref)
+        self.assertAlmostEqual(lc.compare(ref, cand)["kl_topk"], want, places=12)
+
 
 if __name__ == "__main__":
     unittest.main()

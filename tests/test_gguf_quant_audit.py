@@ -1,5 +1,7 @@
 """tools/gguf_quant_audit.py on GGUF headers written here (no gguf-py needed), plus a cross-check of its type table
 against the pinned gguf-py when LLAMA_CPP_GGUF_PY is set."""
+import contextlib
+import io
 import os
 import struct
 import sys
@@ -103,6 +105,24 @@ class Audit(unittest.TestCase):
                 f.truncate(60)
             with self.assertRaises(ValueError):
                 qa.read_header(p)
+
+    def test_unknown_type_id_fails(self):
+        # a tensor type the table does not know must FAIL the audit, never be skipped silently
+        # (mutation G8 of docs/evidence/2026-10-09-tool-mutations.md survived without this test)
+        self.assertNotIn(99, qa.GGML_TYPES)
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "m.gguf")
+            TYPE_ID["_UNKNOWN_99"] = 99
+            try:
+                write_gguf(p, GOOD + [("blk.0.attn_x.weight", [4096, 16], "_UNKNOWN_99")])
+            finally:
+                del TYPE_ID["_UNKNOWN_99"]
+            r = qa.audit(p)
+            self.assertEqual(r["unknown_types"], [("blk.0.attn_x.weight", 99)])
+            self.assertEqual(r["findings"], [])
+            self.assertEqual(r["verdict"], "FAIL")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(qa.main([p]), 1)
 
     @unittest.skipUnless(os.environ.get("LLAMA_CPP_GGUF_PY"), "set LLAMA_CPP_GGUF_PY=<llama.cpp>/gguf-py")
     def test_type_table_matches_pinned_gguf_py(self):

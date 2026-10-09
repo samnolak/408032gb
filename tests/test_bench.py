@@ -109,6 +109,23 @@ class Stats(unittest.TestCase):
         self.assertAlmostEqual(m4["decode_tok_s"], (44 - 4) / 0.010)     # 4 tokens per chunk
         self.assertIsNone(m4["prefill_tok_s"])                            # no prompt_tokens -> not invented
 
+    def test_uncached_prefill_subtracts_server_cached_tokens(self):
+        # prefix-cache accounting (mutation B10 of docs/evidence/2026-10-09-tool-mutations.md survived without this)
+        ev = [[1000 * (10 + i), 1, 0, 0, 0] for i in range(3)]           # TTFT 10 ms
+        base = {"ok": True, "events": ev, "t_end_us": 20000}
+        m = runlog.request_metrics(dict(base, usage={"prompt_tokens": 1000, "completion_tokens": 3,
+                                                     "prompt_tokens_details": {"cached_tokens": 900}}))
+        self.assertEqual(m["cached_tokens"], 900)
+        self.assertAlmostEqual(m["prefill_tok_s"], 1000 / 0.010)         # includes cached tokens by definition
+        self.assertAlmostEqual(m["uncached_prefill_tok_s"], 100 / 0.010)
+        m2 = runlog.request_metrics(dict(base, usage={"prompt_tokens": 1000, "completion_tokens": 3},
+                                         server_timings={"cache_n": 250}))   # llama.cpp timings fallback
+        self.assertEqual(m2["cached_tokens"], 250)
+        self.assertAlmostEqual(m2["uncached_prefill_tok_s"], 750 / 0.010)
+        m3 = runlog.request_metrics(dict(base, usage={"prompt_tokens": 1000, "completion_tokens": 3}))
+        self.assertIsNone(m3["cached_tokens"])
+        self.assertIsNone(m3["uncached_prefill_tok_s"])                  # not reported -> not invented
+
 
 # ---------------------------------------------------------------------------- client
 class Client(TmpDirCase):
@@ -525,6 +542,62 @@ class Probes(TmpDirCase):
             self.assertFalse(r["pass"])
             self.assertIsNone(r["score"])
             self.assertIn("HTTP 500", r["error"])
+
+
+class Graders(unittest.TestCase):
+    """Grader checks the wrong-answer mock cannot isolate (mutations B22-B24 of
+    docs/evidence/2026-10-09-tool-mutations.md survived without these)."""
+    EXP = {"name": "Alice Smith", "age": 33, "city": "Nuuk", "tags": ["river", "orbit", "prism"], "active": True}
+
+    def test_json_validator_rejects_valid_json_with_wrong_values(self):
+        ok = probes.validate_person_json(json.dumps(self.EXP), self.EXP, strict=True)
+        self.assertTrue(ok["valid"])
+        self.assertEqual(ok["score"], 1.0)
+        for k, v in (("name", "Alice Novak"), ("age", 34), ("city", "Hobart"),
+                     ("tags", ["river", "prism", "orbit"]), ("active", False)):
+            r = probes.validate_person_json(json.dumps(dict(self.EXP, **{k: v})), self.EXP, strict=True)
+            self.assertFalse(r["valid"], k)
+            self.assertFalse(r["checks"]["value_" + k], k)
+            self.assertLess(r["score"], 1.0, k)
+
+
+class ToolGrading(TmpDirCase):
+    def run_tools_with_call(self, name, args_fn):
+        """Run the tools probe while the mock's first-turn tool call is rewritten to (name, args_fn(args))."""
+        orig = mock_server.toy_answer
+
+        def patched(prompt, messages, tools, cfg):
+            kind, ans = orig(prompt, messages, tools, cfg)
+            if kind == "tool":
+                return "tool", (name, args_fn(ans[1]))
+            return kind, ans
+        mock_server.toy_answer = patched
+        try:
+            d = os.path.join(self.tmp, "p")
+            code, _ = quiet(probes.main, ["--url", SRV.url, "--out-dir", d, "--no-nvidia-smi", "--probes", "tools"])
+        finally:
+            mock_server.toy_answer = orig
+        with open(os.path.join(d, "summary.json")) as f:
+            return code, json.load(f)["results"][0]
+
+    def test_wrong_tool_name_with_right_city_fails(self):
+        code, r = self.run_tools_with_call("get_stock_price", lambda a: a)
+        self.assertFalse(r["details"]["call"]["name_ok"])
+        self.assertTrue(r["details"]["call"]["city_ok"])
+        self.assertFalse(r["details"]["call_ok"])
+        self.assertTrue(r["details"]["final_uses_result"])            # second turn used the synthetic call
+        self.assertEqual(r["score"], 0.5)
+        self.assertFalse(r["pass"])
+        self.assertEqual(code, 1)
+
+    def test_right_tool_name_with_wrong_city_fails(self):
+        code, r = self.run_tools_with_call("get_weather", lambda a: dict(a, city="Atlantis"))
+        self.assertTrue(r["details"]["call"]["name_ok"])
+        self.assertFalse(r["details"]["call"]["city_ok"])
+        self.assertFalse(r["details"]["call_ok"])
+        self.assertEqual(r["score"], 0.5)
+        self.assertFalse(r["pass"])
+        self.assertEqual(code, 1)
 
 
 class CLIHelp(unittest.TestCase):

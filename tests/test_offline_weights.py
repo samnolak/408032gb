@@ -98,7 +98,39 @@ class RangeHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+class NoRangeHandler(RangeHandler):
+    """A server that ignores Range and always answers 200 with the whole file."""
+
+    def do_GET(self):
+        body = self.payload
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
 class Download(unittest.TestCase):
+    def test_server_ignoring_range_is_refused(self):
+        # appending a full 200 body to a partial file would corrupt it; the tool must refuse
+        # (mutation W4 of docs/evidence/2026-10-09-tool-mutations.md survived without this test)
+        payload = os.urandom(50_000)
+        NoRangeHandler.payload = payload
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), NoRangeHandler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            w = load(f"http://127.0.0.1:{srv.server_address[1]}")
+            with tempfile.TemporaryDirectory() as d:
+                man = {"repo": "org/repo", "revision": REV,
+                       "files": [{"path": "m/model.gguf", "size": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}]}
+                os.makedirs(os.path.join(d, "m"))
+                with open(os.path.join(d, "m/model.gguf"), "wb") as f:
+                    f.write(payload[:12_345])
+                with redirect_stdout(io.StringIO()), self.assertRaises(RuntimeError):
+                    w.download(man, d)
+                self.assertEqual(os.path.getsize(os.path.join(d, "m/model.gguf")), 12_345)   # partial file untouched
+        finally:
+            srv.shutdown()
+
     def test_resume_and_verify(self):
         payload = os.urandom(300_000)
         RangeHandler.payload = payload

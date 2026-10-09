@@ -14,10 +14,11 @@ import slot_persist as sp  # noqa: E402
 
 
 class Stub:
-    def __init__(self, broken_restore=False, nondeterministic=False):
+    def __init__(self, broken_restore=False, nondeterministic=False, noop_restore=False, fail_restore_once=False):
         self.cache = None          # prompt held by slot 0
         self.files = {}
         self.calls = 0
+        self.restores = 0
         stub = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -53,9 +54,11 @@ class Stub:
                     return self.reply(200, {"id_slot": 0, "filename": body["filename"], "n_saved": 1, "n_written": 1234,
                                             "timings": {"save_ms": 1.0}})
                 if action == "restore":
-                    if broken_restore or body["filename"] not in stub.files:
+                    stub.restores += 1
+                    if broken_restore or body["filename"] not in stub.files or (fail_restore_once and stub.restores == 1):
                         return self.reply(400, {"error": "file not found"})
-                    stub.cache = stub.files[body["filename"]]
+                    if not noop_restore:           # noop_restore: answers 200 but loads nothing
+                        stub.cache = stub.files[body["filename"]]
                     return self.reply(200, {"id_slot": 0, "n_restored": 1, "n_read": 1234, "timings": {"restore_ms": 0.5}})
                 return self.reply(404, {"error": "?"})
 
@@ -100,6 +103,18 @@ class SlotPersist(unittest.TestCase):
     def test_divergent_continuation_is_reported(self):
         rc, r = self.run_stub(nondeterministic=True)
         self.assertFalse(r["summary"]["all_continuations_identical"])
+
+    # mutations S1, S3 of docs/evidence/2026-10-09-tool-mutations.md survived the three tests above
+    def test_restore_that_loads_nothing_shows_full_prefill(self):
+        # the slot must be erased before restore, otherwise the warm request measures the live cache
+        rc, r = self.run_stub(noop_restore=True)
+        self.assertEqual(r["summary"]["warm_prompt_n_p50"], 3000)
+
+    def test_partial_failure_is_a_nonzero_exit(self):
+        rc, r = self.run_stub(fail_restore_once=True)
+        self.assertEqual(len(r["errors"]), 1)
+        self.assertEqual(r["summary"]["runs"], 1)
+        self.assertEqual(rc, 1)
 
 
 if __name__ == "__main__":

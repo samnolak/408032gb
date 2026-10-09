@@ -42,6 +42,34 @@ class VsRoofline(unittest.TestCase):
             self.assertAlmostEqual(rows[0]["bound"], bound)
             self.assertAlmostEqual(rows[0]["ratio"], 20.0 / bound)
 
+    def test_strategy_miss_and_mock_flag_are_passed_through(self):
+        # mutations V3, V4 of docs/evidence/2026-10-09-tool-mutations.md survived the default-only test above
+        with tempfile.TemporaryDirectory() as d:
+            run = os.path.join(d, "run")
+            os.makedirs(run)
+            cells = [{"concurrency": 1, "input": 32768, "output": 512, "state": "cold",
+                      "metrics": {"decode_tok_s": {"p50": 10.0}, "prompt_tokens": {"p50": 32768},
+                                  "completion_tokens": {"p50": 512}}}]
+            with open(os.path.join(run, "summary.json"), "w") as f:
+                json.dump({"cells": cells}, f)
+            with open(os.path.join(run, "meta.json"), "w") as f:
+                json.dump({"is_mock_server": True, "engine_desc": "SYNTHETIC"}, f)
+            spec_path = os.path.join(ROOT, "models", "specs", "glm-5.3-flash.json")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                vr.main([run, "--spec", spec_path, "--hit", "0.7", "--strategy", "tp", "--miss", "pcie", "--json"])
+            rows = json.loads(buf.getvalue())
+            with open(spec_path) as f:
+                spec = json.load(f)
+            with open(os.path.join(ROOT, "hardware", "target-4x4080-32g.unverified.json")) as f:
+                hw = json.load(f)
+            q = {"expert_bpw": 4.5, "dense_bpw": 8.5, "kv_bytes_per_elem": 2.0}
+            want = roofline.decode(spec, hw, q, 32768 + 256, 0.7, strategy="tp", miss="pcie")["tok_s"]
+            default = roofline.decode(spec, hw, q, 32768 + 256, 0.7)["tok_s"]
+            self.assertGreater(abs(want - default), 1e-6 * default)   # the case distinguishes tp/pcie from pp/cpu
+            self.assertAlmostEqual(rows[0]["bound"], want)
+            self.assertTrue(rows[0]["mock"])
+
 
 if __name__ == "__main__":
     unittest.main()
