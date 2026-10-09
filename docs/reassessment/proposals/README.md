@@ -42,3 +42,16 @@ python3 -m unittest tests.test_hooks -v
 ```
 и добавить в AGENTS.md («Git and sync») строку: «Cloud agent sessions may push only a plain fast-forward of a `claude/*` branch to
 `origin`; never `main`, never force/delete/mirror». Если пуши агентам не нужны — применить только закрытие дыры `git -C`.
+
+## 0002 — AGENTS.md под ADR-012 (миссия, железо, гейты, ярлыки ролей)
+
+**Статус:** ПРЕДЛОЖЕНО, НЕ ПРИМЕНЕНО (то же правило: инструкции агентов меняет заказчик). Патч: `0002-agents-md-reassessment.patch`
+(проверен `git apply --check`, не применён).
+
+Что меняет: раздел Mission — цели заказчика из мастер-промпта вместо «порта Strata на три модели»; раздел Hardware — все пункты
+UNVERIFIED, P2P UNKNOWN, 4 NVMe, CPU по CPUID; правила гейтов ссылаются на `docs/reassessment/ROADMAP.md` (R0–R6); заголовок ролей
+честно говорит, что Sol/Terra/Luna — только ярлыки (`model: inherit`); строка про пуш `claude/*` (если принято предложение 0001).
+Не меняет: правила доказательности, пины и патчи, роли, Definition of Done.
+```
+git apply docs/reassessment/proposals/0002-agents-md-reassessment.patch
+```

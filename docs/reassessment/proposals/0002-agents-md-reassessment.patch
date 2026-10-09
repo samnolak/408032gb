@@ -1,0 +1,73 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -6,15 +6,15 @@
+ 
+ ## Mission
+ 
+-Port the techniques of Strata (tiered MoE inference: VRAM expert cache + RAM experts
+-computed on CPU + SSD n-gram tables + native-MTP speculation) to a 4x RTX 4080 Super 32 GB
+-server, for these models, in this order (see docs/DECISIONS.md ADR-001):
+-
+-1. GLM-5.3-Flash (320B / 18B active)        — first target
+-2. MiMo-V2.6-Flash (309B / 15B active)      — second
+-3. DeepSeek-V4.1-Flash (552B + 196B Engram) — third
++Build the best practically achievable local inference platform for the customer's server (4x RTX 4080 Super 32 GB class,
++see Hardware) for open-weight models used by code agents, reasoning, tool use, long documents and chat. Customer targets
++(master prompt 2026-10-09, they override older ADRs): >= 262,144 really usable context tokens; single-stream decode at a
++filled context of 50 tok/s minimum, 80-100+ preferred; main weights at no less than a quality 4-bit class; exact routing;
++VRAM -> RAM -> SSD tiers where they pay; OpenAI-compatible server with prefix/KV caching.
++Model and engine are chosen by measurement (docs/reassessment/ADR-012-reassessment.md); Strata and GLM-5.3-Flash are
++candidates, not givens. Historical plan (ADR-001..011, gates G0-G8) is kept as history (docs/reassessment/LEGACY_AUDIT.md).
+ 
+-The customer is Ribrad. The team is fully autonomous inside the gates in docs/PLAN.md.
++The customer is Ribrad. The team is fully autonomous inside the gates in docs/reassessment/ROADMAP.md.
+ 
+ ## Weights on host `epyc-ai` (3x RTX 3090, branch `3090`; decision of that host's operator, 2026-10-03)
+ 
+@@ -27,14 +27,14 @@
+ Neither engine base reads this GGUF today: base A needs its own pack (GGUF->pack converter pending; it re-quantises),
+ base B has no Q4_K expert kernels (PROVISIONAL, read from its docs: Q2_K, Q3_K, IQ2_S, IQ3_S, IQ4_XS only).
+ 
+-## Hardware (stated by the customer, see hardware/4x4080s-32g.json)
++## Hardware (UNVERIFIED customer statements until docs/reassessment/HARDWARE_FACTS.md is filled from scripts/diag)
+ 
+-- 4x RTX 4080 Super 32 GB (sm_89, Ada: FP8 tensor cores yes, FP4 tensor cores NO)
+-- GPU-to-GPU P2P over PCIe works
+-- AMD EPYC 7H43, 48C/96T, Zen 3: AVX2 only, NO AVX-512, NO AMX
+-- 128 GB DDR4-3200; number of populated channels is UNKNOWN (4 or 8) — measure it in G0
+-- 3x Samsung 990 Pro 1 TB NVMe
+-- Proxmox host; the inference VM is on an isolated network with NO internet access
++- 4x NVIDIA RTX 4080 / 4080 Super with 32 GB (modified boards), sm_89: FP8 tensor cores yes, FP4 tensor cores no
++- GPU P2P: UNKNOWN until the matrix test; the stock GeForce driver is reported to disable it (research/R4)
++- AMD EPYC "7H43" (no public SKU found; CPUID decides), AVX2/FMA, no AVX-512, no AMX
++- 128 GB DDR4-3200; populated channels UNKNOWN (4 or 8)
++- 4x 1 TB NVMe (models UNKNOWN)
++- OS / hypervisor / VM: UNKNOWN (historically a Proxmox host with an isolated VM without internet)
+ 
+ ## Upstream pins (never edit upstream code in place)
+ 
+@@ -72,8 +72,8 @@
+ 
+ ## Gate rules
+ 
+-- Work happens inside the current gate in docs/PLAN.md. Starting gate N+1 before gate N
+-  is accepted is not allowed.
++- Work happens inside the current gate in docs/reassessment/ROADMAP.md (R0-R6; docs/PLAN.md G0-G8 is history).
++  Starting gate N+1 before gate N is accepted is not allowed.
+ - Only the lead-architect role moves a gate to ACCEPTED, and only by citing evidence.
+ - Every new kernel ships with a parity test against `ref/` (numpy oracle) AND against
+   llama.cpp tensor dumps (tensor names from `cb(..., "<name>", il)` in the reference graph).
+@@ -82,11 +82,12 @@
+ ## Git and sync
+ 
+ - The VM has no internet. Sync is by `git bundle` through the customer's Windows PC.
++- Cloud agent sessions may push only a plain `claude/*` branch to origin (proposal 0001); never `main`.
+ - Never push to third-party remotes. Never rewrite published history.
+ - One logical change per commit; prefix the subject with the role, e.g.
+   `[parity-qa] ref: KDA oracle`.
+ 
+-## Roles and routing (Sol = complex agentic, Terra = everyday, Luna = quick lookups)
++## Roles and routing (Sol/Terra/Luna are effort labels only: every agent file has `model: inherit`)
+ 
+ | role (.claude/agents/) | routing | owns |
+ |---|---|---|
