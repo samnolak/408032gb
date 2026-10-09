@@ -27,21 +27,24 @@
    "kv_elems_per_token": 512,
    "kv_bytes_per_elem": 1.0,
    "scan_bytes_per_entry": 68,
-   "selected_entries": 512
+   "selected_entries": 512,
+   "kv_heads": 1
   },
   {
    "kind": "sliding",
    "layers": 43,
    "window": 128,
    "kv_elems_per_token": 512,
-   "kv_bytes_per_elem": 1.0
+   "kv_bytes_per_elem": 1.0,
+   "kv_heads": 1
   }
  ],
  "native_context": 1048576,
  "_labels": {
   "geometry": "PROVISIONAL (research/R1-models.md: transformers defaults for V4-Flash-Base + vLLM recipe): 284B / 13B, 43 layers, hidden 4096, 256 experts top-6 + 1 shared, FF 2048, CSA/HCA compression 4/128, SWA 128",
   "dense_params.non_routed_active": "PROVISIONAL: 13B active minus routed active 6 x 43 x 25.17M = 6.49B",
-  "kv": "PROVISIONAL: ~3.5 KB/token BF16 (R1: V4.1 is ~1/4 of V4-Flash per the vendor); decode read modelled as a compressed (1/4) FP4 index scan + 512 selected FP8 latents per layer; HCA (1/128) layers are folded into this approximation",
+  "kv": "PROVISIONAL: ~3.5 KB/token FP8 (~7 KB BF16; review item 15) (R1: V4.1 is ~1/4 of V4-Flash per the vendor); decode read modelled as a compressed (1/4) FP4 index scan + 512 selected FP8 latents per layer; HCA (1/128) layers are folded into this approximation",
   "quant": "REPORTED: unsloth UD-Q4_K_XL 155.1 GB keeps the native FP4 experts bit-exact (KLD ~0.01)"
- }
+ },
+ "kv_override_heads": 1
 }

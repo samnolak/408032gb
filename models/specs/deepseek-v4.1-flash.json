@@ -27,7 +27,8 @@
    "layers": 1,
    "kv_elems_per_token": 0,
    "scan_bytes_per_entry": 68,
-   "selected_entries": 0
+   "selected_entries": 0,
+   "kv_heads": 1
   },
   {
    "kind": "indexed",
@@ -36,14 +37,16 @@
    "kv_bytes_per_elem": 0.5625,
    "scan_bytes_per_entry": 68,
    "scan_cap_entries": 16384,
-   "selected_entries": 512
+   "selected_entries": 512,
+   "kv_heads": 1
   },
   {
    "kind": "sliding",
    "layers": 40,
    "window": 128,
    "kv_elems_per_token": 512,
-   "kv_bytes_per_elem": 1.0
+   "kv_bytes_per_elem": 1.0,
+   "kv_heads": 1
   }
  ],
  "lookup": {
@@ -62,5 +65,6 @@
   "attention": "PROVISIONAL reading of inference/model.py: one candidate scan over all index keys at layer 20, then per layer an indexer over 16,384 candidates and attention over 512 selected latents + a 128-token FP8 window",
   "lookup": "PROVISIONAL: 2 Engram layers x 8 heads x 3 n-gram sizes (2-,3-,4-gram) = 48 rows of 256 FP8 (+E8M0/32) per token; addresses depend only on token ids",
   "native_context": "config: original_seq_len 65536 with rope_factor 16 (YaRN); claimed context UNKNOWN here"
- }
+ },
+ "kv_override_heads": 1
 }

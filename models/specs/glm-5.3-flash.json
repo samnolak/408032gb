@@ -31,7 +31,8 @@
    "kind": "linear",
    "layers": 34,
    "state_bytes": 4489216,
-   "prefill_flops_per_token": 4194304
+   "prefill_flops_per_token": 4194304,
+   "kv_heads": 64
   },
   {
    "kind": "indexed",
@@ -42,7 +43,8 @@
    "scan_bytes_per_entry": 256,
    "selected_entries": 2051,
    "prefill_flops_coef": 2048.0,
-   "prefill_flops_per_token": 268828672
+   "prefill_flops_per_token": 268828672,
+   "kv_heads": 1
   }
  ],
  "native_context": null,
@@ -51,6 +53,8 @@
   "dense_params": "PROVISIONAL: summed from the tensor shapes in glm5-next.cpp @ec7630a (norms and biases below 0.01% ignored); total with routed experts and vision = 321.3B, matching the 321.3B in llama.cpp PR #27754 as quoted in docs/prompts/GLM53-TZ.md",
   "attention.linear.state_bytes": "PROVISIONAL: 64 heads x 128 x 128 fp32 state + 3 short-conv states (8192 ch x 3 x fp32), as llama.cpp keeps them",
   "attention.indexed": "PROVISIONAL from glm5-next.cpp:320-345 @ec7630a: decode gathers kpool*min(n_pool, top_k/kpool) + (kpool-1) = 2051 latents of 512; the indexer scans one pooled 128-dim f16 key per pool of 4 (pool_cells); aux = per-token f16 indexer key + pooled key share",
-  "native_context": "UNKNOWN here; Z.ai announcement reports 1M (web search 2026-10-09, see research/R1-models.md)"
+  "native_context": "UNKNOWN here; Z.ai announcement reports 1M (web search 2026-10-09, see research/R1-models.md)",
+  "kv_heads": "KDA state is per head (64, divisible under TP); the MLA latent (512) and the indexer key are shared by all heads (1, replicated under TP) - adversarial review item 6",
+  "kv_store_note": "llama.cpp stores key|gate|pooled (3x128) per token and 12 DSA layers incl. MTP (src/llama-memory-hybrid-idx.cpp:56-58 @79e2e74, research/R1 \u00a73): up to ~8 GB at 262K vs ~3.75 GiB here (review item 14)"
  }
 }

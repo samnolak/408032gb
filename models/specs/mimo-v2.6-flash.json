@@ -27,14 +27,16 @@
    "kind": "full",
    "layers": 9,
    "kv_elems_per_token": 1280,
-   "prefill_flops_coef": 40960
+   "prefill_flops_coef": 40960,
+   "kv_heads": 4
   },
   {
    "kind": "sliding",
    "layers": 39,
    "window": 128,
    "kv_elems_per_token": 2560,
-   "prefill_flops_coef": 40960
+   "prefill_flops_coef": 40960,
+   "kv_heads": 8
   }
  ],
  "native_context": null,

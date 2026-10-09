@@ -60,43 +60,58 @@ def dense_stored_params(spec, include_mtp=True):
     return s
 
 
-def kv_store_bytes(spec, ctx, kv_bytes_per_elem=2.0):
-    """Bytes held for a context of `ctx` tokens: KV caches + recurrent states (one sequence)."""
+def kv_split(g, n_gpu):
+    """GPUs a group's KV/state can be divided over under TP: by KV heads. A shared MLA latent or a single-key indexer
+    (kv_heads 1) cannot be divided: every GPU keeps and reads all of it. Groups without kv_heads are divisible."""
+    return max(1, min(n_gpu, g.get("kv_heads", n_gpu)))
+
+
+def kv_store_bytes(spec, ctx, kv_bytes_per_elem=2.0, n_gpu_tp=1):
+    """Bytes held for a context of `ctx` tokens: KV caches + recurrent states (one sequence), summed over all GPUs.
+    n_gpu_tp > 1: tensor parallel over that many GPUs - groups that cannot be split are replicated."""
     override = spec.get("kv_store_bytes_per_token")         # architectures with KV shared across layers
-    total = override * ctx if override is not None else 0.0
+    total = 0.0
+    if override is not None:
+        total = override * ctx * n_gpu_tp / max(1, min(n_gpu_tp, spec.get("kv_override_heads", 1)))
     for g in spec["attention"]:
         kind, n = g["kind"], g["layers"]
+        rep_factor = n_gpu_tp / kv_split(g, n_gpu_tp)
         if kind == "linear":
-            total += n * g["state_bytes"]
+            total += n * g["state_bytes"] * rep_factor
             continue
         per_tok = g["kv_elems_per_token"] * g.get("kv_bytes_per_elem", kv_bytes_per_elem) + g.get("aux_bytes_per_token", 0)
         if kind == "sliding":
-            total += n * per_tok * min(ctx, g["window"])
+            total += n * per_tok * min(ctx, g["window"]) * rep_factor
         elif override is None:  # full, indexed
-            total += n * per_tok * ctx / g.get("compress_ratio", 1)
+            total += n * per_tok * ctx / g.get("compress_ratio", 1) * rep_factor
     return total
 
 
-def kv_read_bytes(spec, ctx, kv_bytes_per_elem=2.0):
-    """Bytes of KV / state touched to decode one token with `ctx` tokens of context."""
+def kv_read_bytes(spec, ctx, kv_bytes_per_elem=2.0, n_gpu_tp=1, n_tok=1):
+    """Bytes of KV / state touched to decode (or verify) n_tok tokens with `ctx` tokens of context, on ONE GPU.
+    n_gpu_tp > 1: per-GPU share under tensor parallel (undividable groups are read whole by every GPU).
+    n_tok > 1: a verification window - full/sliding KV and the indexer scan are read once for the batch, but every
+    token of an indexed (DSA/CSA) layer gathers its own selected entries."""
     total = 0.0
     for g in spec["attention"]:
         kind, n = g["kind"], g["layers"]
+        div = kv_split(g, n_gpu_tp)
         if kind == "linear":
-            total += n * 2 * g["state_bytes"]                      # read and write the state
+            b = n * 2 * g["state_bytes"]                          # read and write the state
         elif kind == "sliding":
-            total += n * g["kv_elems_per_token"] * g.get("kv_bytes_per_elem", kv_bytes_per_elem) * min(ctx, g["window"])
+            b = n * g["kv_elems_per_token"] * g.get("kv_bytes_per_elem", kv_bytes_per_elem) * min(ctx, g["window"])
         elif kind == "full":
-            total += n * (g["kv_elems_per_token"] * g.get("kv_bytes_per_elem", kv_bytes_per_elem)
-                          + g.get("aux_bytes_per_token", 0)) * ctx / g.get("compress_ratio", 1)
+            b = n * (g["kv_elems_per_token"] * g.get("kv_bytes_per_elem", kv_bytes_per_elem)
+                     + g.get("aux_bytes_per_token", 0)) * ctx / g.get("compress_ratio", 1)
         elif kind == "indexed":
             entries = ctx / g.get("compress_ratio", 1)
             scanned = min(entries / g.get("pool", 1), g.get("scan_cap_entries", float("inf")))
             scan = g["scan_bytes_per_entry"] * scanned
             sel = min(entries, g["selected_entries"]) * g["kv_elems_per_token"] * g.get("kv_bytes_per_elem", kv_bytes_per_elem)
-            total += n * (scan + sel)
+            b = n * (scan + n_tok * sel)
         else:
             raise ValueError(f"unknown attention kind {kind!r}")
+        total += b / div
     return total
 
 
@@ -105,6 +120,18 @@ def lookup_bytes_per_token(spec):
     if not lk:
         return 0.0, 0
     return lk["rows_per_token"] * lk["row_bytes"], lk["rows_per_token"]
+
+
+def draft_bytes_per_token(spec, q):
+    """Bytes read to draft ONE token with the model's MTP head: its dense part + lm_head + its top-k experts.
+    None when the spec does not describe the draft head (then pass --draft-gb)."""
+    d = spec.get("draft")
+    if d is not None:
+        return d["dense_params"] * q["dense_bpw"] / 8 + d["experts"] * expert_params(spec) * q["expert_bpw"] / 8
+    dp = spec["dense_params"]
+    if "mtp" in dp and "lm_head" in dp:
+        return (dp["mtp"] + dp["lm_head"]) * q["dense_bpw"] / 8 + spec["moe"]["top_k"] * expert_params(spec) * q["expert_bpw"] / 8
+    return None
 
 
 # ---------------------------------------------------------------------------------------------- helpers
@@ -137,12 +164,12 @@ def spec_tokens_per_step(accept, k):
 
 # ---------------------------------------------------------------------------------------------- placement
 
-def placement(spec, hw, q, ctx):
+def placement(spec, hw, q, ctx, strategy="pp"):
     n_gpu = len(hw["gpus"])
     e_bytes = expert_params(spec) * q["expert_bpw"] / 8
     experts_bytes = routed_stored_params(spec) * q["expert_bpw"] / 8
     dense_bytes = dense_stored_params(spec) * q["dense_bpw"] / 8
-    kv_bytes = kv_store_bytes(spec, ctx, q["kv_bytes_per_elem"])
+    kv_bytes = kv_store_bytes(spec, ctx, q["kv_bytes_per_elem"], n_gpu_tp=n_gpu if strategy == "tp" else 1)
     vram = sum(g["vram_gib"] for g in hw["gpus"]) * GIB
     fixed = n_gpu * hw["gpu_reserve_gib"] * GIB + dense_bytes + kv_bytes + q.get("extra_vram_gib", 0) * GIB
     cache = max(0.0, vram - fixed)
@@ -152,7 +179,7 @@ def placement(spec, hw, q, ctx):
     ram_experts = min(spill, ram_usable)
     ssd_experts = spill - ram_experts
     return {
-        "expert_mib": e_bytes / 2 ** 20,
+        "strategy": strategy, "expert_mib": e_bytes / 2 ** 20,
         "experts_gib": experts_bytes / GIB, "dense_gib": dense_bytes / GIB, "kv_state_gib": kv_bytes / GIB,
         "vram_fixed_gib": fixed / GIB, "vram_expert_cache_gib": cache / GIB,
         "resident_frac": resident / experts_bytes if experts_bytes else 1.0,
@@ -166,11 +193,17 @@ def placement(spec, hw, q, ctx):
 # ---------------------------------------------------------------------------------------------- decode
 
 def decode(spec, hw, q, ctx, hit_vram, hit_ram=None, strategy="pp", miss="cpu", spec_k=0, spec_accept=0.0,
-           ram_channels=None):
+           ram_channels=None, overlap=True, draft_gb=None):
     """Seconds per token and tok/s bound. hit_vram: share of routed-expert reads served from VRAM.
 
     hit_ram: share served from RAM (default: all the rest); the remainder comes from NVMe.
     miss: "cpu" (CPU computes from RAM) or "pcie" (copy the expert to the GPU first).
+    overlap: True - CPU/PCIe expert work of a layer runs while the GPU does that layer's resident experts (Strata,
+             strata-glm --cpu-share); False - one after the other (llama.cpp: a layer's experts are either on the CPU
+             via -ot or copied into the GPU cache, research/R3, docs/reassessment/D1-moe-cache-policy.md).
+    spec_k: drafted tokens per step; their drafting cost is spec_k x draft_bytes_per_token (or draft_gb GB).
+    Note: hit_vram is an INPUT; with copies of resident experts in RAM a scheduler could hand part of the resident work
+    to the CPU, so with overlap=True the bound is not monotone in hit_vram - take the max over hit' <= hit if needed.
     """
     n_gpu = len(hw["gpus"])
     if hit_ram is None:
@@ -191,7 +224,14 @@ def decode(spec, hw, q, ctx, hit_vram, hit_ram=None, strategy="pp", miss="cpu", 
     d_routed = distinct_experts(m["n_experts"], m["top_k"], n_tok) if n_tok > 1 else m["top_k"]
     w_dense = dense_active_params(spec) * q["dense_bpw"] / 8
     w_routed = d_routed * L_moe * expert_params(spec) * q["expert_bpw"] / 8
-    w_kv = kv_read_bytes(spec, ctx, q["kv_bytes_per_elem"])
+    w_kv = kv_read_bytes(spec, ctx, q["kv_bytes_per_elem"], 1, n_tok)
+    w_kv_tp = kv_read_bytes(spec, ctx, q["kv_bytes_per_elem"], n_gpu, n_tok)     # per GPU under TP
+    w_draft = 0.0
+    if spec_k:
+        per = draft_gb * 1e9 if draft_gb is not None else draft_bytes_per_token(spec, q)
+        if per is None:
+            raise ValueError(f"{spec['name']}: the draft head is not described in the spec; pass draft_gb (--draft-gb)")
+        w_draft = spec_k * per
     lk_bytes, lk_rows = lookup_bytes_per_token(spec)
 
     gpu_routed = hit_vram * w_routed
@@ -210,20 +250,25 @@ def decode(spec, hw, q, ctx, hit_vram, hit_ram=None, strategy="pp", miss="cpu", 
     e_off_l += ssd_routed / L_moe / ssd_bw + (ssd_routed / L_moe / rbw if miss == "cpu" else 0.0)
     off_sync = (2 * lat) if (hit_ram + hit_ssd) > 0 else 0.0
 
+    def layer(gpu_part, off_part):
+        if off_part <= 0:
+            return gpu_part
+        return max(gpu_part, off_part) if overlap else gpu_part + off_part
+
     if strategy == "pp":
-        moe = L_moe * max(e_gpu_l, e_off_l + off_sync)
+        moe = L_moe * layer(e_gpu_l, e_off_l + off_sync)
         comm = (n_gpu - 1) * lat
-        t = a_total + moe + comm
+        t = a_total + moe + comm + w_draft / gbw                # the draft head runs on the last card
     elif strategy == "ep":
         imb = ep_imbalance(m["top_k"], n_gpu) if n_tok == 1 else 1.0
         e_gpu_ep = e_gpu_l / n_gpu * imb
-        moe = L_moe * (max(e_gpu_ep, e_off_l + off_sync) + 2 * lat)
+        moe = L_moe * (layer(e_gpu_ep, e_off_l + off_sync) + 2 * lat)
         comm = (n_gpu - 1) * lat
-        t = a_total + moe + comm
+        t = a_total + moe + comm + w_draft / gbw
     elif strategy == "tp":
-        moe = L_moe * max(e_gpu_l / n_gpu, e_off_l + off_sync)
+        moe = L_moe * layer(e_gpu_l / n_gpu, e_off_l + off_sync)
         comm = n_layers * 2 * hw["pcie"]["allreduce_us"] * 1e-6
-        t = a_total / n_gpu + moe + comm
+        t = (w_dense / n_gpu + w_kv_tp) / gbw + moe + comm + w_draft / (n_gpu * gbw)
     else:
         raise ValueError(strategy)
 
@@ -236,7 +281,8 @@ def decode(spec, hw, q, ctx, hit_vram, hit_ram=None, strategy="pp", miss="cpu", 
     return {
         "strategy": strategy, "miss": miss, "ctx": ctx, "hit_vram": hit_vram, "hit_ram": hit_ram, "hit_ssd": hit_ssd,
         "bytes_per_step_gib": {"dense": w_dense / GIB, "routed": w_routed / GIB, "kv_state": w_kv / GIB,
-                               "lookup": lk_bytes / GIB},
+                               "kv_state_per_gpu_tp": w_kv_tp / GIB, "draft": w_draft / GIB, "lookup": lk_bytes / GIB},
+        "overlap": overlap,
         "ms_per_step": t * 1e3, "tokens_per_step": tokens, "tok_s": tokens / t,
         "lookup_rows_per_token": lk_rows, "ram_channels": int(ch),
     }
@@ -256,7 +302,8 @@ def ttft(spec, hw, q, ctx, resident_frac, chunk=4096):
             attn += g["layers"] * f * ctx * ctx / 2
         elif g["kind"] == "sliding":
             attn += g["layers"] * f * ctx * min(ctx, g["window"])
-    tf = hw["gpus"][0]["tflops_fp16"] * 1e12 * hw["gpus"][0]["mma_eff"] * n_gpu
+    g0 = hw["gpus"][0]
+    tf = g0.get("tflops_tc_fp16_fp32acc", g0.get("tflops_fp16")) * 1e12 * g0["mma_eff"] * n_gpu
     t_compute = (flops + attn) / tf
     experts_bytes = routed_stored_params(spec) * q["expert_bpw"] / 8
     stream = (1 - resident_frac) * experts_bytes
@@ -271,20 +318,22 @@ def quant_from_args(a):
     return {"expert_bpw": a.expert_bpw, "dense_bpw": a.dense_bpw, "kv_bytes_per_elem": a.kv_bytes}
 
 
-def report(spec, hw, q, ctx, hits, strategies, misses, spec_k, spec_accept, ram_channels):
+def report(spec, hw, q, ctx, hits, strategies, misses, spec_k, spec_accept, ram_channels, overlap=True, draft_gb=None):
     p = placement(spec, hw, q, ctx)
+    places = {s: placement(spec, hw, q, ctx, s) for s in strategies}
     rows = []
-    off = p["ram_frac"] + p["ssd_frac"]
     for h in hits:
-        if h == "auto":                       # uniform routing: accesses follow bytes
-            hv, hr = p["resident_frac"], p["ram_frac"]
-        else:                                 # a better cache: misses split between RAM and NVMe like the bytes
-            hv = float(h)
-            hr = (1 - hv) * (p["ram_frac"] / off if off > 0 else 1.0)
         for s in strategies:
+            ps = places[s]
+            off = ps["ram_frac"] + ps["ssd_frac"]
+            if h == "auto":                   # uniform routing: accesses follow bytes
+                hv, hr = ps["resident_frac"], ps["ram_frac"]
+            else:                             # a better cache: misses split between RAM and NVMe like the bytes
+                hv = float(h)
+                hr = (1 - hv) * (ps["ram_frac"] / off if off > 0 else 1.0)
             for mi in misses:
-                rows.append(decode(spec, hw, q, ctx, hv, hr, s, mi, spec_k, spec_accept, ram_channels))
-    return {"model": spec["name"], "quant": q, "placement": p, "decode": rows,
+                rows.append(decode(spec, hw, q, ctx, hv, hr, s, mi, spec_k, spec_accept, ram_channels, overlap, draft_gb))
+    return {"model": spec["name"], "quant": q, "placement": p, "placement_by_strategy": places, "decode": rows,
             "ttft": ttft(spec, hw, q, ctx, p["resident_frac"])}
 
 
@@ -297,10 +346,14 @@ def render(r):
            f"  VRAM fixed {p['vram_fixed_gib']:.1f} GiB, expert cache {p['vram_expert_cache_gib']:.1f} GiB -> resident "
            f"{100 * p['resident_frac']:.1f}% | RAM {100 * p['ram_frac']:.1f}% | NVMe {100 * p['ssd_frac']:.1f}% "
            f"({p['ssd_gib']:.1f} GiB)"]
+    for s, ps in r.get("placement_by_strategy", {}).items():
+        if abs(ps["resident_frac"] - p["resident_frac"]) > 1e-9:
+            out.append(f"  under {s}: KV+state {ps['kv_state_gib']:.2f} GiB (undividable KV replicated on every GPU) -> "
+                       f"resident {100 * ps['resident_frac']:.1f}% | RAM {100 * ps['ram_frac']:.1f}% | NVMe {100 * ps['ssd_frac']:.1f}%")
     for d in r["decode"]:
         b = d["bytes_per_step_gib"]
         out.append(f"  ctx {d['ctx']:>7} hit VRAM {d['hit_vram']:.2f} RAM {d['hit_ram']:.2f} SSD {d['hit_ssd']:.2f} "
-                   f"{d['strategy']:>2}/{d['miss']:<4} RAM {d['ram_channels']}ch: {d['tok_s']:6.1f} tok/s "
+                   f"{d['strategy']:>2}/{d['miss']:<4}{'' if d['overlap'] else ' serial'} RAM {d['ram_channels']}ch: {d['tok_s']:6.1f} tok/s "
                    f"({d['ms_per_step']:.2f} ms/step; read GiB dense {b['dense']:.2f} routed {b['routed']:.2f} "
                    f"kv {b['kv_state']:.3f})")
     t = r["ttft"]
@@ -323,10 +376,20 @@ def main(argv=None):
     ap.add_argument("--spec-k", type=int, default=0)
     ap.add_argument("--spec-accept", type=float, default=0.0)
     ap.add_argument("--ram-channels", type=int, default=None)
+    ap.add_argument("--overlap", choices=["yes", "no"], default="yes",
+                    help="CPU/PCIe expert work overlaps the GPU's resident experts (yes) or follows it (no, llama.cpp)")
+    ap.add_argument("--draft-gb", type=float, default=None, help="GB read per drafted token (overrides the spec)")
+    ap.add_argument("--gpu-eff", type=float, default=None, help="override bw_eff of every GPU (calibration)")
+    ap.add_argument("--ram-eff", type=float, default=None, help="override ram.bw_eff (calibration)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     with open(a.hw) as f:
         hw = json.load(f)
+    if a.gpu_eff is not None:
+        for g in hw["gpus"]:
+            g["bw_eff"] = a.gpu_eff
+    if a.ram_eff is not None:
+        hw["ram"]["bw_eff"] = a.ram_eff
     q = quant_from_args(a)
     hits = a.sweep_hit.split(",")
     res = []
@@ -334,7 +397,7 @@ def main(argv=None):
         with open(path) as f:
             spec = json.load(f)
         res.append(report(spec, hw, q, a.ctx, hits, a.strategies.split(","), a.miss.split(","), a.spec_k,
-                          a.spec_accept, a.ram_channels))
+                          a.spec_accept, a.ram_channels, a.overlap == "yes", a.draft_gb))
     if a.json:
         json.dump(res, sys.stdout, indent=1)
         print()

@@ -22,7 +22,8 @@
   {
    "kind": "linear",
    "layers": 36,
-   "state_bytes": 3145728
+   "state_bytes": 3145728,
+   "kv_heads": 48
   },
   {
    "kind": "indexed",
@@ -31,7 +32,8 @@
    "aux_bytes_per_token": 320,
    "pool": 4,
    "scan_bytes_per_entry": 256,
-   "selected_entries": 2051
+   "selected_entries": 2051,
+   "kv_heads": 2
   }
  ],
  "side_table": {
@@ -47,6 +49,11 @@
   "dense_params.embedding": "PROVISIONAL placeholder (vocab not read here)",
   "attention.indexed": "PROVISIONAL: indexer k-pool 4, top-k 2048, dim 128 (ADR-001 table, Strata qsa.hpp:95-112 @c499bd1); stored indexer bytes assumed like GLM's",
   "side_table": "the 51.2B PLE n-gram table (Strata ngram.hpp; 29 GB shard at IQ4_NL) is served from RAM/SSD and not modelled per token here",
-  "native_context": "REPORTED: 262,144 native (vLLM recipe via research/R1-models.md; web search 2026-10-09)"
+  "native_context": "REPORTED: 262,144 native (vLLM recipe via research/R1-models.md; web search 2026-10-09)",
+  "draft": "PROVISIONAL: one MTP layer ~0.08B (2560-wide attention + shared expert) + lm_head (placeholder 0.6B, vocab not read) + top-10 of its experts"
+ },
+ "draft": {
+  "dense_params": 680000000.0,
+  "experts": 10
  }
 }

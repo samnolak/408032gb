@@ -139,6 +139,54 @@ class Physics(unittest.TestCase):
         self.assertGreater(sp, base)
 
 
+class ReviewFixes(unittest.TestCase):
+    """docs/reassessment/REVIEW-adversarial.md items 5-8."""
+
+    def test_ttft_uses_tensor_core_rate(self):
+        s = spec("glm-5.3-flash")
+        hw_cuda = json.loads(json.dumps(HW))
+        for g in hw_cuda["gpus"]:
+            g["tflops_tc_fp16_fp32acc"] = 52.2
+        t_tc = rl.ttft(s, HW, Q4, 262144, 1.0)["t_compute_s"]
+        t_cuda = rl.ttft(s, hw_cuda, Q4, 262144, 1.0)["t_compute_s"]
+        self.assertAlmostEqual(t_cuda / t_tc, 104.5 / 52.2, places=6)
+
+    def test_mla_latent_is_replicated_under_tp(self):
+        s = spec("glm-5.3-flash")
+        pp = rl.placement(s, HW, Q4, 262144, "pp")
+        tp = rl.placement(s, HW, Q4, 262144, "tp")
+        self.assertGreater(tp["kv_state_gib"], pp["kv_state_gib"] * 2)        # latent + indexer x4, KDA state x1
+        self.assertLess(tp["resident_frac"], pp["resident_frac"])
+        whole = rl.kv_read_bytes(s, 262144, 2.0, 1)
+        per_gpu = rl.kv_read_bytes(s, 262144, 2.0, 4)
+        dsa_only = rl.kv_read_bytes({"attention": [s["attention"][1]]}, 262144, 2.0, 1)
+        self.assertAlmostEqual(per_gpu, (whole - dsa_only) / 4 + dsa_only, delta=1.0)
+
+    def test_draft_cost_is_charged(self):
+        s = spec("glm-5.3-flash")
+        free = rl.decode(s, HW, Q4, 32768, 0.9, spec_k=3, spec_accept=0.7, draft_gb=0.0)["tok_s"]
+        paid = rl.decode(s, HW, Q4, 32768, 0.9, spec_k=3, spec_accept=0.7)["tok_s"]
+        self.assertLess(paid, free)
+        per = rl.draft_bytes_per_token(s, Q4)
+        self.assertAlmostEqual(per / 1e9, 0.98, delta=0.03)                      # review item 7: ~0.98 GB
+
+    def test_undescribed_draft_head_is_an_error(self):
+        s = spec("mimo-v2.6-flash")
+        with self.assertRaises(ValueError):
+            rl.decode(s, HW, Q4, 32768, 1.0, spec_k=2, spec_accept=0.5)
+        self.assertGreater(rl.decode(s, HW, Q4, 32768, 1.0, spec_k=2, spec_accept=0.5, draft_gb=0.5)["tok_s"], 0)
+
+    def test_serial_mode_is_slower_and_monotone(self):
+        s = spec("glm-5.3-flash")
+        prev = 0.0
+        for h in (0.6, 0.7, 0.8, 0.9, 0.95, 1.0):
+            ser = rl.decode(s, HW, Q4, 262144, h, overlap=False)["tok_s"]
+            ovl = rl.decode(s, HW, Q4, 262144, h, overlap=True)["tok_s"]
+            self.assertLessEqual(ser, ovl + 1e-9)
+            self.assertGreaterEqual(ser, prev)
+            prev = ser
+
+
 class Cli(unittest.TestCase):
     def test_cli_json_for_every_spec(self):
         files = sorted(glob.glob(os.path.join(ROOT, "models", "specs", "*.json")))
