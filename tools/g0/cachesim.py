@@ -14,8 +14,15 @@ Policies (all exact-routing: they only decide WHERE an expert is read from, neve
   hybrid   S = C/2 static slots + C - S LRU slots (the shape of Strata's static VRAM part + VRAM LRU)
   opt      Belady's MIN with bypass and a free preload of the experts used first: the offline optimum for ANY policy
            holding C experts per layer, warm or cold (an upper bound, not an implementable policy)
-  lru_global   ONE LRU shared by all layers with the same total budget (C x layers): llama.cpp --moe-cache-mib
+  lru_global   ONE LRU shared by all layers with the same total budget (C x layers)
+  lru_device   an APPROXIMATION of llama.cpp --moe-cache-mib (src/llama-moe-cache.cpp @10a60cf30): one LRU per device over its
+               contiguous layers (--devices, layer split), the budget split evenly by expert bytes (lines 310-327); prompt
+               ubatches larger than 32 tokens only read the cache (lines 468-470). Not modelled: several groups per device
+               when layers mix tensor types, unequal free VRAM per device.
   opt_global   Belady-with-bypass bound for any policy sharing that total budget across layers
+Prompt tokens: with --prompt-readonly (default) the global/device LRUs are not updated by prompt tokens (llama.cpp behaviour
+for ubatches > 32); per-layer policies always update. --session keeps every cache across the test traces in file order
+(one user's consecutive requests) instead of starting each trace cold.
 Dynamic policies start EMPTY (cold) unless --warm, which preloads them with the static set.
 
 Trace format (little endian): b"G0TR", u32 version=1, u32 n_layers, u32 k, u32 n_tokens, u32 n_prompt,
@@ -34,7 +41,7 @@ from collections import OrderedDict, defaultdict
 
 MAGIC = b"G0TR"
 LAYER_POLICIES = ("static", "lru", "lfu", "tinylfu", "hybrid", "opt")      # a budget of C experts per layer
-GLOBAL_POLICIES = ("lru_global", "opt_global")                           # one budget of C x layers
+GLOBAL_POLICIES = ("lru_global", "lru_device", "opt_global")             # one budget of C x layers
 POLICIES = LAYER_POLICIES + GLOBAL_POLICIES
 
 
@@ -199,29 +206,60 @@ def _top(ranked, n):
 
 # ------------------------------------------------------------------------------------------- one cache for all layers
 
+def concat_traces(traces):
+    """One pseudo-trace: the per-layer sequences of all traces one after another (file order), with a prompt mask.
+    Simulating it = keeping the caches across requests (--session)."""
+    lids = traces[0]["layer_ids"]
+    per_layer = {lid: [] for lid in lids}
+    mask = []
+    for tr in traces:
+        if tr["layer_ids"] != lids:
+            raise ValueError("--session needs traces of the same model (same MoE layers)")
+        for lid in lids:
+            per_layer[lid].extend(tr["per_layer"][lid])
+        mask.extend(i < tr["n_prompt"] for i in range(tr["n_tokens"]))
+    return {"layer_ids": lids, "k": traces[0]["k"], "n_tokens": len(mask), "n_prompt": None, "prompt_mask": mask,
+            "per_layer": per_layer}
+
+
+def prompt_mask(tr):
+    if tr.get("prompt_mask") is not None:
+        return tr["prompt_mask"]
+    return [i < tr["n_prompt"] for i in range(tr["n_tokens"])]
+
+
 def global_sequence(tr):
     """Per token, the (layer, expert) keys in layer order: the order in which a decoder visits them."""
     lids = tr["layer_ids"]
     return [tuple((lid, e) for lid in lids for e in tr["per_layer"][lid][t]) for t in range(tr["n_tokens"])]
 
 
-def simulate_global(tr, policy, cap_total):
+def simulate_global(tr, policy, cap_total, n_devices=4, prompt_readonly=True):
     """'lru_global': ONE LRU over all layers' experts (how llama.cpp --moe-cache-mib works: layers of a device share
     the slots, src/llama-moe-cache.cpp:15-120 @10a60cf30). 'opt_global': Belady with bypass over the same keys and the
     same total capacity (offline bound for any global policy). Returns per-token hit counts."""
     seq = global_sequence(tr)
-    if policy == "lru_global":
-        from collections import OrderedDict as _OD
-        lru = _OD()
+    mask = prompt_mask(tr)
+    if policy in ("lru_global", "lru_device"):
+        lids = tr["layer_ids"]
+        n_dev = 1 if policy == "lru_global" else max(1, min(n_devices, len(lids)))
+        dev_of = {lid: (i * n_dev) // len(lids) for i, lid in enumerate(lids)}       # contiguous layer split
+        layers_on = [sum(1 for lid in lids if dev_of[lid] == d) for d in range(n_dev)]
+        caps = [cap_total * layers_on[d] / len(lids) for d in range(n_dev)]         # budget split by expert bytes
+        lrus = [OrderedDict() for _ in range(n_dev)]
         hits = []
-        for t in seq:
+        for i, t in enumerate(seq):
+            ro = prompt_readonly and mask[i]
             h = 0
             for key in t:
+                d = dev_of[key[0]]
+                lru = lrus[d]
                 if key in lru:
                     h += 1
-                    lru.move_to_end(key)
-                else:
-                    if len(lru) >= cap_total:
+                    if not ro:
+                        lru.move_to_end(key)
+                elif not ro and caps[d] >= 1:
+                    if len(lru) >= int(caps[d]):
                         lru.popitem(last=False)
                     lru[key] = True
             hits.append(h)
@@ -268,8 +306,11 @@ def layer_freq(traces):
     return freq
 
 
-def evaluate(train, test, n_experts, fractions, policies=POLICIES, warm=False, lfu_decay=4096):
+def evaluate(train, test, n_experts, fractions, policies=POLICIES, warm=False, lfu_decay=4096, session=False,
+             n_devices=4, prompt_readonly=True):
     freq = layer_freq(train)
+    if session:
+        test = [concat_traces(test)]
     out = {}
     for frac in fractions:
         cap = round(frac * n_experts)
@@ -277,12 +318,13 @@ def evaluate(train, test, n_experts, fractions, policies=POLICIES, warm=False, l
         for pol in policies:
             tot = {"all": [0, 0], "prompt": [0, 0], "gen": [0, 0]}
             per_layer = {}
-            if pol.endswith("_global"):
+            if pol in GLOBAL_POLICIES:
                 for tr in test:
-                    hits = simulate_global(tr, pol, cap * len(tr["layer_ids"]))
+                    hits = simulate_global(tr, pol, cap * len(tr["layer_ids"]), n_devices, prompt_readonly)
                     per_tok = tr["k"] * len(tr["layer_ids"])
+                    mask = prompt_mask(tr)
                     for i, h in enumerate(hits):
-                        part = "prompt" if i < tr["n_prompt"] else "gen"
+                        part = "prompt" if mask[i] else "gen"
                         for key in (part, "all"):
                             tot[key][0] += h
                             tot[key][1] += per_tok
@@ -296,8 +338,9 @@ def evaluate(train, test, n_experts, fractions, policies=POLICIES, warm=False, l
                     hits = simulate_layer(seq, pol, cap, n_experts, static=ranked, warm=warm, lfu_decay=lfu_decay)
                     k = tr["k"]
                     lh = [0, 0]
+                    mask = prompt_mask(tr)
                     for i, h in enumerate(hits):
-                        part = "prompt" if i < tr["n_prompt"] else "gen"
+                        part = "prompt" if mask[i] else "gen"
                         tot[part][0] += h
                         tot[part][1] += k
                         tot["all"][0] += h
@@ -325,6 +368,12 @@ def main(argv=None):
     ap.add_argument("--policies", default=",".join(POLICIES))
     ap.add_argument("--warm", action="store_true", help="dynamic policies start with the static set loaded")
     ap.add_argument("--lfu-decay", type=int, default=4096)
+    ap.add_argument("--session", action="store_true", help="keep caches across the test traces (one user's requests)")
+    ap.add_argument("--devices", type=int, default=4, help="GPUs for lru_device (contiguous layer split)")
+    ap.add_argument("--part", choices=["gen", "prompt", "all"], default="gen",
+                    help="which tokens the printed table scores (decode speed depends on 'gen'; JSON has all three)")
+    ap.add_argument("--prompt-updates", action="store_true",
+                    help="let prompt tokens update the global/device LRUs (llama.cpp does not for ubatches > 32)")
     ap.add_argument("-o", "--out")
     a = ap.parse_args(argv)
     files = sorted(pathlib.Path(a.trace_dir).glob("*.trace"))
@@ -339,7 +388,8 @@ def main(argv=None):
         train = [t for t in traces if t not in test]
         split = f"held-out every {a.holdout_every}th file: {len(train)} train / {len(test)} test"
     fr = [float(x) for x in a.capacity.split(",")]
-    res = evaluate(train, test, a.n_experts, fr, a.policies.split(","), a.warm, a.lfu_decay)
+    res = evaluate(train, test, a.n_experts, fr, a.policies.split(","), a.warm, a.lfu_decay, a.session, a.devices,
+                   not a.prompt_updates)
     k = traces[0]["k"]
     spec = {}
     for part in ("gen", "prompt"):
@@ -348,15 +398,21 @@ def main(argv=None):
                       for w, d in wd.items()}
     report = {"label": "CONFIRMED only for the traces given; routing of a quantized model may differ from the original",
               "files": [f.name for f in files], "split": split, "n_experts": a.n_experts, "warm": a.warm,
+              "session": a.session, "devices": a.devices, "prompt_readonly": not a.prompt_updates,
               "hit_rate_by_capacity": res, "distinct_experts_per_window": spec}
     txt = json.dumps(report, indent=1)
     if a.out:
         pathlib.Path(a.out).write_text(txt + "\n")
-    print(f"# cachesim: {len(files)} traces, {split}; warm={a.warm}")
-    print("capacity  " + "  ".join(f"{p:>8}" for p in a.policies.split(",")))
+    print(f"# cachesim: {len(files)} traces, {split}; warm={a.warm} session={a.session} devices={a.devices} "
+          f"prompt_readonly={not a.prompt_updates}")
+    print(f"hit rate on {a.part} tokens")
+    print("capacity  " + "  ".join(f"{p:>10}" for p in a.policies.split(",")))
+
+    def cell(v):
+        return f"{v:10.3f}" if v is not None else f"{'n/a':>10}"
     for f in fr:
         row = res[str(f)]
-        print(f"{f:8.2f}  " + "  ".join(f"{row[p]['all']:8.3f}" for p in a.policies.split(",")))
+        print(f"{f:8.2f}  " + "  ".join(cell(row[p][a.part]) for p in a.policies.split(",")))
     for part in ("gen", "prompt"):
         cells = []
         for w, v in spec[part].items():

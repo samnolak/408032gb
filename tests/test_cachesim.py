@@ -81,13 +81,40 @@ class GlobalCache(unittest.TestCase):
         per_layer = {lid: zipf_trace(rng, 300, 32, 4, s=1.0 + 0.2 * lid) for lid in range(4)}
         tr = {"layer_ids": [0, 1, 2, 3], "k": 4, "n_tokens": 300, "n_prompt": 200, "per_layer": per_layer}
         for cap in (4, 8, 16):
-            lru = sum(cs.simulate_global(tr, "lru_global", cap * 4))
+            lru = sum(cs.simulate_global(tr, "lru_global", cap * 4, prompt_readonly=False))
             opt = sum(cs.simulate_global(tr, "opt_global", cap * 4))
+            for ro in (True, False):
+                dev = sum(cs.simulate_global(tr, "lru_device", cap * 4, n_devices=2, prompt_readonly=ro))
+                self.assertGreaterEqual(opt, dev)
             per_layer_lru = sum(sum(cs.simulate_layer(per_layer[l], "lru", cap, 32, static=list(range(32)))) for l in range(4))
             self.assertGreaterEqual(opt, lru)
             self.assertGreaterEqual(opt, per_layer_lru)      # a global budget can always mimic per-layer budgets
-        full = sum(cs.simulate_global(tr, "lru_global", 32 * 4))
+        full = sum(cs.simulate_global(tr, "lru_global", 32 * 4, prompt_readonly=False))
         self.assertEqual(full, 300 * 16 - len({(l, e) for l in range(4) for t in per_layer[l] for e in t}))
+
+
+    def test_prompt_tokens_do_not_fill_the_device_cache(self):
+        # llama.cpp: ubatches > 32 only read the cache; a prompt-only trace therefore never hits a cold cache
+        tr = {"layer_ids": [0, 1], "k": 1, "n_tokens": 10, "n_prompt": 10,
+              "per_layer": {0: [(1,)] * 10, 1: [(2,)] * 10}}
+        self.assertEqual(sum(cs.simulate_global(tr, "lru_device", 4, n_devices=2)), 0)
+        self.assertEqual(sum(cs.simulate_global(tr, "lru_device", 4, n_devices=2, prompt_readonly=False)), 18)
+
+    def test_device_split_is_not_one_global_lru(self):
+        # layer 0 cycles over 3 experts, layer 1 reuses 1: one LRU of 4 slots holds everything, two LRUs of 2 thrash
+        tr = {"layer_ids": [0, 1], "k": 1, "n_tokens": 60, "n_prompt": 0,
+              "per_layer": {0: [((i % 3),) for i in range(60)], 1: [(7,)] * 60}}
+        glob = sum(cs.simulate_global(tr, "lru_global", 4))
+        dev = sum(cs.simulate_global(tr, "lru_device", 4, n_devices=2))
+        self.assertGreater(glob, dev)
+        self.assertEqual(dev, 59)               # only layer 1 hits after its first miss
+
+    def test_session_keeps_the_cache_across_requests(self):
+        mk = lambda: {"layer_ids": [0], "k": 1, "n_tokens": 5, "n_prompt": 0, "per_layer": {0: [(3,)] * 5}}
+        cold = cs.evaluate([mk()], [mk(), mk()], 8, [0.25], policies=("lru",))["0.25"]["lru"]["all"]
+        sess = cs.evaluate([mk()], [mk(), mk()], 8, [0.25], policies=("lru",), session=True)["0.25"]["lru"]["all"]
+        self.assertAlmostEqual(cold, 0.8)        # one compulsory miss per request
+        self.assertAlmostEqual(sess, 0.9)        # one miss for both
 
 
 class Windows(unittest.TestCase):
