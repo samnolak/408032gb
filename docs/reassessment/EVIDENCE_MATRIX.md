@@ -13,6 +13,8 @@
 | E4 | P2P на штатном драйвере GeForce Ada выключен | REPORTED (NVIDIA forum) + VERIFIED чужой замер 8×4090: 4.5→25.1 ГБ/с с патчем | R4 §4.1, §4.3 (CVGL report) | F14, H6 |
 | E5 | P2P-патч требует ReBAR, BAR1 ≥ VRAM, `iommu=pt`; на 4080/4080S не проверялся публично | VERIFIED (README патчей) / UNKNOWN (4080S) | R4 §4.2 | F9 (BAR1), R4.3 |
 | E6 | NVMe: 4× 1 TB (не 3×990 Pro) | UNVERIFIED (заявление) | мастер-промпт | F15 |
+| E8 | модифицированные RTX 4080 SUPER 32 GB существуют и работают под CUDA: 32 760 MiB, Gen4 x16, H2D 24.0 ГБ/с, драйвер 616.56 | REPORTED (замер сообщества), VERIFIED как файл (ведущий) | Strata `bench/results/2026-10-04-community-rtx-4080s-iq3s/README.md`@fb58e0d | H3, H4 (наши карты) |
+| E9 | Strata: split UD-Q4_K_XL на несколько GPU требует RAM ≥ GGUF + 24 GB (~135 GB) — у нас 128 GB | VERIFIED как текст документации (ведущий) | Strata `docs/UNSLOTH_Q4.md:31-37`@fb58e0d | ручной запуск (BRINGUP-qwen38fn.md) |
 | E7 | GPUDirect Storage на GeForce не поддерживается | REPORTED | R4 §6.4 | — (проектируем через O_DIRECT + pinned) |
 
 ## Модели
