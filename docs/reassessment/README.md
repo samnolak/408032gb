@@ -9,12 +9,16 @@
 4. **`REPO_AUDIT.md`** и **`LEGACY_AUDIT.md`** — что реально есть в репозитории и что стало с каждым старым ADR/гейтом.
 5. **`research/`** — R1 модели, R2 движки, R3 техники, R4 железо (+ `research/README.md`: что перепроверил ведущий).
 6. **`EVIDENCE_MATRIX.md`** — ключевые утверждения с метками и тем, какой эксперимент их закроет.
+7. **`REVIEW-adversarial.md`** — независимое ревью этой переоценки (2 BLOCKER, 10 MAJOR, 7 MINOR); как закрыт каждый пункт —
+   `PROJECT_STATE.md`, раздел «Ревью».
 
 ## Что делать на сервере (по порядку)
 1. **`HW_DIAG_RUNBOOK.md`** — безопасная диагностика (`scripts/diag/collect.sh`, затем замеры) → прислать архив.
 2. **`BIOS_PLAN.md`** — шаг 0: фото всех страниц BIOS; дальше по одной настройке.
 3. **`models/weights/README.md`** + `scripts/offline/weights.py` — доставка и проверка весов шорт-листа.
 4. **`BRINGUP-qwen38fn.md`** — запуск кандидата №1; **`BENCH_PROTOCOL.md`** — как мерить любой движок (`tools/bench/`).
+5. **`DEPLOY.md`** — runbook продукта (движок + шлюз, systemd, обновление/откат, отказы) — черновик, NOT RUN.
+6. **`VERIFICATION_PACK.md`** — что собрать и как сдать требования заказчика (`scripts/verify_pack.sh`).
 
 ## Планы и реестры
 - `ROADMAP.md` — гейты R0–R6 с задачами; `EXPERIMENTS.md` — предрегистрация экспериментов; `R2-EVAL-SET.md` — оценочный набор
@@ -27,10 +31,15 @@
 | инструмент | зачем |
 |---|---|
 | `tools/roofline.py` + `models/specs/*.json` | верхние границы декода/TTFT для любой модели и стратегии (PP/EP/TP, CPU/PCIe/NVMe, спекуляция) |
-| `tools/g0/expert_trace.cpp` + `tools/g0/cachesim.py` | потокенные трассы маршрутизации и симуляция политик кэша экспертов (включая точную модель llama.cpp) |
-| `tools/gguf_quant_audit.py` | проверка, что эксперты в GGUF не ниже 4 бит |
+| `tools/g0/expert_trace.cpp` + `tools/g0/cachesim.py` | потокенные трассы маршрутизации и симуляция политик кэша экспертов (включая приближение `--moe-cache-mib` llama.cpp) |
+| `tools/gguf_quant_audit.py` | проверка, что эксперты и остальные матрицы в GGUF не ниже 4 бит |
 | `tools/bench/` | матрица скорости и пробы длинного контекста через OpenAI API для любого движка |
 | `tools/quality/logprob_compare.py` | сравнение распределений следующего токена двух серверов (квант против эталона, движок против движка) |
 | `tools/kv/slot_persist.py` | восстановление состояния с NVMe против повторного префилла (llama-server) |
 | `scripts/diag/` | диагностика железа (только чтение по умолчанию) |
 | `scripts/offline/weights.py` | манифесты весов с sha256, докачка, офлайн-проверка |
+| `tools/gateway/` | шлюз OpenAI-API перед движком: ключи, очередь single-stream, защита контекста, журнал, метрики (проверен на mock) |
+| `tools/verify/` + `scripts/verify_pack.sh` | сборка verification pack с вердиктом PASS / FAIL / NOT RUN по каждому требованию |
+
+Мутационные проверки тестов инструментов — `docs/evidence/2026-10-09-roofline-calibration-and-mutations.md`,
+`docs/evidence/2026-10-09-g0-trace-cpu.md`, `docs/evidence/2026-10-09-tool-mutations.md`.
