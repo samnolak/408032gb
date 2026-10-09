@@ -1,0 +1,17 @@
+===== PROBE =====
+name: bmc.ipmitool_mc_info
+started_utc: 2026-01-01T00:00:00Z
+root_mode: root
+run_as: not-run
+requires: ipmitool /dev/ipmi0|/dev/ipmi/0|/dev/ipmidev/0
+timeout_s: 120
+runner: (not run)
+===== COMMAND =====
+ipmitool -I open mc info
+===== STDOUT =====
+===== STDERR =====
+===== RESULT =====
+exit_code: not-run
+duration_s: 0.010
+status: not-available
+note: not found: ipmitool /dev/ipmi0|/dev/ipmi/0|/dev/ipmidev/0

@@ -1,0 +1,35 @@
+===== PROBE =====
+name: cpu.lscpu
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: lscpu
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+lscpu
+===== STDOUT =====
+Architecture:                       x86_64
+CPU op-mode(s):                     32-bit, 64-bit
+Address sizes:                      48 bits physical, 48 bits virtual
+Byte Order:                         Little Endian
+CPU(s):                             96
+On-line CPU(s) list:                0-95
+Vendor ID:                          AuthenticAMD
+Model name:                         SYNTHETIC EPYC 48-Core Processor
+CPU family:                         25
+Model:                              1
+Thread(s) per core:                 2
+Core(s) per socket:                 48
+Socket(s):                          1
+Stepping:                           1
+Frequency boost:                    enabled
+L3 cache:                           256 MiB (8 instances)
+NUMA node(s):                       1
+NUMA node0 CPU(s):                  0-95
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

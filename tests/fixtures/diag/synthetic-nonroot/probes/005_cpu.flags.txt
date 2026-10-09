@@ -1,0 +1,39 @@
+===== PROBE =====
+name: cpu.flags
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: user
+requires: /proc/cpuinfo
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+flags=$(grep -m1 -E '^flags' /proc/cpuinfo)
+...
+===== STDOUT =====
+sse4_2=yes
+avx=yes
+avx2=yes
+fma=yes
+f16c=yes
+bmi2=yes
+avx_vnni=no
+avx512f=no
+avx512cd=no
+avx512bw=no
+avx512dq=no
+avx512vl=no
+avx512_vnni=no
+avx512_bf16=no
+avx512_fp16=no
+amx_tile=no
+amx_bf16=no
+amx_int8=no
+sha_ni=yes
+vaes=yes
+avx512_any=no
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

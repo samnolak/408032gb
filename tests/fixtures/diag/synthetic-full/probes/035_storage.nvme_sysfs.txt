@@ -1,0 +1,70 @@
+===== PROBE =====
+name: storage.nvme_sysfs
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: /sys/class/nvme
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+bash /synthetic/scripts/diag/probes_sysfs.sh nvme
+===== STDOUT =====
+controller	key	value
+nvme0	model	SYNTHETIC NVMe 1TB
+nvme0	serial	SYNTH0000
+nvme0	firmware_rev	SYN0FW0
+nvme0	transport	pcie
+nvme0	address	0000:81:00.0
+nvme0	state	live
+nvme0	numa_node	0
+nvme0	cur_link_speed	16.0 GT/s PCIe
+nvme0	cur_link_width	4
+nvme0	max_link_speed	16.0 GT/s PCIe
+nvme0	max_link_width	4
+nvme0	temp_c	41.850
+nvme0	namespace	nvme0n1 size_bytes=1000204886016 lbs=512
+nvme1	model	SYNTHETIC NVMe 1TB
+nvme1	serial	SYNTH0001
+nvme1	firmware_rev	SYN0FW1
+nvme1	transport	pcie
+nvme1	address	0000:82:00.0
+nvme1	state	live
+nvme1	numa_node	0
+nvme1	cur_link_speed	16.0 GT/s PCIe
+nvme1	cur_link_width	4
+nvme1	max_link_speed	16.0 GT/s PCIe
+nvme1	max_link_width	4
+nvme1	temp_c	72.850
+nvme1	namespace	nvme1n1 size_bytes=1000204886016 lbs=512
+nvme2	model	SYNTHETIC NVMe 1TB
+nvme2	serial	SYNTH0002
+nvme2	firmware_rev	SYN0FW2
+nvme2	transport	pcie
+nvme2	address	0000:83:00.0
+nvme2	state	live
+nvme2	numa_node	0
+nvme2	cur_link_speed	16.0 GT/s PCIe
+nvme2	cur_link_width	4
+nvme2	max_link_speed	16.0 GT/s PCIe
+nvme2	max_link_width	4
+nvme2	temp_c	44.850
+nvme2	namespace	nvme2n1 size_bytes=1000204886016 lbs=512
+nvme3	model	SYNTHETIC NVMe 1TB
+nvme3	serial	SYNTH0003
+nvme3	firmware_rev	SYN0FW3
+nvme3	transport	pcie
+nvme3	address	0000:84:00.0
+nvme3	state	live
+nvme3	numa_node	0
+nvme3	cur_link_speed	16.0 GT/s PCIe
+nvme3	cur_link_width	4
+nvme3	max_link_speed	16.0 GT/s PCIe
+nvme3	max_link_width	4
+nvme3	temp_c	39.850
+nvme3	namespace	nvme3n1 size_bytes=1000204886016 lbs=512
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

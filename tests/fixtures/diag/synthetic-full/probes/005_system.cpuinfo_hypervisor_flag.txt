@@ -1,0 +1,18 @@
+===== PROBE =====
+name: system.cpuinfo_hypervisor_flag
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: /proc/cpuinfo
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+grep -m1 -c -w hypervisor /proc/cpuinfo || [ $? -eq 1 ]
+===== STDOUT =====
+0
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

@@ -1,0 +1,69 @@
+===== PROBE =====
+name: gpu.q_memory
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: nvidia-smi
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+nvidia-smi -q -d MEMORY
+===== STDOUT =====
+
+==============NVSMI LOG==============
+
+Timestamp                                 : Thu Jan  1 00:00:00 2026
+Driver Version                            : 999.99.99
+CUDA Version                              : 99.9
+
+Attached GPUs                             : 4
+GPU 00000000:01:00.0
+    FB Memory Usage
+        Total                             : 32760 MiB
+        Reserved                          : 330 MiB
+        Used                              : 1 MiB
+        Free                              : 32428 MiB
+    BAR1 Memory Usage
+        Total                             : 32768 MiB
+        Used                              : 1 MiB
+        Free                              : 32767 MiB
+
+GPU 00000000:21:00.0
+    FB Memory Usage
+        Total                             : 32760 MiB
+        Reserved                          : 330 MiB
+        Used                              : 1 MiB
+        Free                              : 32428 MiB
+    BAR1 Memory Usage
+        Total                             : 256 MiB
+        Used                              : 1 MiB
+        Free                              : 32767 MiB
+
+GPU 00000000:41:00.0
+    FB Memory Usage
+        Total                             : 32760 MiB
+        Reserved                          : 330 MiB
+        Used                              : 1 MiB
+        Free                              : 32428 MiB
+    BAR1 Memory Usage
+        Total                             : 32768 MiB
+        Used                              : 1 MiB
+        Free                              : 32767 MiB
+
+GPU 00000000:61:00.0
+    FB Memory Usage
+        Total                             : 32760 MiB
+        Reserved                          : 330 MiB
+        Used                              : 1 MiB
+        Free                              : 32428 MiB
+    BAR1 Memory Usage
+        Total                             : 32768 MiB
+        Used                              : 1 MiB
+        Free                              : 32767 MiB
+
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

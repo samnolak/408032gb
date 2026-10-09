@@ -1,0 +1,19 @@
+===== PROBE =====
+name: system.dmesg_filtered
+started_utc: 2026-01-01T00:00:00Z
+root_mode: partial
+run_as: not-run
+requires: dmesg
+timeout_s: 120
+runner: (not run)
+===== COMMAND =====
+out=$(dmesg -T) || exit $?
+...
+===== STDOUT =====
+===== STDERR =====
+dmesg: read kernel buffer failed: Operation not permitted
+===== RESULT =====
+exit_code: not-run
+duration_s: 0.010
+status: needs-root
+note: failed without root (exit 1); rerun as root or with --sudo

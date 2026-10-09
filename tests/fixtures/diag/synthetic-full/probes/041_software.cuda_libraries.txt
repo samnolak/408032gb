@@ -1,0 +1,19 @@
+===== PROBE =====
+name: software.cuda_libraries
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: ldconfig
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+ldconfig -p | grep -E '...' || [ $? -eq 1 ]
+===== STDOUT =====
+	libcudart.so.99 (libc6,x86-64) => /usr/local/cuda/lib64/libcudart.so.99
+	libcuda.so.1 (libc6,x86-64) => /lib/x86_64-linux-gnu/libcuda.so.1
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

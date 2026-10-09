@@ -1,0 +1,18 @@
+===== PROBE =====
+name: memory.ulimit_l
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: user
+requires: -
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+ulimit -l
+===== STDOUT =====
+unlimited
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

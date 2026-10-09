@@ -1,0 +1,29 @@
+===== PROBE =====
+name: storage.nvme_smart_log.nvme0
+started_utc: 2026-01-01T00:00:00Z
+root_mode: root
+run_as: root
+requires: nvme /dev/nvme0
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+nvme smart-log /dev/nvme0
+===== STDOUT =====
+Smart Log for NVME device:nvme0 namespace-id:ffffffff
+critical_warning			: 0
+temperature				: 42 °C (315 K)
+available_spare				: 100%
+available_spare_threshold		: 10%
+percentage_used				: 1%
+data_units_read				: 1,000
+data_units_written			: 1,000
+media_errors				: 0
+num_err_log_entries			: 0
+Warning Temperature Time		: 0
+Critical Composite Temperature Time	: 0
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

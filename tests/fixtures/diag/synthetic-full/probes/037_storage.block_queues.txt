@@ -1,0 +1,19 @@
+===== PROBE =====
+name: storage.block_queues
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: /sys/block
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+bash /synthetic/scripts/diag/probes_sysfs.sh block
+===== STDOUT =====
+dev	size_bytes	rotational	scheduler	nr_requests	max_sectors_kb	max_hw_sectors_kb	read_ahead_kb	logical_block	physical_block	model
+nvme0n1	1000204886016	0	[none] mq-deadline	1023	128	128	128	512	512	SYNTHETIC NVMe 1TB
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

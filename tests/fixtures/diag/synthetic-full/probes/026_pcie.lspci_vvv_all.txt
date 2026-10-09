@@ -1,0 +1,21 @@
+===== PROBE =====
+name: pcie.lspci_vvv_all
+started_utc: 2026-01-01T00:00:00Z
+root_mode: partial
+run_as: root
+requires: lspci
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+lspci -vvv -nn
+===== STDOUT =====
+40:01.0 PCI bridge [0604]: SYNTHETIC Bridge [1022:0000]
+	Capabilities: [2a0 v1] Access Control Services
+		ACSCap:	SrcValid+ TransBlk+ ReqRedir+ CmpltRedir+ UpstreamFwd+ EgressCtrl- DirectTrans-
+		ACSCtl:	SrcValid+ TransBlk- ReqRedir+ CmpltRedir+ UpstreamFwd+ EgressCtrl- DirectTrans-
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

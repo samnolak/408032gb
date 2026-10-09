@@ -1,0 +1,19 @@
+===== PROBE =====
+name: bmc.ipmitool_sel
+started_utc: 2026-01-01T00:00:00Z
+root_mode: root
+run_as: root
+requires: ipmitool /dev/ipmi0|/dev/ipmi/0|/dev/ipmidev/0
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+ipmitool -I open sel list
+===== STDOUT =====
+   1 | 01/01/2026 | 00:00:00 | Event Logging Disabled #0x07 | Log area reset/cleared | Asserted
+   2 | 01/01/2026 | 00:00:09 | Fan #0x30 | Lower Critical going low  | Asserted
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

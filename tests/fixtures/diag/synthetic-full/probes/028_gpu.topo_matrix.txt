@@ -1,0 +1,28 @@
+===== PROBE =====
+name: gpu.topo_matrix
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: nvidia-smi
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+nvidia-smi topo -m
+===== STDOUT =====
+	GPU0	GPU1	GPU2	GPU3	CPU Affinity	NUMA Affinity	GPU NUMA ID
+GPU0	 X 	SYS	SYS	SYS	0-95	0		N/A
+GPU1	SYS	 X 	SYS	SYS	0-95	0		N/A
+GPU2	SYS	SYS	 X 	PXB	0-95	0		N/A
+GPU3	SYS	SYS	PXB	 X 	0-95	0		N/A
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes
+  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

@@ -1,0 +1,23 @@
+===== PROBE =====
+name: cpu.cpufreq_sysfs
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: /sys/devices/system/cpu
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+bash /synthetic/scripts/diag/probes_sysfs.sh cpufreq
+===== STDOUT =====
+policy	affected_cpus	driver	governor	cpuinfo_min_khz	cpuinfo_max_khz	scaling_min_khz	scaling_max_khz	cur_khz	epp
+policy0	0	acpi-cpufreq	schedutil	1500000	3500000	1500000	3500000	1500000	-
+policy1	1	acpi-cpufreq	schedutil	1500000	3500000	1500000	3500000	1500000	-
+policy2	2	acpi-cpufreq	schedutil	1500000	3500000	1500000	3500000	1500000	-
+policy3	3	acpi-cpufreq	schedutil	1500000	3500000	1500000	3500000	1500000	-
+# boost=1 amd_pstate_status=- smt_active=1 smt_control=on
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

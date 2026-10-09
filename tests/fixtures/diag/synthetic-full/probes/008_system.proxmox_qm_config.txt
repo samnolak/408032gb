@@ -1,0 +1,27 @@
+===== PROBE =====
+name: system.proxmox_qm_config
+started_utc: 2026-01-01T00:00:00Z
+root_mode: root
+run_as: root
+requires: qm
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+for id in $(qm list | awk 'NR > 1 {print $1}'); do echo "== VM $id"; qm config "$id"; done
+===== STDOUT =====
+== VM 100
+balloon: 0
+cores: 48
+cpu: host
+hostpci0: 0000:01:00,pcie=1
+hostpci1: 0000:21:00,pcie=1
+memory: 114688
+name: synthetic-vm
+numa: 0
+sockets: 1
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 
