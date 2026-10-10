@@ -13,11 +13,11 @@ Nothing here ran on a GPU, on real weights or at long context. No timings are re
 |---|---|
 | store | tools/kv/session_store.py (stdlib only): sha256 + size + identity per state file, crash-consistent save (server writes a temporary, fsync, rename to `<sid>.<gen>.slot`, then manifest commit), quarantine on a failed size / sha256 / n_restored check or a server refusal (an identity mismatch keeps the file; an unreachable server raises and judges nothing), LRU disk budget, `recover()`, CLI |
 | probe | tools/kv/slot_corruption_probe.py: real llama-server, damaged files restored raw and through the store |
-| tests | tests/test_session_store.py (17, against the stand-in server); tests/test_srvcheck.py +1 (null log-prob) |
+| tests | tests/test_session_store.py (20, against the stand-in server); tests/test_srvcheck.py +1 (null log-prob) |
 | stand-in server | tests/fixtures/srvcheck/stub_llama_server.py: faults `save_short`, `restore_refuse`, `restore_partial` added |
 | harness fix | tools/srvcheck/hybrid_server_checks.py `compare()`: a null log-prob (llama-server's JSON writer emits `null` for any non-finite value: NaN or ±inf, `vendor/nlohmann/json.hpp:19523-19525`) counts as an infinite difference instead of crashing |
 | CI | .github/workflows/server-cpu.yml: session-store tests + the probe on both tiny models after the N7 step |
-| mutation check | docs/evidence/mutation-scripts/2026-10-10-n8-session-store.py (S1–S11) |
+| mutation check | docs/evidence/mutation-scripts/2026-10-10-n8-session-store.py (S1–S13) |
 
 ## 1. What llama-server checks on restore (CONFIRMED, code @79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6)
 
@@ -120,13 +120,16 @@ test_crash_at_every_save_step_leaves_a_restorable_store ... ok
 test_flipped_byte_is_refused_before_the_server_sees_it ... ok
 test_new_generation_replaces_the_old_file ... ok
 test_other_identity_is_refused_and_the_file_kept ... ok
+test_previous_generation_kept_while_its_save_is_starting ... ok
 test_repeated_rejects_of_the_same_file_name_are_all_kept ... ok
 test_restore_count_mismatch_quarantines ... ok
 test_round_trip_across_a_restart ... ok
+test_save_started_after_the_eviction_snapshot_keeps_the_previous_generation ... ok
 test_second_writer_is_refused ... ok
 test_server_refusal_quarantines ... ok
 test_session_being_saved_by_another_thread_is_not_evicted ... ok
 test_session_just_saved_is_never_evicted ... ok
+test_session_resaved_after_the_eviction_snapshot_is_kept ... ok
 test_short_write_keeps_the_previous_generation ... ok
 test_truncated_file_is_refused ... ok
 test_unreachable_server_does_not_judge_the_file ... ok
@@ -152,11 +155,11 @@ test_stale_state_after_kv_shift_is_caught ... ok
 test_attr_compares_against_the_first_run ... ok
 test_cli_usage ... ok
 test_lines_print_stored_values ... ok
-Ran 39 tests in 66.910s
+Ran 42 tests in 66.295s
 OK
 ```
 
-(full log `$S/n8final/unittests-v.log`; test ids shortened by `sed` for the first 36 lines; the crash test covers four crash points: after the server's write,
+(full log `$S/n8final/unittests-v2.log`; test ids shortened by `sed` for the first 39 lines; the crash test covers four crash points: after the server's write,
 after the rename, after the manifest temporary is written, after the manifest commit; each followed by `recover(deep=True)`
 and a restore.)
 
@@ -238,11 +241,12 @@ above: the sha256/size split, "no checks" where only a checksum is missing, unsa
 defects in the store:
 
 * **M11 — rejects overwrote each other in quarantine.** Destination names were `<seconds>-<file>`; the same
-  `<sid>.<gen>.slot` rejected twice within a second (the probe does this 13 times) kept only the last file — in the first
-  probe run 2 of 13 per model survived. Now `<time_ns>-<random>-<file>`.
+  `<sid>.<gen>.slot` rejected twice within a second (the probe does this 13 times) kept only the last file — 2–3 of 13
+  per model survived (`$S/n8`: 2 and 3, `$S/n8final`: 2 and 2). Now `<time_ns>-<random>-<file>`.
 * **M12 — a concurrent save could evict a session another thread was still saving.** Eviction excluded only the
   caller's own session. Now `save()` registers the session in an in-process "saving" set for its whole duration and
-  `_evict()` skips every session in it.
+  `_evict()` skips every session in it. (Incomplete — the second audit found an interleaving that still evicts; fixed in
+  section 4c.)
 
 New tests `test_repeated_rejects_of_the_same_file_name_are_all_kept` and
 `test_session_being_saved_by_another_thread_is_not_evicted` fail on the committed store of 33cf4e8 (copy in
@@ -280,9 +284,11 @@ exit=0
 ```
 
 The real-server probe of section 2 on the fixed store (`$S/n8final2/probe.log`): the 28 case lines are identical to
-section 2 (`diff` against `$S/n8final/probe.log` empty apart from the added counts), and every reject is kept:
+section 2 (`diff` against `$S/n8final/probe.log` empty apart from the added counts), and every reject is kept. The counts
+are printed by the loop, not by the probe:
 
 ```
+$ for M in qwen4exp glm5next; do echo "== $M"; timeout 900 python3 tools/kv/slot_corruption_probe.py ... --workdir $S/n8final2/$M --out $S/n8final2/$M.json; echo "exit=$?"; echo "quarantined .slot files: $(ls $S/n8final2/$M/slots/quarantine/ | grep -c '\.slot$')"; done > $S/n8final2/probe.log 2>&1
 quarantined .slot files: 13
 quarantined .slot files: 13
 ```
@@ -290,6 +296,70 @@ quarantined .slot files: 13
 Not changed by the audit: the store holds an exclusive fcntl lock for any instance, readers included (one process per
 directory), and `recover()` deletes every unreferenced `*.slot` in the server's slot directory — point the store at a
 directory used by nothing else.
+
+## 4c. Second audit of the fixes (evidence-auditor, same day) and the eviction re-check (CONFIRMED, literal)
+
+The second audit confirmed F1–F3 and M11 fixed and found M12 still false: `_evict()` takes its snapshot of the saving
+sessions once, and `drop()` did not look again. Interleaving (the auditor's probe `$S/audit-n8b/race/race_m12.py`, on
+43c2171): b's eviction chooses a from its snapshot → a's save starts, commits gen 2 → b drops a → `manifest('a') = None`
+after both saves. Effect: a cached session silently lost (the next request prefills), not a wrong state.
+
+Fix (`tools/kv/session_store.py`): eviction drops a victim only through `_evict_one(sid, gen)`, which under the victim's
+lock skips it if a save of it is in progress or if its manifest is no longer the generation eviction chose. Two test hooks
+(`save_started`, `before_evict_drop`) let the tests force the interleavings. Three tests:
+* `test_session_resaved_after_the_eviction_snapshot_is_kept` — a re-saved (gen 2) after b's snapshot; pins the generation
+  re-check (S13);
+* `test_save_started_after_the_eviction_snapshot_keeps_the_previous_generation` — a's save starts after b's snapshot;
+  pins the in-progress re-check (S12): gen 1 must stay, it is what a failed save falls back to;
+* `test_previous_generation_kept_while_its_save_is_starting` — a's save started before b's snapshot.
+On the store of 43c2171 these tests cannot pause it (the hooks do not exist there), so the demonstration that the defect
+is real is the auditor's probe above; that each half of the fix is needed is shown by the mutants S12 and S13.
+
+Round 5 (code with the fix, before the third test):
+
+```
+baseline                                                 rc=0 ok       OK
+S1 no sha256 check                                       rc=1 caught   FAILED (errors=2)
+S2 no size check                                         rc=1 caught   FAILED (failures=1)
+S3 no n_restored check                                   rc=1 caught   FAILED (failures=1)
+S4 old generation deleted before the manifest commit     rc=1 caught   FAILED (errors=2)
+S5 recover keeps temporaries                             rc=1 caught   FAILED (failures=1)
+S6 transient error judges the file                       rc=1 caught   FAILED (failures=1)
+S7 identity not checked                                  rc=1 caught   FAILED (failures=1)
+S8 eviction may evict a session being saved              rc=0 SURVIVED OK
+S9 slot not erased after a refused restore               rc=1 caught   FAILED (failures=1)
+S10 save size check skipped                              rc=1 caught   FAILED (failures=1)
+S11 quarantine names not unique                          rc=1 caught   FAILED (failures=1)
+S12 eviction drop does not re-check a save in progress   rc=0 SURVIVED OK
+S13 eviction drop does not re-check the generation       rc=1 caught   FAILED (failures=1)
+exit=0
+```
+
+S12 survived: no test let a save start between the snapshot and the drop. With the third test, round 6 (the committed
+code):
+
+```
+baseline                                                 rc=0 ok       OK
+S1 no sha256 check                                       rc=1 caught   FAILED (errors=2)
+S2 no size check                                         rc=1 caught   FAILED (failures=1)
+S3 no n_restored check                                   rc=1 caught   FAILED (failures=1)
+S4 old generation deleted before the manifest commit     rc=1 caught   FAILED (errors=2)
+S5 recover keeps temporaries                             rc=1 caught   FAILED (failures=1)
+S6 transient error judges the file                       rc=1 caught   FAILED (failures=1)
+S7 identity not checked                                  rc=1 caught   FAILED (failures=1)
+S8 eviction may evict a session being saved              rc=0 SURVIVED OK
+S9 slot not erased after a refused restore               rc=1 caught   FAILED (failures=1)
+S10 save size check skipped                              rc=1 caught   FAILED (failures=1)
+S11 quarantine names not unique                          rc=1 caught   FAILED (failures=1)
+S12 eviction drop does not re-check a save in progress   rc=1 caught   FAILED (errors=1)
+S13 eviction drop does not re-check the generation       rc=1 caught   FAILED (failures=1)
+exit=0
+```
+
+S8 (no exclusion in the snapshot) is now an equivalent mutant: the re-check under the victim's lock prevents the same
+evictions on its own; the snapshot exclusion stays as a first layer that avoids taking locks for busy sessions.
+The commit message of 25c61f3 ("a session being saved is never evicted by another thread") was not true until this fix;
+history is not rewritten.
 
 ## 5. What this means for R1 (PROVISIONAL)
 
