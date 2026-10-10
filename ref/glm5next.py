@@ -45,12 +45,24 @@ before silu: ref/router.py swiglu_clamp); MoE = build_moe_ffn (sigmoid gating, e
 expert_weights_scale; clamp swiglu_clamp_exp[il], LG:2245-2251; ref/router.py route) + the shared expert as the
 dense layer (G:624-645).
 
+Precision (N10, gap 3 of docs/reassessment/CORRECTNESS.md): the DSA functions take prec=None (the reference
+contract: f32 caches, flash attention off) or ref/fattn.py precision(kv, fa). With an f16 cache the oracle rounds what
+llama.cpp stores in f16: the MLA latent (cpy_k into the K-only MLA cache, G:966-968), the indexer key and gate rows
+(cpy_k of key | gate | pooled into the indexer cache, G:790-794, which llama_memory_hybrid_idx creates with the
+attention cache types, M:69-72, src/llama-model.cpp:2474-2477) and the pooled key (scattered and gathered back when
+cache_safe, G:817-824); the pooling reads the cached key | gate rows (G:799-800). Attention: the mask path runs
+build_attn_mha (G:998-1005), i.e. flash attention when -fa on (ref/fattn.py modes); the ec7630a gather path (n_tokens
+<= 16) gathers the cached latents with ggml_get_rows (f16 -> f32) and runs f32 mul_mat / soft_max (G:971-996), so only
+the latent rounding reaches it ("exact" mode over the f16 latents; the tests force it per row with prec["modes"]).
+KDA states stay f32 (GGML_TYPE_F32, src/llama-model.cpp:2483-2484).
+
 Shapes are numpy-natural (token-major); weights are the GGUF arrays as numpy reads them (ggml ne reversed).
 Everything runs in float64; cast at the boundary when comparing with a kernel.
 """
 import numpy as np
 
 from ref.dsa import indexer_pools, indexer_scores, layer_norm, mla_attention, select_cells
+from ref.fattn import row_modes, store
 from ref.kda import gated_delta_rule
 from ref.mhc import hc_init, hc_mean, hc_post, hc_pre
 from ref.router import route, swiglu_clamp
@@ -139,9 +151,11 @@ def swiglu(gate, up, limit):
     return silu(gate) * np.asarray(up, dtype=np.float64)
 
 
-def ffn_layer(x, w, hp, il):
+def ffn_layer(x, w, hp, il, ids_override=None):
     """x (T, n) after ffn_norm. Dense SwiGLU before leading_dense_block_count, else routed experts + shared
-    expert (G:616-646). Returns dict with out and the MoE intermediates."""
+    expert (G:616-646). Returns dict with out and the MoE intermediates (sel: the selection scores, sigmoid(logits)
+    + exp_probs_b). ids_override {row: expert ids} replays the reference's choice among (near-)tied experts; those
+    rows are weighted like route() weights its own choice."""
     lim_sh = hp["clamp_shexp"][il]
     if il < hp["dense_lead"]:
         act = swiglu(x @ w["ffn_gate.weight"].T, x @ w["ffn_up.weight"].T, lim_sh)
@@ -149,6 +163,16 @@ def ffn_layer(x, w, hp, il):
     T, k = x.shape[0], hp["n_expert_used"]
     logits = x @ w["ffn_gate_inp.weight"].T
     ids, wts = route(logits, w["exp_probs_b.bias"], k, w_scale=hp["w_scale"] or 1.0, norm=hp["norm_w"])
+    sel = sigmoid(logits) + np.asarray(w["exp_probs_b.bias"], dtype=np.float64)[None]
+    if ids_override:
+        ids, wts = ids.copy(), wts.copy()
+        probs = sigmoid(logits)
+        for r, e in ids_override.items():
+            ids[r] = np.asarray(e)
+            wr = probs[r, ids[r]]
+            if hp["norm_w"]:
+                wr = wr / max(wr.sum(), 6.103515625e-5)
+            wts[r] = wr * (hp["w_scale"] or 1.0)
     ge, ue, de = w["ffn_gate_exps.weight"], w["ffn_up_exps.weight"], w["ffn_down_exps.weight"]
     gate = np.stack([[ge[e] @ x[t] for e in ids[t]] for t in range(T)])          # (T, k, F)
     up = np.stack([[ue[e] @ x[t] for e in ids[t]] for t in range(T)])
@@ -156,7 +180,8 @@ def ffn_layer(x, w, hp, il):
     down = np.stack([[de[e] @ act[t, j] for j, e in enumerate(ids[t])] for t in range(T)])   # (T, k, n)
     moe = (down * wts[:, :, None]).sum(axis=1)
     sh = swiglu(x @ w["ffn_gate_shexp.weight"].T, x @ w["ffn_up_shexp.weight"].T, lim_sh) @ w["ffn_down_shexp.weight"].T
-    return dict(logits=logits, ids=ids, weights=wts, gate=gate, up=up, act=act, moe_out=moe, shexp=sh, out=moe + sh)
+    return dict(logits=logits, sel=sel, ids=ids, weights=wts, gate=gate, up=up, act=act, moe_out=moe, shexp=sh,
+                out=moe + sh)
 
 
 # ---------------------------------------------------------------- KDA
@@ -278,42 +303,50 @@ def dsa_project(x, w, hp):
     return dict(q_resid=qr, q=q, latent=latent, q_abs=q_abs, ik=ik, ig=ig, iq=iq, wts=wts)
 
 
-def dsa_layer_full(x, w, hp, cells_override=None):
-    """DSA layer over a whole sequence from position 0 with the ref/dsa.py prefill oracles."""
+def dsa_layer_full(x, w, hp, cells_override=None, prec=None):
+    """DSA layer over a whole sequence from position 0 with the ref/dsa.py prefill oracles. prec: module docstring
+    (the rows are one ubatch unless prec["modes"] says otherwise)."""
     r = dsa_project(x, w, hp)
     kp = hp["kpool"]
-    pooled = indexer_pools(r["ik"], r["ig"], w["indexer_compressor_ape.weight"], kp)
+    pooled_raw = indexer_pools(store(r["ik"], prec), store(r["ig"], prec), w["indexer_compressor_ape.weight"], kp)
+    pooled = store(pooled_raw, prec)
     scores = indexer_scores(r["iq"], r["wts"], pooled, kp)
     cells = select_cells(scores, hp["idx_top_k"], kp) if hp["select_tail"] else \
         select_at(scores, hp["idx_top_k"], kp, np.arange(x.shape[0]), False)
-    if cells_override is not None:
+    if isinstance(cells_override, dict):          # {position: cells} for single tokens
+        cells = [cells_override.get(t, c) for t, c in enumerate(cells)]
+    elif cells_override is not None:
         cells = cells_override
-    kqv = mla_attention(r["q_abs"], r["latent"], cells, np.asarray(w["attn_v_b.weight"], dtype=np.float64),
-                        hp["k_mla"])
-    r.update(pooled=pooled, scores=scores, cells=cells, kqv=kqv, out=kqv @ w["attn_output.weight"].T)
+    modes = row_modes(prec, np.arange(x.shape[0])) if prec else None
+    kqv = mla_attention(r["q_abs"], store(r["latent"], prec), cells,
+                        np.asarray(w["attn_v_b.weight"], dtype=np.float64), hp["k_mla"], modes)
+    r.update(pooled_raw=pooled_raw, pooled=pooled, scores=scores, cells=cells, kqv=kqv, modes=modes,
+             out=kqv @ w["attn_output.weight"].T)
     return r
 
 
-def dsa_layer_chunk(x, w, hp, pos, st, cells_override=None):
+def dsa_layer_chunk(x, w, hp, pos, st, cells_override=None, prec=None):
     """DSA layer on one ubatch at absolute positions pos (cell = position for one sequence). st = dict(latent,
     ik, ig, pooled) of the cached cells, extended in place: the MLA latent cache (G:968), the indexer key | gate rows
     (G:790-794) and the pooled key of every complete pool, pooled once by the ubatch that completes it and read
-    back afterwards (G:799-832; M:673-679). cells_override: {position: cells} replays a reference tie choice."""
+    back afterwards (G:799-832; M:673-679); with prec, the values as the cache stores them (module docstring).
+    cells_override: {position: cells} replays a reference tie choice."""
     r = dsa_project(x, w, hp)
     kp = hp["kpool"]
     for key in ("latent", "ik", "ig"):
-        st[key] = np.concatenate([st[key], r[key]])
+        st[key] = np.concatenate([st[key], store(r[key], prec)])
     b0, b1 = st["pooled"].shape[0], st["ik"].shape[0] // kp            # pools this ubatch completes
     new = indexer_pools(st["ik"][b0 * kp:b1 * kp], st["ig"][b0 * kp:b1 * kp], w["indexer_compressor_ape.weight"], kp)
-    st["pooled"] = np.concatenate([st["pooled"], new.reshape(-1, hp["idx_dim"])])
+    st["pooled"] = np.concatenate([st["pooled"], store(new.reshape(-1, hp["idx_dim"]), prec)])
     scores = scores_at(r["iq"], r["wts"], st["pooled"], kp, pos)
     cells = select_at(scores, hp["idx_top_k"], kp, pos, hp["select_tail"])
     if cells_override:
         cells = [cells_override.get(int(t), c) for t, c in zip(np.asarray(pos).tolist(), cells)]
+    modes = row_modes(prec, pos) if prec else None
     kqv = mla_attention(r["q_abs"], st["latent"], cells, np.asarray(w["attn_v_b.weight"], dtype=np.float64),
-                        hp["k_mla"])
+                        hp["k_mla"], modes)
     r.update(pooled_new=new.reshape(-1, hp["idx_dim"]), pool_range=(b0, b1), pooled=st["pooled"].copy(),
-             scores=scores, cells=cells, kqv=kqv, out=kqv @ w["attn_output.weight"].T)
+             scores=scores, cells=cells, kqv=kqv, modes=modes, out=kqv @ w["attn_output.weight"].T)
     return r
 
 
@@ -331,7 +364,7 @@ def _head(res, W, hp, out):
     return out
 
 
-def _layer(res, w, hp, il, mixer):
+def _layer(res, w, hp, il, mixer, moe_ids=None):
     L = dict(res_in=res)
     x, post, comb = _mhc(res, w, hp, "attn")
     L.update(attn_pre=x, attn_post_w=post, attn_comb=comb)
@@ -341,14 +374,16 @@ def _layer(res, w, hp, il, mixer):
     x, post, comb = _mhc(res, w, hp, "ffn")
     L.update(ffn_pre=x, ffn_post_w=post, ffn_comb=comb)
     L["ffn_norm"] = xn = rms_norm(x, hp["rms_eps"], w["ffn_norm.weight"])
-    L["ffn"] = f = ffn_layer(xn, w, hp, il)
+    L["ffn"] = f = ffn_layer(xn, w, hp, il, moe_ids)
     res = L["l_out"] = hc_post(f["out"], res, post, comb)
     return res, L
 
 
-def forward(tokens, W, hp, overrides=None):
+def forward(tokens, W, hp, overrides=None, prec=None):
     """Prefill of one sequence from position 0 with zero recurrent state. W: GGUF weights as float64 arrays.
-    overrides: {("dsa", il): cells per token} replays a selection the reference made among exactly tied pools.
+    overrides: {("dsa", il): cells per token, or {position: cells}} replays a selection the reference made among
+    tied pools; {("moe", il): {position: expert ids}} an expert choice among (near-)tied experts.
+    prec: KV cache type and flash attention (module docstring; None = f32, flash attention off).
     Returns dict with per-layer intermediates (layers[il]) and logits (T, n_vocab)."""
     overrides = overrides or {}
     tokens = np.asarray(tokens)
@@ -359,8 +394,8 @@ def forward(tokens, W, hp, overrides=None):
         if hp["kda"][il]:
             mixer = lambda xn: kda_layer(xn, w, hp, None)                    # noqa: E731
         else:
-            mixer = lambda xn: dsa_layer_full(xn, w, hp, overrides.get(("dsa", il)))  # noqa: E731
-        res, L = _layer(res, w, hp, il, mixer)
+            mixer = lambda xn: dsa_layer_full(xn, w, hp, overrides.get(("dsa", il)), prec)  # noqa: E731
+        res, L = _layer(res, w, hp, il, mixer, overrides.get(("moe", il)))
         out["layers"].append(L)
     return _head(res, W, hp, out)
 
@@ -384,8 +419,9 @@ def forward(tokens, W, hp, overrides=None):
 # prefix: cache_truncate.
 
 def new_cache():
-    """Empty sequence memory for forward_chunk."""
-    return dict(tokens=[], kda={}, dsa={})
+    """Empty sequence memory for forward_chunk. modes: the attention mode each cached position was computed with
+    (a rollback rebuilds the kept prefix with the modes of its original ubatches)."""
+    return dict(tokens=[], kda={}, dsa={}, modes=[])
 
 
 def _cache_init_layer(cache, hp, il):
@@ -399,15 +435,17 @@ def _cache_init_layer(cache, hp, il):
                                 pooled=np.zeros((0, d)))
 
 
-def forward_chunk(tokens, W, hp, cache, overrides=None):
+def forward_chunk(tokens, W, hp, cache, overrides=None, prec=None):
     """One ubatch of a single sequence that continues `cache` (new_cache() at the sequence start); updates cache in
-    place. overrides: {("dsa", il): {position: cells}}. Returns a dict like forward() for the chunk rows, with the
+    place. overrides: {("dsa", il): {position: cells}}, {("moe", il): {position: expert ids}} (replays of the
+    reference's choice among tied candidates). Returns a dict like forward() for the chunk rows, with the
     carried-in KDA state (layers[il]["kda"]["conv_in"/"state_in"]) and the absolute positions `pos`."""
     overrides = overrides or {}
     tokens = [int(t) for t in tokens]
     p0 = len(cache["tokens"])
     pos = np.arange(p0, p0 + len(tokens))
     cache["tokens"] = cache["tokens"] + tokens
+    cache.setdefault("modes", []).extend(row_modes(prec, pos))
     res = hc_init(W["token_embd.weight"][tokens], hp["hc"])
     out = dict(pos=pos, hc_init=res, layers=[])
     for il in range(hp["n_layer"]):
@@ -417,31 +455,36 @@ def forward_chunk(tokens, W, hp, cache, overrides=None):
             mixer = lambda xn: kda_layer(xn, w, hp, cache["kda"][il])      # noqa: E731
         else:
             mixer = lambda xn: dsa_layer_chunk(xn, w, hp, pos, cache["dsa"][il],  # noqa: E731
-                                               overrides.get(("dsa", il)))
-        res, L = _layer(res, w, hp, il, mixer)
+                                               overrides.get(("dsa", il)), prec)
+        moe = overrides.get(("moe", il))
+        res, L = _layer(res, w, hp, il, mixer, {int(t) - p0: e for t, e in moe.items()} if moe else None)
         out["layers"].append(L)
     return _head(res, W, hp, out)
 
 
-def cache_truncate(cache, n_keep, W, hp, overrides=None):
+def cache_truncate(cache, n_keep, W, hp, overrides=None, prec=None):
     """Roll the sequence back to its first n_keep positions. The state of a prefix depends on that prefix alone
     (causality), so the oracle rebuilds it from the kept tokens; llama.cpp restores the KDA state from its n_rs_seq
     snapshots (G:217-227, src/models/delta-net-base.cpp:563-603) and drops the cells (and the pools ending) at or
-    after n_keep from the MLA / indexer caches (M:681-731: an edit stales the pools from the edited position on)."""
+    after n_keep from the MLA / indexer caches (M:681-731: an edit stales the pools from the edited position on).
+    With prec, every kept row is recomputed in the attention mode it had (cache["modes"])."""
     kept = cache["tokens"][:n_keep]
+    if prec:
+        prec = dict(prec, modes={**{p: m for p, m in enumerate(cache.get("modes", [])[:n_keep])},
+                                 **(prec.get("modes") or {})})
     fresh = new_cache()
     if kept:
-        forward_chunk(kept, W, hp, fresh, overrides)
+        forward_chunk(kept, W, hp, fresh, overrides, prec)
     cache.clear()
     cache.update(fresh)
     return cache
 
 
-def forward_chunks(tokens, W, hp, sizes, overrides=None):
+def forward_chunks(tokens, W, hp, sizes, overrides=None, prec=None):
     """Run a sequence as consecutive chunks of the given sizes; returns the list of forward_chunk results."""
     cache, outs, i = new_cache(), [], 0
     for n in sizes:
-        outs.append(forward_chunk(tokens[i:i + n], W, hp, cache, overrides))
+        outs.append(forward_chunk(tokens[i:i + n], W, hp, cache, overrides, prec))
         i += n
     assert i == len(tokens), (i, len(tokens))
     return outs
@@ -449,7 +492,7 @@ def forward_chunks(tokens, W, hp, sizes, overrides=None):
 
 # ---------------------------------------------------------------- MTP block (nextn_predict_layers = 1)
 
-def mtp_forward_chunk(tokens, h_prev, W, hp, cache, overrides=None):
+def mtp_forward_chunk(tokens, h_prev, W, hp, cache, overrides=None, prec=None):
     """The MTP block, graph_mtp of src/models/glm5-next.cpp @79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6 ("M79" below;
     ec7630a has none: G:189-191 throws), on one ubatch of the MTP draft context. No mHC: a plain residual.
 
@@ -476,6 +519,7 @@ def mtp_forward_chunk(tokens, h_prev, W, hp, cache, overrides=None):
     p0 = len(cache["tokens"])
     pos = np.arange(p0, p0 + len(tokens))
     cache["tokens"] = cache["tokens"] + tokens
+    cache.setdefault("modes", []).extend(row_modes(prec, pos))
     _cache_init_layer(cache, hp, il)
     emb = w.get("nextn.embed_tokens.weight", W["token_embd.weight"])
     e = rms_norm(emb[tokens], eps, w["nextn.enorm.weight"])
@@ -483,7 +527,7 @@ def mtp_forward_chunk(tokens, h_prev, W, hp, cache, overrides=None):
     x = np.concatenate([e, h], axis=-1) @ np.asarray(w["nextn.eh_proj.weight"], dtype=np.float64).T
     out = dict(pos=pos, e_norm=e, h_norm=h, eh_proj=x)
     out["attn_norm"] = an = rms_norm(x, eps, w["attn_norm.weight"])
-    out["dsa"] = blk = dsa_layer_chunk(an, w, hp, pos, cache["dsa"][il], overrides.get(("dsa", il)))
+    out["dsa"] = blk = dsa_layer_chunk(an, w, hp, pos, cache["dsa"][il], overrides.get(("dsa", il)), prec)
     out["ffn_inp"] = f = blk["out"] + x
     out["ffn_norm"] = fn = rms_norm(f, eps, w["ffn_norm.weight"])
     out["ffn"] = ffn = ffn_layer(fn, w, hp, il)
