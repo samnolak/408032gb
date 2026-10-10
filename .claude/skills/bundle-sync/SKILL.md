@@ -22,5 +22,15 @@ Rules: always `git bundle verify` before fetching; fast-forward only; never push
 never push to a third-party remote. Record the bundle file name and `git log --oneline -n 3`
 in the sync note.
 
+Never bundle from a shallow clone (`git rev-parse --is-shallow-repository` must print `false`; if not,
+`git fetch --unshallow origin` first). In a shallow clone `git bundle verify` treats the shallow boundary as a
+root and reports "The bundle records a complete history", yet a fresh clone of that bundle fails with
+"did not send all necessary objects" (this happened on 2026-10-10: docs/evidence/2026-10-10-backup-bundle.md).
+A backup bundle is called verified only after a restore into an empty directory:
+```
+python3 scripts/offline/repo_backup.py create --out 408032gb-<branch>-<sha>.bundle   # refuses a shallow clone
+python3 scripts/offline/repo_backup.py check 408032gb-<branch>-<sha>.bundle          # clone, fsck, refs, checkout
+```
+
 Cloud agent sessions (not the VM) publish their `claude/*` branches to origin directly (AGENTS.md "Git and sync");
 a bundle is still made as an independent backup copy of the work.

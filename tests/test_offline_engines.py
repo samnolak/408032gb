@@ -124,6 +124,15 @@ class Kit(unittest.TestCase):
         self.assertIn("the bundle gives %s, pinned %s" % (other, sha), out)
         self.assertIn("ok   source eng sha256", out)        # the rewritten hash alone does not reveal it
 
+    def test_verify_names_pinned_engines_the_kit_leaves_out(self):
+        pins = json.loads(json.dumps(self.pins))
+        pins["engines"]["other"] = dict(pins["engines"]["eng"], deps={})
+        self.pins_path = self.write_pins(pins, "pins-two.json")
+        self.assertEqual(self.pack("--engine", "eng")[0], 0)
+        rc, out = self.verify()
+        self.assertEqual(rc, 0, out)                              # a subset kit is valid ...
+        self.assertIn("note pins.json engines not in this kit: other", out)   # ... and says what it lacks
+
     def test_verify_rejects_a_kit_for_other_pins(self):
         self.assertEqual(self.pack()[0], 0)
         pins = json.loads(json.dumps(self.pins))

@@ -146,8 +146,10 @@ python3 tools/bench/probes.py --url http://127.0.0.1:<PORT> --contexts 32768,131
 llama-server -m <GGUF_первая_часть> --host 0.0.0.0 --port <PORT> \
   -c <CTX> -np <SLOTS> -ngl all -sm <layer|row> -ts <T0,T1,T2,T3> -fa on \
   -ctk <f16|q8_0> -ctv <f16|q8_0> <-ncmoe N | -ot "<regex>=CPU"> \
-  --jinja --reasoning-format <deepseek|none> --cache-reuse <256> --metrics [--spec-type <...>]
+  --jinja --reasoning-format <deepseek|none> --metrics [--spec-type <...>]
 ```
+`--cache-reuse` для гибридных моделей шорт-листа не ставится: на пине 79e2e74 для qwen4exp его отключает сервер (IMRoPE),
+для glm5-next он сдвигает KV и всё равно пересчитывает промпт (N7, находка 5; подробнее — `DEPLOY.md`, раздел про unit движка).
 Новее пина (CONFIRMED ведущим: коммиты `d6cf9acb2`, `c811cb8f0`, master `10a60cf30`): `--moe-cache-mib N` — GPU-кэш экспертов,
 лежащих в RAM (LRU, подгрузка по PCIe при промахе, несколько GPU) — включать в матрицу для ярусных моделей (`D1-moe-cache-policy.md`);
 `--slot-save-path` + `/slots/{id}?action=save|restore` — для K3 (`tools/kv/slot_persist.py`).

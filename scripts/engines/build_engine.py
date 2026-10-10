@@ -36,8 +36,9 @@ def load_pins(path=PINS):
 
 
 # Offline kit (scripts/offline/engines.py): one-commit git bundles <kit>/sources/<key>.bundle with the ref
-# refs/pins/<key>, key = <engine> or <engine>-dep-<dep>. Such a bundle has no parents, so the checkout first marks the
-# pinned commit as a shallow boundary (.git/shallow); git then accepts the fetch, and the commit hash proves the content.
+# refs/pins/<key>, key = <engine> or <engine>-dep-<dep>. Such a bundle carries the pinned commit without its parents, so
+# the checkout first marks that commit as a shallow boundary (.git/shallow); git then accepts the fetch, and the commit
+# hash proves the content.
 KIT_REF = "refs/pins/%s"
 SHALLOW = "import os, sys; open(os.path.join(sys.argv[1], '.git', 'shallow'), 'w').write(sys.argv[2] + '\\n')"
 

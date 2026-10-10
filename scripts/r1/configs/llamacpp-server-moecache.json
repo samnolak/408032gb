@@ -1,6 +1,7 @@
 {
   "_label": "PROVISIONAL template, NOT RUN. llama.cpp llama-server, --moe-cache-mib variant: GLM-5.3-Flash with the experts of the first NCMOE layers in RAM (-ncmoe) and a GPU cache for them (--moe-cache-mib, LRU, misses copied over PCIe; split among the GPUs like the layers). Flags: llama.cpp tools/server/README.md @79e2e74 (82 -ncmoe, 83 --moe-cache-mib, the rest as in llamacpp-server.json); the cache exists only in builds >= c811cb8f0 (ROADMAP R1.4). llama.cpp mainline loads the 'glm5-next' architecture string but NOT 'glm5next' of the Unsloth UD files (docs/reassessment/research/R2-engines.md:136), so this template needs a glm5-next GGUF: its file name, revision and manifest are UNKNOWN here (set GLM_GGUF). Check every flag against `llama-server --help` on the server (artifacts/engine/flags_check.json).",
   "_notes": {
+    "cache_reuse": "--cache-reuse is left out: at llama.cpp 79e2e74 it is inert for qwen4exp (IMRoPE: n_pos_per_embd > 1, so get_can_shift() is false and the server disables it, src/llama-kv-cache.cpp:1208-1217, tools/server/server-context.cpp:1318-1327, checked by the lead) and on glm5-next it shifts the reused chunk and then re-processes the whole prompt (CONFIRMED on CPU by N7, docs/evidence/2026-10-10-n7-server-hybrid-cpu.md finding 5, branch claude/n7-server-hybrid-cpu); prefix reuse of these hybrid models comes from the context checkpoints",
     "LLAMA_BIN": "bin/ of the llama.cpp build of scripts/engines/build_engine.py (/srv/llm/engines/current-llamacpp -> /srv/llm/engines-build/llama.cpp); the commit is engine.pin = tools/engines/pins.json[llama.cpp] (79e2e74eb, contains c811cb8f0 and d6cf9acb2); step engine_build_check compares ${LLAMA_BIN}/../build-info.json with the pin (sha, sm_89 cubins, sha256 of every built file) and does not start the engine on a mismatch. Build: python3 scripts/engines/build_engine.py --engine llama.cpp --arch 89 --src-root /srv/llm/engines-src --build-root /srv/llm/engines-build",
     "experiment": "B1 'separately with --moe-cache-mib' (docs/reassessment/EXPERIMENTS.md) and D1-moe-cache-policy.md; the same command without --moe-cache-mib is the baseline row (copy this file and drop the two tokens)",
     "GLM_GGUF": "UNKNOWN: first shard of a glm5-next GGUF with experts >= 4 bpw; the default path is a placeholder that does not exist, so weights_verify is skipped (no manifest) and quant_audit fails until it is set",
@@ -36,7 +37,7 @@
     "argv": ["${LLAMA_BIN}/llama-server", "-m", "${MODEL}", "--host", "${HOST}", "--port", "${PORT}",
              "-c", "${CTX}", "-np", "1", "-ngl", "all", "-sm", "layer", "-ts", "${TENSOR_SPLIT}", "-fa", "on",
              "-ctk", "${KV_TYPE}", "-ctv", "${KV_TYPE}", "-ncmoe", "${NCMOE}", "--moe-cache-mib", "${MOE_CACHE_MIB}",
-             "--jinja", "--metrics", "--cache-reuse", "256", "--slot-save-path", "${SLOT_DIR}"],
+             "--jinja", "--metrics", "--slot-save-path", "${SLOT_DIR}"],
     "version_argv": ["${LLAMA_BIN}/llama-server", "--version"],
     "help_argv": ["${LLAMA_BIN}/llama-server", "--help"],
     "env": {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"},

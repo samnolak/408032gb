@@ -26,8 +26,11 @@
 - Платформы колёс: `pip download --platform` берёт теги буквально, а колёса помечены минимальным glibc (torch 2.14.1 —
   `manylinux_2_28`, ninja 1.13.2 — `manylinux2014`/`manylinux_2_17`, nvidia-nccl-cu13 2.30.7 — `manylinux_2_18`; pypi.org,
   прочитано 2026-10-10). По умолчанию передаются все теги manylinux до 2.28 — то есть предполагается glibc сервера ≥ 2.28
-  (PROVISIONAL до R0: `ldd --version` на сервере). Две первые попытки упаковки упали ровно на этом (`ninja`, затем
-  `nvidia-nccl-cu13==2.30.7`: «No matching distribution»), после чего список стал полным диапазоном.
+  (PROVISIONAL до R0: `ldd --version` на сервере). Две первые попытки упаковки упали ровно на этом, после чего список стал
+  полным диапазоном (литеральный вывод — раздел «Неудачные попытки» ниже).
+- Python колёс: `--python-version 3.12` выбран потому, что 3.12 — системный Python Ubuntu 24.04 (так собирает CI
+  `engines-sm89`, раннер ubuntu-24.04); ОС и Python сервера — UNKNOWN до R0. Если там другой Python, набор перепаковывается
+  с его версией (тег cpXY — часть ABI колёс torch и собранного расширения).
 - Сборка движка «прямо из оркестратора R1» (кандидат N6) — **отклонена по замыслу**: прогон R1 — это замер; сборка — отдельный
   шаг (`build_engine.py`, теперь и офлайн), а оркестратор проверяет её (`engine_build_check`, `c1a0336`).
 
@@ -42,7 +45,22 @@ OK (skipped=1)
 ```
 Мутации (`docs/evidence/mutation-scripts/2026-10-10-offline-kit.py`). Первый прогон поймал 7/8: K1 выжил — тест подменённого
 бандла падал уже на выборке (у коммита были родители), и сравнение коммита не проверялось; тест переписан на коммит без
-родителей, с проверкой текста. Повтор на `git archive bd2dcb0` (код этого раздела):
+родителей, с проверкой текста. Вывод первого прогона (рабочее дерево до правки теста; файл с выводом не сохранён — строки
+перенесены из журнала сессии ведущего):
+```
+baseline                                   rc=0 ok       OK (skipped=1)
+K1 verify: commit check always ok          rc=0 SURVIVED OK (skipped=1)
+K2 verify: sha256 ignored                  rc=1 caught   FAILED (failures=1, skipped=1)
+K3 verify: pins.json not compared          rc=1 caught   FAILED (failures=1, skipped=1)
+K4 build: kit for other commits accepted   rc=1 caught   FAILED (failures=1, skipped=1)
+K5 build: dependency checkout unchecked    rc=1 caught   FAILED (failures=1, skipped=1)
+K6 build: no shallow boundary              rc=1 caught   FAILED (failures=2, errors=1, skipped=1)
+K7 pack: bundle under a branch ref         rc=1 caught   FAILED (failures=4, skipped=1)
+K8 build: kit ignored (network fetch)      rc=1 caught   FAILED (failures=3, skipped=1)
+caught 7/8
+```
+Повтор на `git archive bd2dcb0` с `git init` и `git add -A` в каталоге выгрузки (скрипт берёт файлы через
+`git ls-files -co`, поэтому каталог должен быть рабочим деревом git; код этого раздела):
 ```
 baseline                                   rc=0 ok       OK (skipped=1)
 K1 verify: commit check always ok          rc=1 caught   FAILED (failures=1, skipped=1)
@@ -68,7 +86,8 @@ source  strata                             fb58e0dbc839  81a32e39025a82de
 kit: <S>/kit (4 engines)
 rc=0
 ```
-Бандлы: exllamav3 8914713, ik_llama.cpp 35404233, llama.cpp 38378921, strata-dep-ggml 37776166, strata 17185662 байт (132 МБ);
+Бандлы: exllamav3 8914713, ik_llama.cpp 35404233, llama.cpp 38378921, strata-dep-ggml 37776166, strata 17185662 байт (сумма
+137659695 байт; `du -sh` печатает `132M` — это его округлённые МиБ);
 колёса 2.9 ГБ, крупнейшие — torch 2.14.1 cp312 554618695, nvidia_cudnn_cu13 553099438, nvidia_cublas 423138758 байт.
 `manifest.json`: схема `408032gb-engine-kit/1`, `pins_sha256` 79b71f7a1b8131cb… = sha256 текущего `tools/engines/pins.json`.
 
@@ -91,8 +110,9 @@ ok   source strata-dep-ggml commit                commit 3cf03257f219, fsck ok
 verify: ok
 rc=0
 ```
-Выборка шагами `build_engine.py --offline-kit` без сети (`GIT_ALLOW_PROTOCOL=file`, прокси на мёртвый адрес
-`http://127.0.0.1:9`):
+Выборка шагами `build_engine.py --offline-kit` без сети: короткий скрипт ведущего (текст не сохранён) брал шаги `fetch…` из
+`build_engine.plan(..., kit=<S>/kit)` и выполнял их; запуск — с `GIT_ALLOW_PROTOCOL=file HTTPS_PROXY=http://127.0.0.1:9
+https_proxy=http://127.0.0.1:9` (команда — из журнала сессии ведущего, в артефактах не записана). Его вывод, как напечатан:
 ```
 llama.cpp          HEAD 79e2e74eb110 tree e09f8293280c  = pin
 ik_llama.cpp       HEAD 5194a9e1451b tree bc9494c393af  = pin
@@ -105,13 +125,24 @@ online N1 checkout llama.cpp: 79e2e74eb110 tree e09f8293280c
 `engines.py install-python <S>/kit --engine exllamav3 --venv <S>/venv-kit312 --python /usr/bin/python3.12` (без индекса,
 58 с): `rc=0`, затем `torch 2.14.1+cu130 cuda 13.0`, nvcc 13.0 в `nvidia/cu13/bin` venv.
 
-Полная сборка ExLlamaV3 только из набора, без сети (`GIT_ALLOW_PROTOCOL=file`, `PIP_NO_INDEX=1`, все прокси на
-`http://127.0.0.1:9`; venv из набора, nvcc 13.0 из него же; код `bd2dcb0`):
+Полная сборка ExLlamaV3 только из набора (код `bd2dcb0`). Команда — из журнала сессии ведущего; переменные окружения в
+артефактах сборки (`out`, лог, `build-info.json`) не записаны, поэтому «без сети» подтверждается этой командой и тем, что
+лог сборки показывает выборку из `<S>/kit/sources/exllamav3.bundle refs/pins/exllamav3` и `pip wheel --no-deps
+--no-build-isolation` (индекс не нужен):
 ```
-$ build_engine.py --engine exllamav3 --arch 89 --offline-kit <S>/kit --nvcc <venv>/…/nvidia/cu13/bin/nvcc \
-      --python <venv>/bin/python --src-root <S>/kitbuild/src --build-root <S>/kitbuild/build --jobs 4
+export PATH=<V>/bin:<S>/cuobjdump-bin:$PATH GIT_ALLOW_PROTOCOL=file PIP_NO_INDEX=1 HTTPS_PROXY=http://127.0.0.1:9 \
+       HTTP_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9
+python3 scripts/engines/build_engine.py --engine exllamav3 --arch 89 --offline-kit <S>/kit \
+    --nvcc <V>/lib/python3.12/site-packages/nvidia/cu13/bin/nvcc --python <V>/bin/python \
+    --src-root <S>/kitbuild/src --build-root <S>/kitbuild/build --jobs 4
+```
+(`<V>` = `<S>/venv-kit312`; `cuobjdump` — CUDA 13.4 из другого pip-venv песочницы.) Файлы `start` и `out`, как записаны:
+```
 2026-10-10T18:04:24Z
-fetch exllamav3 @ 151539c77abc           rc=0      (×4: init, shallow boundary, fetch из бандла, checkout)
+fetch exllamav3 @ 151539c77abc           rc=0
+fetch exllamav3 @ 151539c77abc           rc=0
+fetch exllamav3 @ 151539c77abc           rc=0
+fetch exllamav3 @ 151539c77abc           rc=0
 check torch 2.14.1 with CUDA 13.0        rc=0
 link shim for libcudart                  rc=0
 build wheel                              rc=0
@@ -125,6 +156,40 @@ rc=0
 файлы `dist/exllamav3-1.6.0-cp312-cp312-linux_x86_64.whl` и `ext/exllamav3_ext.so`; `cuobjdump --list-elf`: `167 sm_89`, других
 архитектур нет; расширение загружается в torch из набора: `ext loaded with torch 2.14.1+cu130 - 189 symbols`. То есть весь путь
 «набор → venv → сборка → проверка» прошёл без сети. На GPU — NOT RUN.
+
+## Неудачные попытки упаковки (литеральный вывод, файлы задач сессии ведущего)
+Только `--platform manylinux_2_28_x86_64` (17:56:03):
+```
+source  exllamav3                          151539c77abc  16dc46aaa0060868
+ERROR: Could not find a version that satisfies the requirement ninja (from versions: none)
+ERROR: No matching distribution found for ninja
+pip download failed for exllamav3
+rc=1
+```
+Десять тегов manylinux, без `manylinux_2_18` (17:58:39):
+```
+ERROR: Could not find a version that satisfies the requirement nvidia-nccl-cu13==2.30.7; platform_system == "Linux" (from torch) (from versions: 0.0.0a0, 2.27.7, 2.32.3)
+ERROR: No matching distribution found for nvidia-nccl-cu13==2.30.7; platform_system == "Linux"
+pip download failed for exllamav3
+rc=1
+```
+
+## Полный набор тестов и аудит
+```
+$ python3 -m unittest discover -s tests      (дерево b6f4fe3, песочница)
+Ran 435 tests in 100.602s
+
+OK (skipped=86)
+```
+Аудит доказательств (evidence-auditor, только чтение, на выгрузках `git archive`): всё воспроизведено — 22 теста, мутации 8/8,
+`verify` (вывод совпал с записанным), sha256 пинов в манифесте, размеры, опыт с `.git/shallow` на git 2.43.0, 167 cubin
+sm_89, загрузка расширения, теги колёс (sha256 трёх колёс совпали с PyPI), выборка без сети = пины, 435/86. Шесть мелких
+замечаний закрыты в этой правке: условие `git init` для скрипта мутаций; точная сумма байт бандлов вместо «132 МБ»;
+литеральность блоков вывода (четыре строки `fetch` вместо свёрнутой, команды помечены как взятые из журнала сессии,
+переменные окружения — как не записанные в артефактах); литеральный вывод неудачных попыток упаковки и первого прогона
+мутаций 7/8; обоснование cp312; вывод полного набора тестов. Сверх того: комментарий в `build_engine.py` уточнён (бандл несёт
+пинованный коммит без его родителей), а `verify` теперь называет движки `pins.json`, которых нет в наборе (набор может быть
+подмножеством — это не ошибка; тест `test_verify_names_pinned_engines_the_kit_leaves_out`).
 
 ## Не проверено
 - На сервере — NOT RUN (Python и glibc сервера UNKNOWN до R0; набор собран под cp312 и glibc ≥ 2.28).
