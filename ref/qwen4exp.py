@@ -713,6 +713,52 @@ def cache_truncate(cache, n_keep, W, hp, overrides=None):
     return cache
 
 
+def mtp_forward_chunk(tokens, h_prev, W, hp, cache, overrides=None):
+    """The MTP block (nextn_predict_layers = 1), graph_mtp G:529-618, on one ubatch of the MTP draft context.
+
+    tokens: the ubatch's ids; h_prev (T, hc*n): the hc-wide residual paired with each token. common/speculative.cpp
+    pairs token p with the target's h_nextn of position p-1 (lines 1511-1529; the first token of a call with the
+    last row of the previous call, zeros at the start) and, while drafting, the drafted token with the MTP's own
+    h_nextn of the previous step (lines 1700-1704). The target's h_nextn is the residual before its final mixer
+    (G:501-506), i.e. forward()'s last combine_ffn. cache: new_cache() of the MTP context, whose memory holds the
+    MTP layer alone (src/llama-model.cpp:2713-2720); positions continue from it. With il = n_layer:
+        e      = rms_norm(tok_embd[token]) * enorm, repeated over the hc streams                    (G:584-586)
+        h_norm = per-stream rms_norm(h_prev) * hnorm                                                (G:581-582)
+        res    = eh_proj [e ; h_norm_s] per stream (concat on the feature axis)                     (G:588-589)
+        attention mixer -> full-attention QSA layer il -> combine -> MoE mixer -> MoE -> combine    (G:591-598)
+        h_nextn = res (the next draft step's h)                                                     (G:600-605)
+        logits = output @ hc_mix(res, nextn.hc_head_*) (no inject)                                  (G:607-617)
+    Returns a dict like forward_chunk's layer entry plus e_norm, h_norm, eh_proj, h_nextn, result_norm, logits."""
+    overrides = overrides or {}
+    il = hp["n_layer"]
+    w = layer_weights(W, il)
+    tokens = [int(t) for t in tokens]
+    T, hc, n, eps = len(tokens), hp["hc"], hp["n_embd"], hp["eps"]
+    p0 = len(cache["tokens"])
+    pos = np.arange(p0, p0 + T)
+    cache["tokens"] = cache["tokens"] + tokens
+    _cache_init_layer(cache, W, hp, il)
+    e = rms_norm(W["token_embd.weight"][tokens], eps, w["nextn.enorm.weight"])
+    h_norm = grouped_rms_norm(np.asarray(h_prev, dtype=np.float64).reshape(T, hc, n), w["nextn.hnorm.weight"], eps)
+    e_rep = np.repeat(e[:, None, :], hc, axis=1)
+    res = np.concatenate([e_rep, h_norm], axis=-1) @ np.asarray(w["nextn.eh_proj.weight"]).T          # (T, hc, n)
+    out = dict(pos=pos, e_norm=e_rep, h_norm=h_norm, eh_proj=res)
+    out["mix_attn"] = m = hc_mix(res, w["hc_attn_norm.weight"], w["hc_attn_down.weight"], w["hc_attn_up.weight"],
+                                 w["hc_attn_inject.weight"], eps)
+    out["attn"] = blk = attn_layer_chunk(m["mixed"], w, hp, hp["compress"][il] > 0, pos, cache["kv"][il],
+                                         cache["idx"][il], overrides.get(("qsa", il)))
+    res = out["combine_attn"] = hc_combine(res, blk["out"], m["inject"])
+    out["mix_ffn"] = m = hc_mix(res, w["hc_ffn_norm.weight"], w["hc_ffn_down.weight"], w["hc_ffn_up.weight"],
+                                w["hc_ffn_inject.weight"], eps)
+    out["moe"] = moe = moe_layer(m["mixed"], w, hp["n_expert_used"])
+    res = out["combine_ffn"] = hc_combine(res, moe["out"], m["inject"])
+    out["h_nextn"] = res.reshape(T, hc * n)
+    head = hc_mix(res, w["nextn.hc_head_norm.weight"], w["nextn.hc_head_down.weight"], w["nextn.hc_head_up.weight"],
+                  None, eps)
+    out.update(head=head, result_norm=head["mixed"], logits=head["mixed"] @ W["output.weight"].T)
+    return out
+
+
 def forward_chunks(tokens, W, hp, sizes, overrides=None):
     """Run a sequence as consecutive chunks of the given sizes; returns the list of forward_chunk results."""
     cache, outs, i = new_cache(), [], 0

@@ -5,8 +5,9 @@ the oracle carries between chunks (Q.forward_chunk; the same state llama.cpp car
 "incremental path") must give the rows of the whole-sequence forward (causality), and a rollback (Q.cache_truncate)
 must leave exactly the state of the kept prefix. The model is a random 4-layer qwen4exp built here with the GGUF
 tensor shapes of tools/tinygen/qwen4exp_tiny.py: gated delta net on layers 0 and 2, PLE on layer 2, QSA on layer 1
-(compress ratio 2, budget 2 pools), dense full attention on layer 3. The comparison against llama.cpp is
-tests/test_qwen4exp_decode_parity.py.
+(compress ratio 2, budget 2 pools), dense full attention on layer 3. The same continuity for the MTP block
+(Q.mtp_forward_chunk, model with an MTP layer 4): MtpChunkedEqualsOneShot. The comparison against llama.cpp is
+tests/test_qwen4exp_decode_parity.py and tests/test_qwen4exp_mtp_parity.py.
 """
 import pathlib
 import sys
@@ -20,8 +21,10 @@ from ref import qwen4exp as Q  # noqa: E402
 from ref.kda import gated_delta_rule  # noqa: E402
 
 
-def random_model(seed=0):
-    """Weights (numpy shapes = GGUF ne reversed, names as in the GGUF) and hyper-parameters of a tiny qwen4exp."""
+def random_model(seed=0, mtp=False):
+    """Weights (numpy shapes = GGUF ne reversed, names as in the GGUF) and hyper-parameters of a tiny qwen4exp.
+    mtp: append an MTP block as layer n_layer (a QSA layer plus blk.<n_layer>.nextn.*, as tools/tinygen/qwen4exp_tiny.py
+    --mtp); its weights are drawn after the trunk's, so the trunk is the same."""
     rng = np.random.default_rng(seed)
     E, V, hc, lr = 32, 40, 2, 4
     H, Hkv, D = 2, 1, 8
@@ -36,6 +39,9 @@ def random_model(seed=0):
               n_expert_used=2, ple_layers=[2], ple_ngram=3, ple_heads_per_ngram=2, ple_eos=2,
               ple_multipliers=[0x1A2B3C4D5E1, 0x0F1E2D3C4B5, 0x13579BDF023],
               ple_offsets=[int(x) for x in np.cumsum([0] + ple_vocab[:-1])], ple_vocab_sizes=ple_vocab, kpool=kp)
+    if mtp:
+        hp["recurrent"] = hp["recurrent"] + [False]
+        hp["compress"] = hp["compress"] + [kp]
 
     def t(*shape, scale=None, ones=False):
         if ones:
@@ -46,7 +52,7 @@ def random_model(seed=0):
          "output_hc_norm.weight": t(hc, E, ones=True), "output_hc_down.weight": t(lr, hc * E),
          "output_hc_up.weight": t(hc * E, lr), "per_layer_token_embd.weight": t(sum(ple_vocab), ple_dim, scale=1.0)}
     kd, vd = S * Hk, S * Hv
-    for il in range(hp["n_layer"]):
+    for il in range(hp["n_layer"] + int(mtp)):
         b = f"blk.{il}."
         for k in ("attn", "ffn"):
             W[b + f"hc_{k}_norm.weight"] = t(hc, E, ones=True)
@@ -74,6 +80,11 @@ def random_model(seed=0):
                   b + "ffn_up_exps.weight": t(X, F, E), b + "ffn_down_exps.weight": t(X, E, F),
                   b + "ffn_gate_inp_shexp.weight": t(E), b + "ffn_gate_shexp.weight": t(Fs, E),
                   b + "ffn_up_shexp.weight": t(Fs, E), b + "ffn_down_shexp.weight": t(E, Fs)})
+        if il == hp["n_layer"]:
+            W.update({b + "nextn.eh_proj.weight": t(E, 2 * E), b + "nextn.enorm.weight": t(E, ones=True),
+                      b + "nextn.hnorm.weight": t(hc, E, ones=True),
+                      b + "nextn.hc_head_norm.weight": t(hc, E, ones=True),
+                      b + "nextn.hc_head_down.weight": t(lr, hc * E), b + "nextn.hc_head_up.weight": t(hc * E, lr)})
     return W, hp
 
 
@@ -192,6 +203,53 @@ class ChunkedEqualsFull(unittest.TestCase):
         self.assertTrue((no_reset != full["ple_rows"]).any(), "no EOS reset")
         self.assertTrue(any(s % hp["kpool"] for s in np.cumsum([5, 1, 1, 9, 8])[:-1]), "no pool straddles a chunk")
         self.assertGreater(float(np.abs(full["layers"][0]["gdn"]["state"]).max()), 1e-3)
+
+
+
+class MtpChunkedEqualsOneShot(unittest.TestCase):
+    """The MTP block (Q.mtp_forward_chunk): its draft context keeps its own KV and k-pool cache, so processing the
+    (token p, target h of p-1) pairs in chunks equals one shot, and a first draft step (the next token with the last
+    target row, common/speculative.cpp:1511-1529, 1700-1704) is the same computation as processing that pair."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.W, cls.hp = random_model(mtp=True)
+        cls.toks = tokens()
+        full = Q.forward(cls.toks, cls.W, cls.hp)
+        H = full["layers"][cls.hp["n_layer"] - 1]["combine_ffn"].reshape(len(cls.toks), -1)
+        cls.h_pair = np.vstack([np.zeros((1, H.shape[1])), H[:-1]])
+        cls.one = Q.mtp_forward_chunk(cls.toks, cls.h_pair, cls.W, cls.hp, Q.new_cache())
+
+    def assertRows(self, got, want, what):
+        err = float(np.abs(np.asarray(got) - np.asarray(want)).max())
+        self.assertLess(err, 1e-10 * max(1.0, float(np.abs(want).max())), what)
+
+    def test_trunk_unchanged_by_the_mtp_block(self):
+        W0, hp0 = random_model()
+        a, b = Q.forward(self.toks, W0, hp0), Q.forward(self.toks, self.W, self.hp)
+        self.assertRows(a["logits"], b["logits"], "trunk logits with and without the MTP block")
+
+    def test_chunked_mtp_equals_one_shot(self):
+        for sizes in ([5, 1, 1, 9, 8], [1] * 24, [16, 8]):
+            cache, i = Q.new_cache(), 0
+            for n in sizes:
+                o = Q.mtp_forward_chunk(self.toks[i:i + n], self.h_pair[i:i + n], self.W, self.hp, cache)
+                for key in ("eh_proj", "h_nextn", "logits"):
+                    self.assertRows(o[key], self.one[key][i:i + n], f"{sizes} {key} at {i}")
+                self.assertEqual(o["attn"]["cells"], self.one["attn"]["cells"][i:i + n], f"{sizes} QSA cells")
+                i += n
+
+    def test_first_draft_step_is_processing_the_next_pair(self):
+        k = 17
+        cache = Q.new_cache()
+        Q.mtp_forward_chunk(self.toks[:k], self.h_pair[:k], self.W, self.hp, cache)
+        d = Q.mtp_forward_chunk(self.toks[k:k + 1], self.h_pair[k:k + 1], self.W, self.hp, cache)
+        self.assertRows(d["logits"], self.one["logits"][k:k + 1], "first draft step")
+
+    def test_guards(self):
+        cells = self.one["attn"]["cells"]
+        self.assertTrue(any(len(c) < t + 1 for t, c in enumerate(cells)), "MTP QSA never drops a causal cell")
+        self.assertGreater(float(np.abs(self.h_pair[1:]).max()), 1e-3)
 
 
 if __name__ == "__main__":
