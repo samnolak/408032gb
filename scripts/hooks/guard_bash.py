@@ -43,11 +43,25 @@ def project_root():
     return os.path.realpath(os.environ.get("CLAUDE_PROJECT_DIR") or os.path.dirname(os.path.dirname(HERE)))
 
 
+REDIRECT = re.compile(r"^\d*(>>?|<<?|&>>?|>&|<&|>\|)(.*)$")
+
+
 def segments(cmd):
-    """Split a shell command into simple commands (token lists), also on separators glued to words."""
+    """Split a shell command into simple commands (token lists), also on separators glued to words.
+    Redirections (`2>&1`, `> file`, `&>/dev/null`, ...) are dropped together with their target."""
     toks = shlex.split(cmd.replace("\n", " ; "), posix=True)
-    segs, cur = [], []
+    kept, skip = [], False
     for t in toks:
+        if skip:
+            skip = False
+            continue
+        m = REDIRECT.match(t)
+        if m:
+            skip = m.group(2) == ""
+            continue
+        kept.append(t)
+    segs, cur = [], []
+    for t in kept:
         for p in re.split(r"(&&|\|\||;|\||&)", t):
             if p == "":
                 continue
