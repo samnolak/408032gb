@@ -737,3 +737,23 @@ M13 GDN head map: value head h reads key head h // (Hv/Hk) instead of h % Hk
 caught 13/13
 ```
 
+
+## Перепроверка ведущим (2026-10-10, после слияния в `claude/relaxed-dijkstra-1d7i5o`)
+Чистый каталог сборки, llama.cpp на пине `ec7630a640789c393694fb194f1bbbf0369fc62d` (не изменён):
+```
+$ TMPDIR=<S> tools/tinygen/run_parity_qwen4exp.sh <S>/llama.cpp <S>/build-n2-lead      (exit=0; хвост)
+e2e result_norm                                     -1  1.280e-06  6.950e-07  (5, 6)
+e2e logits                                          -1  1.490e-06  7.439e-07  (55, 87)
+e2e: QSA tie replays = 0 layer(s)                   -1  0.000e+00  0.000e+00  ()
+Ran 17 tests in 0.395s
+OK
+$ python3 -m unittest tests.test_qwen4exp_ref
+Ran 16 tests in 0.019s
+OK
+$ python3 tools/tinygen/mutate_qwen4exp.py <repo> <artifacts>/dump <artifacts>/qwen4exp.gguf <S>/llama.cpp/gguf-py <S>/n2mut   (выдержка)
+baseline (no mutation): rc=0 Ran 33 tests in 0.307s | OK
+...
+caught 13/13
+```
+Первый запуск драйвера ведущим был с неверным путём к модели (`tiny.gguf`): базовый прогон тогда дал `FAILED (errors=1)`, и его
+«13/13» ничего не доказывал — поэтому он не считается; зачтён второй запуск с зелёным базовым прогоном.
