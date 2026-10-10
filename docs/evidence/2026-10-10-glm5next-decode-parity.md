@@ -19,7 +19,7 @@ at ec7630a unless "@79e2e74" is written; every cited line was printed from the p
 | driver | tools/tinygen/run_parity_glm5next_decode.sh (builds dump-tensors, writes the tiny GGUF with and without the MTP block, runs the dumps, runs the three test modules; `PARITY_LLAMA_COMMIT` from the checkout) |
 | generator | tools/tinygen/glm5next_tiny.py `--mtp`, taken verbatim from `origin/claude/n7-server-hybrid-cpu` (default output byte-identical, below) |
 | mutation check | docs/evidence/mutation-scripts/2026-10-10-glm5next-decode.py (15 mutants on copies; the repository is never edited) |
-| CI | step after N6 in `.github/workflows/ci.yml` job `cpu-parity` (ec7630a) and in `.github/workflows/parity-r1-pin.yml` (R1 pin); NOT RUN in GitHub Actions from this branch (not pushed by this role) |
+| CI | step after N6 in `.github/workflows/ci.yml` job `cpu-parity` (ec7630a) and in `.github/workflows/parity-r1-pin.yml` (R1 pin); green on `010a714` (below, "CI") |
 
 ## Runs
 
@@ -120,7 +120,6 @@ replayed only if the oracle's own selection is valid too), counted. Pin-dependen
   (`cparams.fused_*`): UNKNOWN, not recorded; only the branch the CPU took is checked.
 * the optional nextn tensors (`embed_tokens`, `shared_head_head`, `shared_head_norm`): not in the tiny model, so the
   MTP graph's fall-back to `token_embd` / `output` / `output_norm` is what is checked.
-* CI: the two new workflow steps NOT RUN in GitHub Actions (this branch is not pushed by this role).
 
 ## Literal outputs
 
@@ -455,3 +454,18 @@ error and does not run that class's tests; the round counts the mutant as caught
 
 The full unit-test suite and `git log` for this report are in the final report of the task (they move with every
 commit).
+
+### CI (GitHub Actions on `010a714`, read through the GitHub API)
+
+All 14 check runs of PR #5 on `010a714` completed with `success` (workflows `ci` runs 38091373139 and 38091399570,
+`parity-r1-pin` runs 38091373152 and 38091399581; push and pull_request events). The new steps: `ci` job `cpu-parity`
+(ec7630a) step 11 "N9 glm5-next several ubatches, token-by-token decode and rollback against the real glm5-next graph
+(CPU; this pin has no glm5-next MTP graph)" conclusion `success` (job 114328403567); `parity-r1-pin` job `parity`
+(79e2e74, job 114328403607), last lines of its log:
+
+```
+Ran 58 tests in 4.437s
+
+OK
+artifacts: /tmp/tmp.8vMteKTNT4
+```
