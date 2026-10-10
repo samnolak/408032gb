@@ -293,6 +293,13 @@ def qsa_scores(iq, pooled, kpool):
     return np.where(visible, s, -np.inf)
 
 
+def qsa_tail(t, kpool):
+    """Cells of the incomplete block token t always keeps: kpool*floor((t+1)/kpool) .. t
+    (llama-memory-hybrid-idx.cpp:1017-1018, n_tail = (rank + 1) % kpool, newest first)."""
+    tail0 = ((t + 1) // kpool) * kpool
+    return list(range(tail0, t + 1))
+
+
 def qsa_select(scores, top_k, kpool):
     """Selected cells per token: top visible pools (stable order on ties) + the incomplete tail."""
     n_top = top_k // kpool
@@ -301,9 +308,33 @@ def qsa_select(scores, top_k, kpool):
         vis = np.where(np.isfinite(scores[t]))[0]
         top = vis[np.argsort(-scores[t, vis], kind="stable")[:n_top]]
         cells = [c for b in sorted(top) for c in range(b * kpool, (b + 1) * kpool)]
-        tail0 = ((t + 1) // kpool) * kpool
-        out.append(sorted(cells + list(range(tail0, t + 1))))
+        out.append(sorted(cells + qsa_tail(t, kpool)))
     return out
+
+
+def qsa_tie_variant(scores_row, cells, t, top_k, kpool, rtol=1e-6):
+    """Whether `cells` is another valid selection for token t: the oracle's tail, whole visible pools, the
+    budgeted pool count, and no left-out visible pool scoring above a chosen one beyond f32 rounding (the
+    order of ggml_top_k among equal scores is unspecified, ops.cpp:8786-8823). Returns (ok, reason)."""
+    cells = sorted(int(c) for c in cells)
+    tail = qsa_tail(t, kpool)
+    if not set(tail) <= set(cells):
+        return False, "tail missing"
+    rest = sorted(set(cells) - set(tail))
+    pools = sorted({c // kpool for c in rest})
+    if rest != [c for b in pools for c in range(b * kpool, (b + 1) * kpool)]:
+        return False, "not whole pools"
+    vis = set(np.where(np.isfinite(scores_row))[0].tolist())
+    if not set(pools) <= vis:
+        return False, "invisible pool chosen"
+    if len(pools) != min(top_k // kpool, len(vis)):
+        return False, "pool count"
+    left = sorted(vis - set(pools))
+    if left and pools:
+        edge = max(scores_row[left])
+        if min(scores_row[pools]) < edge - rtol * max(1.0, abs(edge)):
+            return False, "not a top-k"
+    return True, ""
 
 
 def attention(q, k, v, cells, scale):

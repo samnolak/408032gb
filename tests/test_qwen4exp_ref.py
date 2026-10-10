@@ -87,6 +87,17 @@ class Qsa(unittest.TestCase):
         self.assertEqual(cells[9], [0, 1, 2, 3, 8, 9])      # pool 0 + tail 8..9
         self.assertEqual(cells[15], [0, 1, 2, 3])           # 4 complete pools, no tail
 
+    def test_tie_variant_accepts_only_genuine_ties(self):
+        t, kp = 13, 4                                       # 3 complete pools, tail 12..13, budget 1 pool
+        row = np.array([0.5, 0.5, 0.2, -np.inf])
+        ok = lambda cells: Q.qsa_tie_variant(row, cells, t, 4, kp)[0]  # noqa: E731
+        self.assertTrue(ok([0, 1, 2, 3, 12, 13]))           # the oracle's own choice
+        self.assertTrue(ok([4, 5, 6, 7, 12, 13]))           # the other member of the exact tie
+        self.assertFalse(ok([8, 9, 10, 11, 12, 13]))        # a lower-scoring pool
+        self.assertFalse(ok([0, 1, 2, 3, 13]))              # tail cell 12 missing
+        self.assertFalse(ok([0, 1, 2, 3, 4, 12, 13]))       # a partial pool
+        self.assertFalse(ok([0, 1, 2, 3, 4, 5, 6, 7, 12, 13]))   # over budget
+
     def test_pool_is_mean_of_raw_keys(self):
         rng = np.random.default_rng(6)
         k_raw = rng.standard_normal((9, 8))

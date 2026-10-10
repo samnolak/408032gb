@@ -271,6 +271,18 @@ class Qwen4expTinyParity(_Base):
         mask = dump(f"kq_mask_qsa-{il}")[:, :]
         return [np.where(np.isfinite(mask[t]) & (mask[t] > -1e30))[0] for t in range(self.T)]
 
+    def _tie_variants(self, scores, seen, mine, il):
+        """Assert every token whose reference selection differs from the oracle's is a tie variant."""
+        n = 0
+        for t in range(self.T):
+            s = sorted(int(c) for c in seen[t])
+            if s == mine[t]:
+                continue
+            ok, why = Q.qsa_tie_variant(scores[t], s, t, self.hp["idx_top_k"], self.hp["kpool"])
+            self.assertTrue(ok, f"QSA selection L{il} t={t}: {why}; reference {s}, oracle {mine[t]}")
+            n += 1
+        return n
+
     def test_qsa_indexer_and_selection(self):
         hp = self.hp
         kp, nh, d = hp["kpool"], hp["idx_heads"], hp["idx_dim"]
@@ -295,28 +307,14 @@ class Qwen4expTinyParity(_Base):
             self.assertTrue(np.array_equal(fin, np.isfinite(got[:, :n])), "pool visibility")
             self.assertFalse(np.isfinite(got[:, n:]).any(), "padded pools must stay masked")
             self.close("indexer_score (visible)", il, got[:, :n][fin], sc[fin])
-            # selection: top pools + tail. A different choice is accepted only if it is another valid top-k,
-            # i.e. the boundary scores tie within f32 rounding (ggml_top_k is std::partial_sort,
-            # ops.cpp:8786-8823: the order among equal scores is unspecified); counted and reported.
+            # selection: top pools + tail. A different choice is accepted only if the oracle judges it another
+            # valid top-k (Q.qsa_tie_variant: same tail, boundary scores tie within f32 rounding); counted.
             mine = Q.qsa_select(sc, hp["idx_top_k"], kp)
-            seen = self._selected_cells(il)
-            ties = 0
-            for t in range(T):
-                s = sorted(seen[t].tolist())
-                if s == mine[t]:
-                    continue
-                tail0 = ((t + 1) // kp) * kp
-                self.assertEqual([c for c in s if c >= tail0], list(range(tail0, t + 1)), f"tail t={t}")
-                chosen = sorted({c // kp for c in s if c < tail0})
-                vis = np.where(fin[t])[0]
-                left = [b for b in vis if b not in chosen]
-                self.assertEqual(len(chosen), min(hp["idx_top_k"] // kp, len(vis)), f"pool count t={t}")
-                if left:
-                    edge = max(sc[t, left])
-                    self.assertGreaterEqual(min(sc[t, chosen]), edge - 1e-6 * max(1.0, abs(edge)),
-                                            f"not a top-k t={t}")
-                ties += 1
+            ties = self._tie_variants(sc, self._selected_cells(il), mine, il)
             _Base.table.append((f"qsa selection: tokens differing only by tie order = {ties}", il, 0.0, 0.0, ()))
+            dropped = sum(len(c) < t + 1 for t, c in enumerate(mine))
+            _Base.table.append((f"qsa selection: tokens attending to fewer than all causal cells = {dropped}",
+                                il, 0.0, 0.0, ()))
             # guard: the budget must bind, i.e. some token sees more pools than it may select
             self.assertGreater(int(fin.sum(axis=1).max()), hp["idx_top_k"] // kp)
 
@@ -389,12 +387,15 @@ class Qwen4expTinyParity(_Base):
     # ---- the whole model from token ids ----
     def test_end_to_end(self):
         """Run the oracle from the token ids alone. Discrete choices (MoE top-k, QSA pools) are the oracle's
-        own; only where the reference picked a different member of an exact tie is its choice replayed."""
+        own; only where the reference picked another member of a tie (validated on the oracle's own scores by
+        Q.qsa_tie_variant) is its choice replayed."""
         ref = Q.forward(self.tokens, self.W, self.hp)
         overrides = {}
         for il in self.QSA:
-            seen = [sorted(c.tolist()) for c in self._selected_cells(il)]
-            if seen != ref["layers"][il]["attn"]["cells"]:
+            seen = [sorted(int(c) for c in cells) for cells in self._selected_cells(il)]
+            a = ref["layers"][il]["attn"]
+            if seen != a["cells"]:
+                self._tie_variants(a["scores"], seen, a["cells"], il)
                 overrides[("qsa", il)] = seen
         if overrides:
             ref = Q.forward(self.tokens, self.W, self.hp, overrides)
