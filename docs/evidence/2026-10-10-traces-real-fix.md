@@ -5,7 +5,8 @@ Everything here ran on the agent sandbox CPU with llama.cpp @ec7630a640789c39369
 (`$S/llama-ec7630a`, `$S/build-g0` = `tools/g0` built against it). No real model was run here; the real models
 run in workflow `traces-real` (GitHub runner), see the end of this file.
 
-## 1. Symptom (CONFIRMED, CI log)
+## 1. Symptom (CONFIRMED: run conclusion and failing step via the GitHub API; the log line below was read from the job
+log through the GitHub MCP tool during the session and not saved — the sandbox's own `gh` gets `Forbidden` for logs)
 
 Workflow `traces-real` run 38076798213 on 8981351: both GGUFs downloaded with matching sha256 and the corpus
 rendered (e.g. `c00_en_cachesim_py: 1967 tokens`), then for each model:
@@ -124,7 +125,7 @@ FAILED (1): env G0_TRACES_DIR=.../smoke-old/ids G0_OUT_DIR=.../smoke-old/tr64 G0
 exit=1
 ```
 
-Unit tests (worktree, includes the untracked tests/test_arch_ceilings.py):
+Unit tests (worktree, includes the untracked tests/test_arch_ceilings.py; output not saved to a file):
 
 ```
 $ LLAMA_CPP_GGUF_PY=$S/llama-ec7630a/gguf-py python3 -m unittest discover -s tests
@@ -138,6 +139,29 @@ All prompt tokens now go through the output head: per 512-token batch the logits
 and the head adds about 2 x n_embd x n_vocab FLOP per token. For Qwen3-30B-A3B, taking n_vocab = 151 936 and
 n_embd = 2048 from the published model config (not read from the GGUF in this sandbox): 311 MB of logits per batch and
 2 x 2048 x 151 936 = 0.62 GFLOP per token, against about 6 GFLOP per token for 3B active parameters (~10% more work).
+
+## 5b. Follow-up: the smoke step was flaky under unbuffered Python (second evidence audit, same day)
+
+`smoke_tiny.sh` piped `predict_eval.py` into `head -n 1` under `set -euo pipefail`. With `PYTHONUNBUFFERED=1` (set in the
+agent sandbox, not on GitHub's runners) Python writes the later lines after `head` has closed the pipe, gets
+`BrokenPipeError`, never writes `predict.json`, and the step fails; the audit saw 1 pass in 7 runs. CI stayed green only
+because the runners do not set the variable. Fix: the output goes to `$WORK/predict.txt`, then `head -n 1` of the file.
+
+```
+$ for i in 1 2 3 4; do PYTHONUNBUFFERED=1 scripts/traces/smoke_tiny.sh ...; done      # before the fix
+before fix, run 1: exit=1 1 BrokenPipeError lines
+before fix, run 2: exit=1 1 BrokenPipeError lines
+before fix, run 3: exit=1 1 BrokenPipeError lines
+before fix, run 4: exit=1 1 BrokenPipeError lines
+$ for i in 1 2 3 4 5; do PYTHONUNBUFFERED=1 scripts/traces/smoke_tiny.sh ...; done   # after the fix
+after fix, run 1: exit=0 smoke ok
+after fix, run 2: exit=0 smoke ok
+after fix, run 3: exit=0 smoke ok
+after fix, run 4: exit=0 smoke ok
+after fix, run 5: exit=0 smoke ok
+```
+(logs `$S/trfix/smoke-flake-*.log`, `$S/trfix/smoke-fixed-*.log`.) `run_real_traces.sh` pipes into `tee`, which reads to the
+end, so it is not affected.
 
 ## 6. Not done here
 

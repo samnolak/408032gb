@@ -30,8 +30,11 @@ logged "$WORK/probe.log" env G0_TRACES_DIR="$WORK/ids" G0_OUT_DIR="$WORK/probes"
   "$G0/g0-expert-probe" -m "$WORK/tiny.gguf" -c 512 -b 64 -ub 64 -t 2
 grep -E "recorded" "$WORK/probe.log" | sed 's/^.* I //; s/ -> .*//'
 cp "$WORK/tr64/c00.trace" "$WORK/train/"
+# full output to a file, then show its first line: piping into head would close the pipe early and, under pipefail,
+# fail the step with BrokenPipeError when Python writes unbuffered (PYTHONUNBUFFERED=1)
 PYTHONPATH="$LLAMA/gguf-py" python3 "$ROOT/tools/g0/predict_eval.py" "$WORK/probes" --gguf "$WORK/tiny.gguf" \
-  --train-traces "$WORK/train" --check-traces "$WORK/tr64" -o "$WORK/predict.json" | head -n 1
+  --train-traces "$WORK/train" --check-traces "$WORK/tr64" -o "$WORK/predict.json" > "$WORK/predict.txt"
+head -n 1 "$WORK/predict.txt"
 python3 - "$ROOT/tools/g0" "$WORK" <<'PY'
 import os, sys
 sys.path.insert(0, sys.argv[1])
