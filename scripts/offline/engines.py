@@ -195,6 +195,9 @@ def cmd_verify(a, pins):
             path = os.path.join(kit, w["file"])
             same = os.path.isfile(path) and os.path.getsize(path) == w["size"] and sha256_file(path) == w["sha256"]
             line(same, "wheel %s" % os.path.basename(w["file"]), w["sha256"][:16] if same else "missing or differs")
+    left_out = sorted(set(pins) - set(m.get("engines") or {}))
+    if left_out:                                      # a kit may carry a subset (pack --engine); say so, do not fail
+        print("note pins.json engines not in this kit: %s" % ", ".join(left_out))
     print("verify: %s" % ("ok" if not bad else "%d check(s) failed" % bad))
     return 1 if bad else 0
 
