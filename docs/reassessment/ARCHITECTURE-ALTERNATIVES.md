@@ -1290,7 +1290,7 @@ tp_owner | mtp k=1 a 0.745 | 37.6 | 62.7 | 82.5 | 47.1 | 75.5 | 96.3 | 63.2 | 95
 tp_owner_hostcpu | none | 36.8 | 56.9 | 70.9 | 44.6 | 66.0 | 79.7 | 56.9 | 78.7 | 91.3
 tp_owner_hostcpu | mtp k=1 a 0.745 | 37.6 | 63.6 | 84.6 | 47.1 | 76.7 | 99.2 | 63.1 | 97.0 | 120.0
 ```
-(The last column is the binding term of the `uniform` row only. At hit 0.95 some rows bind elsewhere, e.g. `MiMo tp_owner 8 ch` binds on `GPU dense+KV`; the tok/s values are unaffected.)
+(In the MiMo / DeepSeek-V4-Flash table of this block, header `... binding of the uniform row`, the last column is the binding term of the `uniform` row only. At hit 0.95 some rows bind elsewhere, e.g. `MiMo tp_owner 8 ch` binds on `GPU dense+KV`; the tok/s values are unaffected.)
 
 («uniform» у MiMo и DeepSeek-V4-Flash — hit, равный резидентности 0.724 / 0.818; `binding` в сводке — у строки «uniform».)
 
