@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Mutation check of the state carry of the qwen4exp oracle (N6): single-point mutations of the incremental path of
-ref/qwen4exp.py; each mutant must make tests.test_qwen4exp_decode_parity (per-graph llama.cpp dumps of several
-ubatches, decode and rollback) and/or tests.test_qwen4exp_chunked_ref fail. The repo is never edited: ref/ and the
+ref/qwen4exp.py (S1-S12) and of its MTP block (T1-T5); each mutant must make tests.test_qwen4exp_decode_parity
+(per-graph llama.cpp dumps of several ubatches, decode and rollback), tests.test_qwen4exp_mtp_parity (the MTP context)
+and/or tests.test_qwen4exp_chunked_ref fail. The repo is never edited: ref/ and the
 test files are copied into <scratch dir>/<mutant> and mutated there.
 
 usage: python3 tools/tinygen/mutate_qwen4exp_decode.py <repo root> <n6 dump root> <gguf> <llama.cpp gguf-py> <scratch>
 (n6 dump root and gguf: the artifacts printed by tools/tinygen/run_parity_qwen4exp_decode.sh: <artifacts>/n6 and
-<artifacts>/qwen4exp.gguf). Results: docs/evidence/2026-10-10-qwen4exp-decode-parity.md."""
+<artifacts>/qwen4exp.gguf; the MTP model is taken as qwen4exp_mtp.gguf next to the gguf).
+Results: docs/evidence/2026-10-10-qwen4exp-decode-parity.md."""
 import os
 import re
 import shutil
@@ -47,12 +49,27 @@ MUTANTS = [
      "    cache.clear()\n", "    fresh[\"gdn\"] = cache[\"gdn\"]\n    cache.clear()\n"),
     ("S12 rollback: PLE conv history not rolled back", Q,
      "    cache.clear()\n", "    fresh[\"ple\"] = cache[\"ple\"]\n    cache.clear()\n"),
+    ("T1 MTP: eh_proj input concatenated as [h ; e] instead of [e ; h]", Q,
+     "res = np.concatenate([e_rep, h_norm], axis=-1) @ np.asarray(w[\"nextn.eh_proj.weight\"]).T",
+     "res = np.concatenate([h_norm, e_rep], axis=-1) @ np.asarray(w[\"nextn.eh_proj.weight\"]).T"),
+    ("T2 MTP: h normed over the whole hc-wide row instead of per stream", Q,
+     "h_norm = grouped_rms_norm(np.asarray(h_prev, dtype=np.float64).reshape(T, hc, n), w[\"nextn.hnorm.weight\"], eps)",
+     "h_norm = rms_norm(np.asarray(h_prev, dtype=np.float64), eps).reshape(T, hc, n) * w[\"nextn.hnorm.weight\"]"),
+    ("T3 MTP: embedding norm without its enorm gamma", Q,
+     "e = rms_norm(W[\"token_embd.weight\"][tokens], eps, w[\"nextn.enorm.weight\"])",
+     "e = rms_norm(W[\"token_embd.weight\"][tokens], eps)"),
+    ("T4 MTP: the head mixer uses the trunk's output_hc_* instead of nextn.hc_head_*", Q,
+     "head = hc_mix(res, w[\"nextn.hc_head_norm.weight\"], w[\"nextn.hc_head_down.weight\"], w[\"nextn.hc_head_up.weight\"],",
+     "head = hc_mix(res, W[\"output_hc_norm.weight\"], W[\"output_hc_down.weight\"], W[\"output_hc_up.weight\"],"),
+    ("T5 MTP: the next draft step's h is the projected input, not the block output", Q,
+     "out[\"h_nextn\"] = res.reshape(T, hc * n)", "out[\"h_nextn\"] = out[\"eh_proj\"].reshape(T, hc * n)"),
 ]
-TESTS = ["tests.test_qwen4exp_decode_parity", "tests.test_qwen4exp_chunked_ref"]
+TESTS = ["tests.test_qwen4exp_decode_parity", "tests.test_qwen4exp_mtp_parity", "tests.test_qwen4exp_chunked_ref"]
 
 
 def run(tree):
-    env = dict(os.environ, QWEN4EXP_DECODE_DUMP=dump, QWEN4EXP_TINY_GGUF=gguf, LLAMA_CPP_GGUF_PY=gguf_py)
+    env = dict(os.environ, QWEN4EXP_DECODE_DUMP=dump, QWEN4EXP_TINY_GGUF=gguf, LLAMA_CPP_GGUF_PY=gguf_py,
+               QWEN4EXP_MTP_GGUF=os.path.join(os.path.dirname(gguf), "qwen4exp_mtp.gguf"))
     p = subprocess.run([sys.executable, "-m", "unittest"] + TESTS, cwd=tree, env=env, capture_output=True, text=True,
                        timeout=1800)
     out = p.stdout + p.stderr
@@ -67,7 +84,8 @@ def make_tree(name):
     shutil.rmtree(tree, ignore_errors=True)
     shutil.copytree(os.path.join(wt, "ref"), os.path.join(tree, "ref"))
     os.makedirs(os.path.join(tree, "tests"))
-    for f in ("test_qwen4exp_decode_parity.py", "test_qwen4exp_chunked_ref.py", "test_qwen4exp_tiny_parity.py"):
+    for f in ("test_qwen4exp_decode_parity.py", "test_qwen4exp_mtp_parity.py", "test_qwen4exp_chunked_ref.py",
+              "test_qwen4exp_tiny_parity.py"):
         shutil.copy(os.path.join(wt, "tests", f), os.path.join(tree, "tests", f))
     return tree
 
@@ -85,7 +103,7 @@ for label, path, old, new in MUTANTS:
     open(fp, "w").write(src.replace(old, new))
     rc, summary, failed = run(tree)
     caught += rc != 0
-    dump_fail = sorted({f"{cls}.{t}" for t, mod, cls in failed if mod == "decode_parity"})
+    dump_fail = sorted({f"{cls}.{t}" for t, mod, cls in failed if mod in ("decode_parity", "mtp_parity")})
     prop_fail = sorted({t for t, mod, cls in failed if mod == "chunked_ref"})
     caught_by_dumps += bool(dump_fail)
     print(f"{label}\n    {path}: {old.strip()!r} -> {new.strip()!r}\n    rc={rc} {' | '.join(summary)}")
