@@ -476,3 +476,248 @@ def forward(tokens, W, hp, overrides=None):
     head = hc_mix(res, W["output_hc_norm.weight"], W["output_hc_down.weight"], W["output_hc_up.weight"], None, eps)
     out.update(head=head, result_norm=head["mixed"], logits=head["mixed"] @ W["output.weight"].T)
     return out
+
+
+# ---------------------------------------------------------------- incremental path: several ubatches, decode, rollback
+#
+# llama.cpp runs a long prompt as several ubatches and a generation as one llama_decode call per token; every ubatch
+# is its own graph that reads what the earlier ones left in the memory (src/llama-memory-hybrid-idx.cpp; one
+# sequence, cell = position here). What this oracle carries between chunks, and where llama.cpp keeps it:
+#   tokens        token ids of the cached cells: PLE predecessors are read from the attention KV cells (ext.tok),
+#                 this ubatch included (G:1250-1252; src/llama-kv-cache.cpp:1848-1900 get_prev_tokens)
+#   gdn[il].conv  the last d_conv-1 rows of the conv input qkv (recurrent row r_l): build_conv_state_at prepends it
+#                 to the ubatch and writes the new tail back (G:1296-1348; dumped as "conv_state_at", G:1320)
+#   gdn[il].state delta-rule state (H_v, S_k, S_v) (row s_l; dumped as "state_predelta" G:1073-1074, written back
+#                 as "new_state" src/models/delta-net-base.cpp:546-560; ggml keeps S[i][j] at [j*S_v + i] per head,
+#                 ggml/src/ggml-cpu/ops.cpp:11228-11229, so a dump reads as state[h].T)
+#   ple[il].hist  the last (K-1)*ngram rows of the grouped-normed gated PLE value (row p_l, G:1405-1424, through
+#                 the same build_conv_state_at)
+#   kv[il]        rotated K and V of every cell (attention KV cache)
+#   idx[il]       raw indexer key of every cell (G:763-768) and the pooled key of every complete pool, computed once,
+#                 by the ubatch that completes the pool, and read back from the pooled slot afterwards
+#                 (src/llama-memory-hybrid-idx.cpp:672-680, 791-1043; G:772-797)
+# forward_chunk over the chunks of a sequence must equal forward() of the whole sequence row by row (causality):
+# tests/test_qwen4exp_ref.py checks that; tests/test_qwen4exp_decode_parity.py checks both against llama.cpp per
+# ubatch and per decode step. A rollback (llama_memory_seq_rm of the last n positions with n_rs_seq snapshots,
+# src/llama-memory-recurrent.cpp:199-215) must leave the state of the kept prefix: cache_truncate.
+
+def new_cache():
+    """Empty sequence memory for forward_chunk."""
+    return dict(tokens=[], gdn={}, ple={}, kv={}, idx={})
+
+
+def text_pos4_at(pos):
+    """M-RoPE positions (p, p, p, 0) of text tokens at absolute positions pos (src/llama-graph.cpp:131-141)."""
+    p = np.asarray(pos)
+    return np.stack([p, p, p, np.zeros_like(p)], axis=1)
+
+
+def ple_rows_chunk(history, chunk, multipliers, offsets, vocab_sizes, ngram, heads_per_ngram, eos):
+    """PLE rows of the chunk tokens; the predecessors before the chunk come from the cached cells `history`
+    (G:1250-1266: prev[] of the KV cells; missing ones before the sequence start read as EOS)."""
+    n_prev = ngram - 1
+    prefix = [int(t) for t in history[max(0, len(history) - n_prev):]]
+    rows = ple_rows(prefix + [int(t) for t in chunk], multipliers, offsets, vocab_sizes, ngram, heads_per_ngram, eos)
+    return rows[len(prefix):]
+
+
+def short_conv_hist(x, w, hist):
+    """ggml_ssm_conv over [hist | x] (G:1069-1077, 1322): hist (K-1, C) = the last K-1 conv input rows of the
+    earlier ubatches (zeros at the sequence start). Returns (out (T, C), new hist (K-1, C))."""
+    x = np.asarray(x, dtype=np.float64)
+    K = w.shape[1]
+    pad = np.vstack([hist, x])
+    out = np.stack([np.sum(pad[t:t + K].T * w, axis=1) for t in range(x.shape[0])])
+    return out, pad[pad.shape[0] - (K - 1):]
+
+
+def gdn_layer_chunk(x, w, hp, st):
+    """Gated delta net on one ubatch; st = dict(conv=(K-1, C), state=(H_v, S, S)) carried in, replaced on return."""
+    T = x.shape[0]
+    S, Hk, Hv, eps = hp["ssm_state"], hp["ssm_groups"], hp["ssm_v_heads"], hp["eps"]
+    kd = S * Hk
+    qkv = x @ w["attn_qkv.weight"].T
+    z = x @ w["attn_gate.weight"].T
+    beta = sigmoid(x @ w["ssm_beta.weight"].T)
+    alpha = x @ w["ssm_alpha.weight"].T
+    a_sp = softplus(alpha + w["ssm_dt.bias"])
+    g = a_sp * w["ssm_a"]
+    conv_in, state_in = st["conv"], st["state"]
+    conv_raw, conv_hist = short_conv_hist(qkv, w["ssm_conv1d.weight"], conv_in)
+    conv = silu(conv_raw)
+    q = conv[:, :kd].reshape(T, Hk, S)
+    k = conv[:, kd:2 * kd].reshape(T, Hk, S)
+    v = conv[:, 2 * kd:].reshape(T, Hv, S)
+    out, state = gated_delta_rule(q, k, v, g, beta, state=state_in, normalize_qk=True, eps=eps)
+    st["conv"], st["state"] = conv_hist, state
+    final = gdn_output_norm(out, w["ssm_norm.weight"], z.reshape(T, Hv, S), eps).reshape(T, Hv * S)
+    return dict(qkv=qkv, z=z, beta=beta, alpha=alpha, a_softplus=a_sp, g=g, conv_in=conv_in, state_in=state_in,
+                conv_raw=conv_raw, conv=conv, q=q, k=k, v=v, scan=out, state=state, final=final,
+                out=final @ w["ssm_out.weight"].T)
+
+
+def ple_forward_chunk(emb, res, w_key, w_value, w_norm_key, w_norm_query, w_norm_conv, w_conv, eps, ngram, st):
+    """ple_forward on one ubatch; st = dict(hist=((K-1)*ngram, hc*n)) carried in, replaced on return (G:1405-1455:
+    the history of the earlier ubatches is prepended, so a chunked prefill matches a single-shot one)."""
+    T, hc, n = res.shape
+    key = grouped_rms_norm((emb @ np.asarray(w_key).T).reshape(T, hc, n), w_norm_key, eps)
+    value = emb @ np.asarray(w_value).T
+    query = grouped_rms_norm(res, w_norm_query, eps)
+    s = (key * query).sum(-1) / np.sqrt(n)
+    gate = sigmoid(np.sign(s) * np.sqrt(np.maximum(np.abs(s), 1e-6)))
+    gated = value[:, None, :] * gate[:, :, None]
+    normed = grouped_rms_norm(gated, w_norm_conv, eps).reshape(T, hc * n)
+    hist_in = st["hist"]
+    full = np.vstack([hist_in, normed])
+    conv = dilated_causal_dwconv(full, np.asarray(w_conv, dtype=np.float64), ngram)[hist_in.shape[0]:]
+    st["hist"] = full[full.shape[0] - hist_in.shape[0]:]
+    conv_out = silu(conv).reshape(T, hc, n)
+    return dict(gate=gate, gated=gated, normed=normed, hist_in=hist_in, conv_out=conv_out,
+                out=res + gated + conv_out)
+
+
+def qsa_scores_at(iq, pooled, kpool, pos):
+    """qsa_scores for tokens at absolute positions pos: pool b is visible once (b+1)*kpool <= pos+1."""
+    d = iq.shape[-1]
+    s = np.maximum(np.einsum("thd,bd->thb", iq, pooled), 0.0).sum(axis=1) / np.sqrt(d)
+    visible = (np.arange(pooled.shape[0])[None, :] + 1) * kpool <= (np.asarray(pos)[:, None] + 1)
+    return np.where(visible, s, -np.inf)
+
+
+def qsa_select_at(scores, top_k, kpool, pos):
+    """qsa_select for tokens at absolute positions pos (top visible pools + the incomplete tail of the token)."""
+    n_top = top_k // kpool
+    out = []
+    for r, t in enumerate(np.asarray(pos).tolist()):
+        vis = np.where(np.isfinite(scores[r]))[0]
+        top = vis[np.argsort(-scores[r, vis], kind="stable")[:n_top]]
+        cells = [c for b in sorted(top) for c in range(b * kpool, (b + 1) * kpool)]
+        out.append(sorted(cells + qsa_tail(t, kpool)))
+    return out
+
+
+def attn_layer_chunk(x, w, hp, qsa, pos, kvc, idxc, cells_override=None):
+    """Full-attention layer on one ubatch at absolute positions pos (cell = position). kvc = dict(k, v) of the
+    cached cells, idxc = dict(k_raw, pooled) of the indexer cache; both are extended in place.
+    cells_override: {position: cells} replays a reference choice among tied pools."""
+    T = x.shape[0]
+    H, Hkv, D, eps = hp["n_head"], hp["n_head_kv"], hp["head_dim"], hp["eps"]
+    rope = dict(n_rot=hp["n_rot"], sections=hp["rope_sections"], base=hp["rope_base"])
+    p4 = text_pos4_at(pos)
+    qf = (x @ w["attn_q.weight"].T).reshape(T, H, 2 * D)
+    q_raw, gate = qf[..., :D], qf[..., D:].reshape(T, H * D)
+    q_normed = rms_norm(q_raw, eps, w["attn_q_norm.weight"])
+    q = imrope(q_normed, p4, **rope)
+    k_lin = x @ w["attn_k.weight"].T
+    k = imrope(rms_norm(k_lin.reshape(T, Hkv, D), eps, w["attn_k_norm.weight"]), p4, **rope)
+    v = (x @ w["attn_v.weight"].T).reshape(T, Hkv, D)
+    kvc["k"] = np.concatenate([kvc["k"], k])
+    kvc["v"] = np.concatenate([kvc["v"], v])
+    r = dict(q_full=qf.reshape(T, -1), q_normed=q_normed, q=q, k_lin=k_lin, k=k, v=v, gate=gate)
+    cells = [list(range(0, t + 1)) for t in np.asarray(pos).tolist()]
+    if qsa:
+        kp, nh, d = hp["kpool"], hp["idx_heads"], hp["idx_dim"]
+        k_raw = x @ w["indexer.k_proj.weight"].T
+        idxc["k_raw"] = np.concatenate([idxc["k_raw"], k_raw])
+        b0, b1 = idxc["pooled"].shape[0], idxc["k_raw"].shape[0] // kp       # pools this ubatch completes
+        new = idxc["k_raw"][b0 * kp:b1 * kp].reshape(b1 - b0, kp, d).mean(axis=1)
+        new = rms_norm(new, eps, w["indexer.k_norm.weight"])
+        new = imrope(new[:, None, :], pool_pos4(b1, kp)[b0:], **rope)[:, 0]
+        idxc["pooled"] = np.concatenate([idxc["pooled"], new])
+        iq = imrope(rms_norm((x @ w["indexer.q_proj.weight"].T).reshape(T, nh, d), eps, w["indexer.q_norm.weight"]),
+                    p4, **rope)
+        scores = qsa_scores_at(iq, idxc["pooled"], kp, pos)
+        cells = qsa_select_at(scores, hp["idx_top_k"], kp, pos)
+        if cells_override is not None:
+            cells = [cells_override.get(int(t), c) for t, c in zip(np.asarray(pos).tolist(), cells)]
+        r.update(k_raw=k_raw, pooled_new=new, pool_range=(b0, b1), pooled=idxc["pooled"].copy(), iq=iq,
+                 scores=scores)
+    pre = attention(q, kvc["k"], kvc["v"], cells, 1.0 / np.sqrt(D))
+    gated = gate_attention(pre, gate)
+    r.update(pregate=pre, gated=gated, cells=cells, out=gated @ w["attn_output.weight"].T)
+    return r
+
+
+def _cache_init_layer(cache, W, hp, il):
+    w = layer_weights(W, il)
+    if hp["recurrent"][il] and il not in cache["gdn"]:
+        C, K = w["ssm_conv1d.weight"].shape
+        S, Hv = hp["ssm_state"], hp["ssm_v_heads"]
+        cache["gdn"][il] = dict(conv=np.zeros((K - 1, C)), state=np.zeros((Hv, S, S)))
+    if il in hp["ple_layers"] and il not in cache["ple"]:
+        K = w["ple_conv1d.weight"].shape[1]
+        cache["ple"][il] = dict(hist=np.zeros(((K - 1) * hp["ple_ngram"], hp["hc"] * hp["n_embd"])))
+    if not hp["recurrent"][il] and il not in cache["kv"]:
+        Hkv, D = hp["n_head_kv"], hp["head_dim"]
+        cache["kv"][il] = dict(k=np.zeros((0, Hkv, D)), v=np.zeros((0, Hkv, D)))
+        cache["idx"][il] = dict(k_raw=np.zeros((0, hp["idx_dim"])), pooled=np.zeros((0, hp["idx_dim"])))
+
+
+def forward_chunk(tokens, W, hp, cache, overrides=None):
+    """One ubatch of a single sequence that continues `cache` (new_cache() at the sequence start); updates cache in
+    place. overrides: {("qsa", il): {position: cells}} replays a QSA choice the reference made among exactly tied
+    pools. Returns a dict like forward() for the chunk rows, plus the carried-in states (gdn conv_in/state_in, ple
+    hist_in) and the absolute positions `pos`."""
+    overrides = overrides or {}
+    tokens = [int(t) for t in tokens]
+    T, hc, eps = len(tokens), hp["hc"], hp["eps"]
+    p0 = len(cache["tokens"])
+    pos = np.arange(p0, p0 + T)
+    res = hc_init(W["token_embd.weight"][tokens], hc)
+    out = dict(pos=pos, hc_init=res, layers=[])
+    emb = None
+    if hp["ple_layers"]:
+        rows = ple_rows_chunk(cache["tokens"], tokens, hp["ple_multipliers"], hp["ple_offsets"],
+                              hp["ple_vocab_sizes"], hp["ple_ngram"], hp["ple_heads_per_ngram"], hp["ple_eos"])
+        emb = ple_embed(W["per_layer_token_embd.weight"], rows)
+        out.update(ple_rows=rows, ple_embd=emb)
+    cache["tokens"] = cache["tokens"] + tokens
+    for il in range(hp["n_layer"]):
+        _cache_init_layer(cache, W, hp, il)
+        w = layer_weights(W, il)
+        L = dict(res_in=res)
+        if il in hp["ple_layers"]:
+            L["ple"] = ple_forward_chunk(emb, res, w["ple_key.weight"], w["ple_value.weight"],
+                                         w["ple_norm_key.weight"], w["ple_norm_query.weight"],
+                                         w["ple_norm_conv.weight"], w["ple_conv1d.weight"], eps, hp["ple_ngram"],
+                                         cache["ple"][il])
+            res = L["ple"]["out"]
+        L["mix_attn"] = m = hc_mix(res, w["hc_attn_norm.weight"], w["hc_attn_down.weight"], w["hc_attn_up.weight"],
+                                   w["hc_attn_inject.weight"], eps)
+        if hp["recurrent"][il]:
+            L["gdn"] = blk = gdn_layer_chunk(m["mixed"], w, hp, cache["gdn"][il])
+        else:
+            L["attn"] = blk = attn_layer_chunk(m["mixed"], w, hp, hp["compress"][il] > 0, pos, cache["kv"][il],
+                                               cache["idx"][il], overrides.get(("qsa", il)))
+        res = L["combine_attn"] = hc_combine(res, blk["out"], m["inject"])
+        L["mix_ffn"] = m = hc_mix(res, w["hc_ffn_norm.weight"], w["hc_ffn_down.weight"], w["hc_ffn_up.weight"],
+                                  w["hc_ffn_inject.weight"], eps)
+        L["moe"] = moe = moe_layer(m["mixed"], w, hp["n_expert_used"])
+        res = L["combine_ffn"] = hc_combine(res, moe["out"], m["inject"])
+        out["layers"].append(L)
+    head = hc_mix(res, W["output_hc_norm.weight"], W["output_hc_down.weight"], W["output_hc_up.weight"], None, eps)
+    out.update(head=head, result_norm=head["mixed"], logits=head["mixed"] @ W["output.weight"].T)
+    return out
+
+
+def cache_truncate(cache, n_keep, W, hp, overrides=None):
+    """Roll the sequence back to its first n_keep positions. The state of a prefix depends on that prefix alone
+    (causality), so the oracle rebuilds it from the kept tokens; llama.cpp restores it from its n_rs_seq snapshots
+    (src/llama-memory-recurrent.cpp:199-215, G:1324-1345, src/models/delta-net-base.cpp:563-603)."""
+    kept = cache["tokens"][:n_keep]
+    fresh = new_cache()
+    if kept:
+        forward_chunk(kept, W, hp, fresh, overrides)
+    cache.clear()
+    cache.update(fresh)
+    return cache
+
+
+def forward_chunks(tokens, W, hp, sizes, overrides=None):
+    """Run a sequence as consecutive chunks of the given sizes; returns the list of forward_chunk results."""
+    cache, outs, i = new_cache(), [], 0
+    for n in sizes:
+        outs.append(forward_chunk(tokens[i:i + n], W, hp, cache, overrides))
+        i += n
+    assert i == len(tokens), (i, len(tokens))
+    return outs
