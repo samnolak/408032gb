@@ -579,6 +579,16 @@ def tearDownModule():
     print(f"{'run':8s} {'component':58s} {'layer':>5s} {'graph':>5s} {'max abs':>10s} {'rel':>10s}", file=sys.stderr)
     for (run, what), (il, g, mx, rel, arg) in worst.items():
         print(f"{run:8s} {what:58s} {il:5d} {g:5d} {mx:10.3e} {rel:10.3e}", file=sys.stderr)
+    per_layer = {}
+    for run, what, il, g, mx, rel, arg in TABLE:
+        if il not in per_layer or rel > per_layer[il][4]:
+            per_layer[il] = (run, what, g, mx, rel)
+    print(f"\nworst error per layer over runs, components and graphs (layer -1 = embedding and head), llama.cpp "
+          f"{LLAMA_COMMIT[:7]}:", file=sys.stderr)
+    print(f"{'layer':>5s} {'run':8s} {'component':58s} {'graph':>5s} {'max abs':>10s} {'rel':>10s}", file=sys.stderr)
+    for il in sorted(per_layer):
+        run, what, g, mx, rel = per_layer[il]
+        print(f"{il:5d} {run:8s} {what:58s} {g:5d} {mx:10.3e} {rel:10.3e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
