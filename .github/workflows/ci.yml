@@ -33,6 +33,10 @@ jobs:
         run: tools/tinygen/run_parity_qwen4exp_decode.sh ../llama.cpp ../build-tools
       - name: G0 per-token routing tracer + cache simulator on the tiny glm5-next model (CPU smoke)
         run: tools/g0/run_trace_smoke.sh ../llama.cpp ../build-tools
+      - name: G0 trace + probe on a tiny qwen3moe (last layer keeps only output rows; predict_eval self-checks) (CPU smoke)
+        run: |
+          cmake --build ../build-tools -j"$(nproc)" --target g0-expert-trace g0-expert-probe > /dev/null
+          scripts/traces/smoke_tiny.sh ../llama.cpp ../build-tools ../smoke-tiny
       - name: roofline, cache-simulator and GGUF-audit unit tests (type table checked against the pinned gguf-py)
         run: LLAMA_CPP_GGUF_PY=../llama.cpp/gguf-py python3 -m unittest tests.test_roofline tests.test_cachesim tests.test_gguf_quant_audit tests.test_offline_weights -v
   ref-torch-cpu:
