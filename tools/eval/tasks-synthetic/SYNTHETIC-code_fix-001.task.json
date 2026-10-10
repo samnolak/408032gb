@@ -1,0 +1,17 @@
+{
+  "id": "SYNTHETIC-code_fix-001",
+  "category": "code_fix",
+  "synthetic": true,
+  "description": "SYNTHETIC: off-by-one in mean(); visible tests; reference answer is a unified diff.",
+  "messages": [
+    {"role": "system", "content": "You are a careful software engineer working in a Python repository."},
+    {"role": "user", "content": "The tests of this repository fail. Find the bug in the code (not in the tests) and fix it.\n\nRepository files:\n{{fixture_tree}}\n\nstats.py:\n```python\n{{file:stats.py}}```\n\ntest_stats.py:\n```python\n{{file:test_stats.py}}```\n\n{{answer_protocol}}"}
+  ],
+  "fixture": "fixtures/stats_mean",
+  "check": {
+    "type": "code_tests",
+    "command": ["{python}", "-m", "unittest", "-q"],
+    "timeout_s": 30
+  },
+  "reference_answer": {"file": "reference/SYNTHETIC-code_fix-001.md"}
+}

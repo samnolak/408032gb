@@ -1,0 +1,60 @@
+KESTREL GATEWAY - OPERATOR SPECIFICATION (SYNTHETIC DOCUMENT FOR THE EVALUATION STAND; FICTIONAL PRODUCT)
+Revision 4.2. This revision supersedes revisions 1.0 to 4.1. Where an older revision is quoted for
+history, the quoted value is no longer in force.
+
+1. Scope
+The Kestrel gateway terminates client HTTP connections, authenticates them, applies rate limits and
+forwards requests to one of several upstream pools. This document describes configuration keys, default
+values and the operational behaviour that operators can rely on. It does not describe the internal
+scheduler, which may change between minor releases without notice.
+
+2. History of defaults
+Revision 1.0 (legacy) shipped with an upstream idle timeout of 30 seconds and a client idle timeout of
+120 seconds. Operators upgrading from 1.x frequently kept these values in their configuration files.
+Revision 3.0 removed the "pool_warmup" key; it is ignored if present. Revision 4.0 renamed
+"max_conns_per_host" to "upstream.max_connections". None of the values in this section are current
+defaults; see section 7 for the defaults in force.
+
+3. Listeners
+A listener is declared with "listen.address" and "listen.port". TLS is enabled per listener with
+"listen.tls.cert" and "listen.tls.key". HTTP/2 is negotiated through ALPN when TLS is enabled; plain-text
+HTTP/2 is not supported. A gateway may declare at most 16 listeners. Listeners bound to the same port on
+different addresses are allowed.
+
+4. Authentication
+Requests carry either an API key in the "Authorization: Bearer" header or a client certificate. Keys are
+checked against the key store before routing. A request that fails authentication is answered with status
+401 and is never forwarded. Key store reloads take effect within 10 seconds without a restart.
+
+5. Request identification and tracing
+Every request receives a trace identifier. If the client sends the header X-Kestrel-Trace with a value of
+16 to 64 hexadecimal characters, that value is kept; otherwise the gateway generates one. The trace id is
+forwarded upstream in the same X-Kestrel-Trace header and is echoed in the response. The header
+X-Kestrel-Span carries the span id of the gateway hop only and is regenerated on every hop; it must not be
+used to correlate a request across services. The legacy header X-Request-Id is accepted on input for
+compatibility but is not forwarded.
+
+6. Rate limiting
+Limits are configured per API key as a token bucket: "rate.burst" tokens, refilled at "rate.per_second".
+When the bucket is empty the gateway answers 429 with a Retry-After header in whole seconds. Limits are
+enforced per gateway instance; a cluster of N instances therefore admits up to N times the configured rate.
+
+7. Upstream pools and timeouts
+7.1 A pool lists upstream addresses with optional weights. Health checks run every 5 seconds; an upstream
+that fails 3 consecutive checks is removed until it passes 2 consecutive checks.
+7.2 Connections to upstreams are pooled and reused. The maximum number of open connections per upstream is
+"upstream.max_connections" (default 256).
+7.3 Timeouts in force for this revision: connect timeout 3 seconds; upstream idle timeout 75 seconds (an
+idle pooled connection to an upstream is closed after this time); upstream response timeout 300 seconds;
+client idle timeout 90 seconds. Each value can be overridden per pool.
+7.4 Retries: an idempotent request is retried once on another upstream if the connection fails before any
+response byte is received. Non-idempotent requests are never retried.
+
+8. Logging and metrics
+Access logs are written as JSON lines, one per request, without request bodies. Metrics are exposed in the
+Prometheus text format on "metrics.port" (default 9109). The metric kestrel_upstream_idle_closed_total counts
+pooled connections closed by the idle timeout of section 7.3.
+
+9. Limits and known issues
+Request headers are limited to 64 KiB in total. Bodies larger than "limits.max_body" (default 32 MiB) are
+rejected with 413. Websocket upgrades are passed through but are not counted by the rate limiter.

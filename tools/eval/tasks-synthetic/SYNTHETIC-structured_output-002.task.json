@@ -1,0 +1,26 @@
+{
+  "id": "SYNTHETIC-structured_output-002",
+  "category": "structured_output",
+  "synthetic": true,
+  "description": "SYNTHETIC: ticket triage into a JSON array with enum labels; lenient parsing (a ```json fence is accepted).",
+  "messages": [
+    {"role": "user", "content": "Classify each ticket. Return a JSON array in the same order as the tickets, one object per ticket with keys id, label (one of bug, billing, feature_request, other) and priority (one of low, medium, high).\n\nT1: The app crashes every time I upload a PDF larger than 10 MB.\nT2: I was charged twice for my subscription this month.\nT3: Please add a dark mode to the dashboard.\nT4: Where is your office in Lisbon?"}
+  ],
+  "check": {
+    "type": "json_schema",
+    "parse": "lenient",
+    "schema": {
+      "type": "array", "minItems": 4, "maxItems": 4,
+      "items": {"type": "object", "required": ["id", "label", "priority"], "additionalProperties": false,
+                "properties": {"id": {"type": "string"},
+                               "label": {"enum": ["bug", "billing", "feature_request", "other"]},
+                               "priority": {"enum": ["low", "medium", "high"]}}}
+    },
+    "values": [
+      {"path": "/0/id", "equals": "T1"}, {"path": "/0/label", "equals": "bug"},
+      {"path": "/1/label", "equals": "billing"}, {"path": "/2/label", "equals": "feature_request"},
+      {"path": "/3/label", "equals": "other"}
+    ]
+  },
+  "reference_answer": "```json\n[{\"id\": \"T1\", \"label\": \"bug\", \"priority\": \"high\"}, {\"id\": \"T2\", \"label\": \"billing\", \"priority\": \"high\"}, {\"id\": \"T3\", \"label\": \"feature_request\", \"priority\": \"low\"}, {\"id\": \"T4\", \"label\": \"other\", \"priority\": \"low\"}]\n```"
+}

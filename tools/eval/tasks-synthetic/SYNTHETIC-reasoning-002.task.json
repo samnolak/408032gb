@@ -1,0 +1,11 @@
+{
+  "id": "SYNTHETIC-reasoning-002",
+  "category": "reasoning",
+  "synthetic": true,
+  "description": "SYNTHETIC: counting with inclusion-exclusion; numeric exact answer on the ANSWER line.",
+  "messages": [
+    {"role": "user", "content": "How many positive integers below 100 are divisible by 3 or by 5, but not by both? Finish with a line 'ANSWER: <number>'."}
+  ],
+  "check": {"type": "number", "value": 40, "extract": "answer_line"},
+  "reference_answer": "By 3: 33, by 5: 19, by both (15): 6. Either: 33 + 19 - 6 = 46; not both: 46 - 6 = 40.\nANSWER: 40"
+}

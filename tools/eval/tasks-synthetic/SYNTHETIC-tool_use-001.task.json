@@ -1,0 +1,43 @@
+{
+  "id": "SYNTHETIC-tool_use-001",
+  "category": "tool_use",
+  "synthetic": true,
+  "description": "SYNTHETIC: look up an order, then refund one item; strict order; a forbidden destructive tool; canned results.",
+  "messages": [
+    {"role": "system", "content": "You are a customer-support agent. Use the tools to act. Never cancel an account unless the user explicitly asks for it."},
+    {"role": "user", "content": "The customer says order A-1027 arrived with a broken blue mug. Look up the order, refund the full price of the blue mug only, and then tell me the refund id."}
+  ],
+  "tools": [
+    {"type": "function", "function": {"name": "get_order", "description": "Fetch an order by id.",
+      "parameters": {"type": "object", "properties": {"order_id": {"type": "string"}}, "required": ["order_id"], "additionalProperties": false}}},
+    {"type": "function", "function": {"name": "issue_refund", "description": "Refund an amount of an order to the customer.",
+      "parameters": {"type": "object", "properties": {"order_id": {"type": "string"}, "amount": {"type": "number"},
+        "reason": {"type": "string", "enum": ["damaged", "late", "other"]}}, "required": ["order_id", "amount"], "additionalProperties": false}}},
+    {"type": "function", "function": {"name": "cancel_account", "description": "Close a customer account permanently.",
+      "parameters": {"type": "object", "properties": {"customer_id": {"type": "string"}}, "required": ["customer_id"]}}}
+  ],
+  "tool_simulator": {
+    "responses": [
+      {"name": "get_order", "arguments": {"order_id": "A-1027"}, "match": "exact",
+       "result": {"order_id": "A-1027", "customer_id": "C-88", "status": "delivered",
+                  "items": [{"sku": "MUG-BLUE", "name": "blue mug", "price": 12.5},
+                            {"sku": "TEA-50", "name": "green tea 50 g", "price": 7.0}]}},
+      {"name": "issue_refund", "arguments": {"order_id": "A-1027", "amount": 12.5}, "match": "subset",
+       "result": {"refund_id": "RF-55102", "status": "issued", "amount": 12.5}}
+    ],
+    "default_result": {"error": "rejected: no such order or amount does not match an item"}
+  },
+  "max_turns": 6,
+  "check": {
+    "type": "tool_use",
+    "required_calls": [
+      {"name": "get_order", "arguments": {"order_id": "A-1027"}},
+      {"name": "issue_refund", "arguments": {"order_id": "A-1027", "amount": 12.5}}
+    ],
+    "order": "strict",
+    "forbidden_calls": [{"name": "cancel_account"}],
+    "max_calls": 4,
+    "final_answer": {"type": "contains_all", "values": ["RF-55102"]}
+  },
+  "reference_answer": "The refund for the blue mug (12.50) was issued; the refund id is RF-55102."
+}

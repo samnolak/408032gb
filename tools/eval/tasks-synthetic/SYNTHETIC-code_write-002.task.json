@@ -1,0 +1,17 @@
+{
+  "id": "SYNTHETIC-code_write-002",
+  "category": "code_write",
+  "synthetic": true,
+  "description": "SYNTHETIC: implement merge_intervals(); visible tests; reference answer is a unified diff.",
+  "messages": [
+    {"role": "system", "content": "You are a careful software engineer working in a Python repository."},
+    {"role": "user", "content": "Implement merge_intervals in intervals.py so that the tests pass. Intervals are closed [a, b] lists; overlapping or touching intervals are merged; the result is sorted by start; an interval with a > b raises ValueError; the input must not be modified.\n\nintervals.py:\n```python\n{{file:intervals.py}}```\n\ntest_intervals.py:\n```python\n{{file:test_intervals.py}}```\n\n{{answer_protocol}}"}
+  ],
+  "fixture": "fixtures/intervals",
+  "check": {
+    "type": "code_tests",
+    "command": ["{python}", "-m", "unittest", "-q"],
+    "timeout_s": 30
+  },
+  "reference_answer": {"file": "reference/SYNTHETIC-code_write-002.md"}
+}

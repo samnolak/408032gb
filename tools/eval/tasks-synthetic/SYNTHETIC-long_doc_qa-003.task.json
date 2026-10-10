@@ -1,0 +1,12 @@
+{
+  "id": "SYNTHETIC-long_doc_qa-003",
+  "category": "long_doc_qa",
+  "synthetic": true,
+  "description": "SYNTHETIC: approver for an expense report vs a travel booking with the same threshold; normalized match.",
+  "messages": [
+    {"role": "user", "content": "<document>\n{{document}}\n</document>\n\nQuestion: Who approves an expense report of 7200 EUR? Answer with the role only, on a line 'ANSWER: <role>'."}
+  ],
+  "document": {"file": "docs/staff-handbook.txt"},
+  "check": {"type": "normalized", "answers": ["regional finance director", "the regional finance director"], "extract": "answer_line"},
+  "reference_answer": "ANSWER: The regional finance director"
+}

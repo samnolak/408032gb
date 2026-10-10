@@ -1,0 +1,12 @@
+{
+  "id": "SYNTHETIC-long_doc_qa-002",
+  "category": "long_doc_qa",
+  "synthetic": true,
+  "description": "SYNTHETIC: header name with two near-miss distractors; regex match on the extracted answer line.",
+  "messages": [
+    {"role": "user", "content": "<document>\n{{document}}\n</document>\n\nQuestion: Which HTTP header should a downstream service use to correlate one request across all services behind the gateway? Finish with a line 'ANSWER: <header name>'."}
+  ],
+  "document": {"file": "docs/kestrel-gateway-spec.txt"},
+  "check": {"type": "regex", "pattern": "^`?X-Kestrel-Trace`?\\.?$", "flags": "i", "extract": "answer_line"},
+  "reference_answer": "ANSWER: X-Kestrel-Trace"
+}

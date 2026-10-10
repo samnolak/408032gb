@@ -1,0 +1,24 @@
+{
+  "id": "SYNTHETIC-tool_use-002",
+  "category": "tool_use",
+  "synthetic": true,
+  "description": "SYNTHETIC: the stand's builtin calculator (safe arithmetic); any expression accepted, the final number is checked.",
+  "messages": [
+    {"role": "system", "content": "You are an assistant that must use the calculator tool for every arithmetic step."},
+    {"role": "user", "content": "A customer buys 17 notebooks at 23.40 EUR each. Add 8% sales tax to the total. Use the calculator, then give the amount rounded to cents on a last line of the form 'ANSWER: <amount>'."}
+  ],
+  "tools": [
+    {"type": "function", "function": {"name": "calculator", "description": "Evaluate an arithmetic expression with + - * / // % ** and parentheses.",
+      "parameters": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}}}
+  ],
+  "tool_simulator": {"builtins": {"calculator": {"impl": "calculator"}}},
+  "max_turns": 6,
+  "check": {
+    "type": "tool_use",
+    "required_calls": [{"name": "calculator"}],
+    "order": "any",
+    "max_calls": 5,
+    "final_answer": {"type": "number", "value": 429.62, "abs_tol": 0.005, "extract": "answer_line"}
+  },
+  "reference_answer": "17 x 23.40 x 1.08 = 429.624\nANSWER: 429.62"
+}
