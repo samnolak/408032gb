@@ -5,3 +5,4 @@ __pycache__/
 diag-out/
 engines-src/
 engines-build/
+.claude/worktrees/
