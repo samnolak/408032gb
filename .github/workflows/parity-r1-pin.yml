@@ -1,0 +1,42 @@
+# Oracle parity at the llama.cpp commit R1 actually deploys (tools/engines/pins.json, engines.llama.cpp.sha), next to
+# ci.yml, which runs the same scripts at the reference-graph pin of AGENTS.md (ec7630a). Gap 1 of
+# docs/reassessment/CORRECTNESS.md: the oracles were only ever compared with ec7630a. The only expected difference is
+# the padding rows of indexer_pool_k_new, whose cell choice changed upstream (tests/test_qwen4exp_decode_parity.py).
+# CPU only, tiny random-weight models.
+name: parity-r1-pin
+on:
+  workflow_dispatch:
+  push:
+    paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
+            tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/engines/pins.json,
+            .github/workflows/parity-r1-pin.yml]
+  pull_request:
+    paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
+            tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/engines/pins.json,
+            .github/workflows/parity-r1-pin.yml]
+concurrency:
+  group: parity-r1-pin-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: pip install numpy pyyaml
+      - name: llama.cpp at the R1 engine pin (tools/engines/pins.json)
+        run: |
+          SHA=$(python3 -c "import json; print(json.load(open('tools/engines/pins.json'))['engines']['llama.cpp']['sha'])")
+          git init -q ../llama.cpp
+          git -C ../llama.cpp fetch -q --depth 1 https://github.com/ggml-org/llama.cpp "$SHA"
+          git -C ../llama.cpp checkout -q FETCH_HEAD
+          git -C ../llama.cpp rev-parse HEAD
+      - name: G1 tiny-model parity against the glm5-next graph at the R1 pin (CPU)
+        run: tools/tinygen/run_parity.sh ../llama.cpp ../build-tools
+      - name: MiMo tiny-model parity against the mimo2 graph at the R1 pin (CPU)
+        run: tools/tinygen/run_parity_mimo.sh ../llama.cpp ../build-tools
+      - name: N2 qwen4exp prefill parity at the R1 pin (CPU)
+        run: tools/tinygen/run_parity_qwen4exp.sh ../llama.cpp ../build-tools
+      - name: N6 qwen4exp ubatches, decode, rollback and MTP parity at the R1 pin (CPU)
+        run: tools/tinygen/run_parity_qwen4exp_decode.sh ../llama.cpp ../build-tools
