@@ -57,7 +57,7 @@ before and after the edit — `26c83267fe1a7588d40153c7b9baaea55ac9d437bb2df85e9
 Method. All prompts are token-id lists (`/completion`, `"prompt": [ids]`), greedy (`temperature 0`), `ignore_eos`,
 `n_probs 5`, `return_tokens`; slot 0 unless stated. A check passes only if the tokens are identical AND every log-prob that
 both answers list in a step's top-5 differs by at most `--tol` = 1e-3 ("not only top-1"). Prompt: 200 ids (seed 7),
-tail 24 ids, 32 generated tokens. Every server gets `--slot-save-path` (POST /slots answers 501 without it, observed:
+tail 24 ids, 32 generated tokens. Every server gets `--slot-save-path` (POST /slots answers 501 without it, tools/server/server-context.cpp:5283@79e2e74; observed:
 `{"error":{"code":501,"message":"This server does not support slots action. Start it with `--slot-save-path`","type":"not_supported_error"}}`).
 
 | check | what is sent | pass criterion |
@@ -84,7 +84,8 @@ artifacts: <out>
 run_n7.sh exit=0
 ```
 (the lines above are the driver's own lines, `grep -E "^llama.cpp|^version|^== |^artifacts|exit="` of its log; between
-them it prints a JSON summary per run, whose values are the ones `n7_report.py lines` prints from the result files:)
+them it prints a JSON summary per run, whose values are the ones `n7_report.py lines` prints from the result files;
+below, absolute paths in the `mtp server log` lines are shortened to the file name:)
 ```
 $ python3 tools/srvcheck/n7_report.py lines <out>/qwen4exp-gate.json <out>/glm5next-gate.json <out>/qwen4exp-defaults.json <out>/glm5next-defaults.json
 ## qwen4exp.gguf: server_args -c 1024 -np 1 -t 2 -fa off -ctk f32 -ctv f32 --no-warmup
@@ -189,7 +190,14 @@ defaults (f16 fa-on)   2.41e-05    2.29e-05    0           2.38e-07    | 32, 3e-
    common/common.h:637-639) and `4 + n_ubatch` and 4 tokens before the end of the prompt
    (tools/server/server-context.cpp:3976-4005, 4032-4036, 4051-4055). A raw-token `/completion` has no user messages,
    so it gets only the two end-of-prompt checkpoints: observed also with `--checkpoint-min-step 16` and with
-   `-b 32 -ub 32` (shared 120, reused 0 on both models; runs in the session log, not repeated at the final commit).
+   `-b 32 -ub 32`, session runs made with the harness before `7f96724` (the prefix_diverge code is unchanged since),
+   result files read back literally (slot paths shortened):
+   ```
+   run-ck-qwen4exp --checkpoint-min-step 16 --slot-save-path .../slots | prefix_diverge shared 120 warm prompt_n 144 reused 0 pass True
+   run-ck-glm5next --checkpoint-min-step 16 --slot-save-path .../slots | prefix_diverge shared 120 warm prompt_n 144 reused 0 pass True
+   run-ckb-qwen4exp -b 32 -ub 32 --slot-save-path .../slots | prefix_diverge shared 120 warm prompt_n 144 reused 0 pass True
+   run-ckb-glm5next -b 32 -ub 32 --slot-save-path .../slots | prefix_diverge shared 120 warm prompt_n 144 reused 0 pass True
+   ```
    **Consequence for B3 (PROVISIONAL, from the code):** in a chat agent loop, if the chat template renders earlier turns
    differently on the next request (for example drops the reasoning of earlier assistant turns), a hybrid model
    re-processes everything after the last checkpoint at or before the first changed token — with default flags those
@@ -209,23 +217,29 @@ defaults (f16 fa-on)   2.41e-05    2.29e-05    0           2.38e-07    | 32, 3e-
 6. **Slot save/restore, also across a server restart, gives the identical continuation** (CONFIRMED, CPU):
    `slot_persist.run_once` identical; after save → stop → new process → restore, same tokens with |d| = 0. The same
    prompt then re-processes only 4 tokens: the slot file carries the context checkpoints as an appendix
-   (tools/server/server-context.cpp:2586-2714) and the restored N-4 checkpoint is used. The file holds the target
-   context only, not the MTP draft context (tools/server/server-context.cpp:2917-2919). File sizes (tiny models):
+   (tools/server/server-context.cpp:2586-2714) and the restored N-4 checkpoint is used. The slot state payload is the target context only (tools/server/server-context.cpp:2917-2919), but the
+   checkpoint appendix also stores each checkpoint's draft-context state (2576 `cur.update_dft(ctx_dft, ...)`,
+   2643-2645) and test-loads it on restore (2700-2710); slot save/restore with MTP on: NOT RUN (correction after the
+   evidence audit of `8184e1e`, which flagged the earlier sentence as wrong). File sizes (tiny models):
    269 844 / 299 756 B with f32 caches, 181 140 / 211 052 B with defaults.
 7. **Precision: with the server defaults (flash attention on, f16 KV) glm5-next warm and cold answers differ by up
    to 0.027 in log-prob (tokens identical); qwen4exp by 2.4e-5.** (CONFIRMED as measured.) Attribution (table above):
    flash attention with f32 caches 1.4e-3, f16 KV without flash attention 2.4e-4, both 2.7e-2. These differences are far
    inside each configuration's own deviation from the f32 / flash-attention-off answer on the same prompt: 0.41-0.52 at
    the first generated step and a different token by step 0-3. So they are not evidence of a cache bug; they show that
-   the tiny glm5-next is ~10^4 times more sensitive to KV precision and flash attention than the tiny qwen4exp.
+   the tiny glm5-next is far more sensitive to KV precision and flash attention than the tiny qwen4exp: PROVISIONAL
+   10^3-10^4 depending on the metric (warm/cold 0.0267 / 2.41e-5 ≈ 1.1e3; step-0 |d| vs the gate 0.416 / 3e-5 ≈ 1.4e4;
+   max |d| up to the first differing token 0.86 / 0.000248 ≈ 3.5e3; numbers from the attribution tables above).
    Why (PROVISIONAL, not traced): likely the DSA k-pool top-k selection flipping on near ties, which turns rounding into
    a different attention set. Whether real GLM-5.3-Flash weights are as sensitive: UNKNOWN — R2.1 (KLD to Q8_0) and K2
    (KV type) must measure it, not assume it. The gate stays at f32 caches + flash attention off, as in N2/N6.
 8. **Two slots decoding at once are isolated** (CONFIRMED, CPU): both answers equal the lone runs (|d| ≤ 4.4e-5 in the
    gate run), and the server itself reported both slots processing at the same moment (`max_busy_slots 2` in all four
-   runs). The concurrent |d| varies a little between runs (4.53e-5 and 4.39e-5 for glm5-next on two runs of the same
-   commit) because which tokens share a batch depends on request timing.
-9. **Determinism**: two cold runs identical bit for bit in every configuration (|d| = 0).
+   runs). The concurrent |d| varies a little between runs because which tokens share a batch depends on request timing:
+   glm5-next gate 4.39e-5 (run above), 4.46e-5 (CI, section "CI"), 4.53e-5 (first driver run in the session, harness
+   before `0a20e20`, output not in the repo - PROVISIONAL); same llama.cpp 79e2e74 in all three.
+9. **Determinism**: two cold runs identical bit for bit in every configuration (|d| = 0) (CONFIRMED: `determin.`
+   column of both attribution tables and the `determinism` lines above).
 
 ## Harness tests and mutation check
 
@@ -312,7 +326,9 @@ Ran 21 tests in 54.219s
 OK
 exit=0
 ```
-Full suite on the same tree (the last lines; 447 = 426 reported for PR #1 head `3f07850` + the 21 above):
+Full suite on the same tree (the last lines; 447 = 426 at PR #1 head `3f07850` + the 21 above; counts from
+`python3 -c "import unittest; print(unittest.defaultTestLoader.discover('tests').countTestCases())"` on a `git archive`
+of `3f07850` -> `426` and on this branch -> `447`):
 ```
 $ python3 -m unittest discover -s tests
 Ran 447 tests in 160.847s
@@ -355,6 +371,26 @@ timing-dependent values differ: the client-side `overlap_s` of all four runs, an
 4.46e-5 / 1.57e-5 here vs 4.39e-5 / 1.98e-5; defaults 1.15e-3 / 1.90e-3 vs 1.53e-3 / 2.23e-3) - which tokens share a
 batch depends on request timing (finding 8). Artifact `n7-server-cpu`
 (result JSONs and server logs) is attached to the run.
+
+## Evidence audit (evidence-auditor, read-only, on `8184e1e`)
+
+Result: 1 FAIL, 10 MINOR; everything else reproduced (every cited llama.cpp line at 79e2e74 and ec7630a, the literal
+blocks against their logs, the GGUF hashes, 21 unit tests and the full suite 447 OK on an export, one real-server gate run
+for glm5-next with the same verdict and numbers except the timing-dependent two-slot |d|, M9 survives on `7f96724` and is
+caught on `0a20e20`). All findings are fixed in this file, PROJECT_STATE.md and server-cpu.yml:
+| finding | fix |
+|---|---|
+| FAIL: "the file holds the target context only, not the MTP draft context" | finding 6 corrected: the checkpoint appendix also stores and test-loads draft-context state; MTP slot save/restore NOT RUN |
+| shortened paths in the report block not said | said above the block |
+| "~10^4 times more sensitive" without derivation | PROVISIONAL 10^3-10^4 with the three ratios |
+| 4.53e-5 not in any pasted block | labelled PROVISIONAL with its origin; the CI value added |
+| finding 9 unlabelled | CONFIRMED with its source |
+| checkpoint-variant runs without output | result files read back literally |
+| 501 "observed" without output | source line cited |
+| 426 without a command | counting command and both outputs |
+| PROJECT_STATE "все проверки зелёные" unqualified | qualified (gate green; defaults outside 1e-3 for glm5-next) |
+| server-cpu.yml left out tests/test_n7_report.py | added to the paths and the unit-test step |
+| commit messages carry no evidence labels | recorded here; history is not rewritten |
 
 ## Not covered (NOT RUN)
 
