@@ -54,8 +54,10 @@ import numpy as np
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from ref import fattn as F  # noqa: E402
 from ref import glm5next as G  # noqa: E402
 from ref.kda import gated_delta_rule  # noqa: E402
+from ref.router import moe_tie_variant  # noqa: E402
 
 DUMP = os.environ.get("GLM5NEXT_DECODE_DUMP")
 GGUF = os.environ.get("GLM5NEXT_TINY_GGUF")
@@ -72,25 +74,27 @@ _MODEL = {}
 TABLE = []        # (run, component, layer, graph, max abs, rel, argmax)
 
 
-def model():
-    if not _MODEL:
+def model(path=None):
+    """Weights and hyper-parameters of the GGUF at path (default GGUF), read once per path."""
+    path = path or GGUF
+    if path not in _MODEL:
         sys.path.append(GGUF_PY)
         try:
             from gguf import GGUFReader
         finally:
             sys.path.remove(GGUF_PY)
-        r = GGUFReader(GGUF)
-        _MODEL["W"] = {t.name: np.array(t.data, dtype=np.float64) for t in r.tensors}
-        _MODEL["hp"] = G.hparams({f.name: f for f in r.fields.values()})
-    return _MODEL["W"], _MODEL["hp"]
+        r = GGUFReader(path)
+        _MODEL[path] = ({t.name: np.array(t.data, dtype=np.float64) for t in r.tensors},
+                        G.hparams({f.name: f for f in r.fields.values()}))
+    return _MODEL[path]
 
 
 class Run:
     """One dumped run: manifest, graphs with their positions."""
 
-    def __init__(self, name):
+    def __init__(self, name, root=None):
         self.name = name
-        self.dir = pathlib.Path(DUMP, name)
+        self.dir = pathlib.Path(root or DUMP, name)
         self.man = json.loads((self.dir / "manifest.json").read_text())
         self.fed = [int(x) for x in (self.dir / "tokens.txt").read_text().split(",")]
         ub = self.man["n_ubatch"]
@@ -146,16 +150,21 @@ def mla_probs(q_abs, latent, cells, k_mla):
 
 class _RunParity:
     RUN = None
+    # what a subclass may change (tests/test_*_f16fa_parity.py): the dump root and the model, the precision the
+    # oracles run at (ref/fattn.py precision; None = the f32 / flash-attention-off contract), the tolerance, the table
+    ROOT, GGUF_PATH, PREC, TOL, TABLE, SKIP = DUMP, GGUF, None, TOL, TABLE, SKIP
+    # tie replays: DSA pools tied within f32 rounding (G.tie_variant); MoE expert sets are never replayed here (None)
+    TIE_RTOL, MOE_TIE_RTOL = 1e-6, None
 
     @classmethod
     def setUpClass(cls):
-        if not (DUMP and GGUF and GGUF_PY):
-            raise unittest.SkipTest(SKIP)
-        if not pathlib.Path(DUMP, cls.RUN, "manifest.json").exists():
-            raise unittest.SkipTest(f"no run {cls.RUN} under {DUMP}")
-        cls.W, cls.hp = model()
+        if not (cls.ROOT and cls.GGUF_PATH and GGUF_PY):
+            raise unittest.SkipTest(cls.SKIP)
+        if not pathlib.Path(cls.ROOT, cls.RUN, "manifest.json").exists():
+            raise unittest.SkipTest(f"no run {cls.RUN} under {cls.ROOT}")
+        cls.W, cls.hp = model(cls.GGUF_PATH)
         hp = cls.hp
-        cls.R = Run(cls.RUN)
+        cls.R = Run(cls.RUN, cls.ROOT)
         cls.KDA = [i for i in range(hp["n_layer"]) if hp["kda"][i]]
         cls.DSA = [i for i in range(hp["n_layer"]) if not hp["kda"][i]]
         cls.MOE = list(range(hp["dense_lead"], hp["n_layer"]))
@@ -177,66 +186,127 @@ class _RunParity:
                     m = cls.R.dump(g, f"kq_mask_dsa-{il}")[0].reshape(n, -1)
                     for r in range(n):
                         cls.seen[il][(g, r)] = sorted(np.where(np.isfinite(m[r]) & (m[r] > -1e30))[0].tolist())
-        cls._oracles({})
-        # replay a reference choice among exactly tied pools (validated on the oracle's own scores), as N2/N6 do;
-        # both selections must be valid top-k sets for the token's absolute position, else a bug in the oracle's
-        # own selection would be replayed away; any other difference is kept for test_dsa_pool_cache_and_selection
-        cls.ties, cls.not_ties, overrides_a, overrides_b = 0, [], {}, {}
+        # replay a reference choice among tied candidates (validated on the oracle's own scores), as N2/N6 do: a DSA
+        # selection among pools tied within TIE_RTOL, and (MOE_TIE_RTOL not None) an expert set among experts tied
+        # within MOE_TIE_RTOL; both choices must be valid top-k sets by the oracle's scores, else a bug in the oracle's
+        # own choice would be replayed away. The first differing (graph, layer, kind) in computation order is replayed
+        # and the oracles recomputed, until none is left; a difference that is no tie is kept in not_ties (reported by
+        # test_dsa_pool_cache_and_selection / test_moe_and_ffn).
+        cls.ties, cls.moe_ties, cls.not_ties, cls.ov_a, cls.ov_b = 0, 0, [], {}, {}
+        cls._oracles(cls.ov_b, cls.ov_a)
+        while cls._replay_first_tie():
+            cls._oracles(cls.ov_b, cls.ov_a)
+
+    @classmethod
+    def _replay_first_tie(cls):
+        hp, kp = cls.hp, cls.hp["kpool"]
+        k = hp["n_expert_used"]
         for gr in cls.R.graphs:
-            for il in cls.DSA:
-                ob = cls.B[gr["g"]]["layers"][il]["dsa"]
-                for r, t in enumerate(gr["pos"]):
-                    s = cls.seen[il][(gr["g"], r)]
-                    if s == ob["cells"][r]:
+            g = gr["g"]
+            for il in range(hp["n_layer"]):
+                kinds = ["dsa"] if il in cls.DSA else []
+                if il in cls.MOE and cls.MOE_TIE_RTOL is not None:
+                    kinds.append("moe")
+                for kind in kinds:
+                    rows, bad = [], []
+                    for r, t in enumerate(gr["pos"]):
+                        if kind == "dsa":
+                            ob = cls.B[g]["layers"][il]["dsa"]
+                            ref, own = cls.seen[il][(g, r)], ob["cells"][r]
+                            if ref == own:
+                                continue
+                            args = (t, hp["idx_top_k"], kp, hp["select_tail"], cls.TIE_RTOL)
+                            (ok, why), (ok2, why2) = G.tie_variant(ob["scores"][r], ref, *args), \
+                                G.tie_variant(ob["scores"][r], own, *args)
+                        else:
+                            ob = cls.B[g]["layers"][il]["ffn"]
+                            ids = cls.R.dump(g, f"ffn_moe_topk-{il}")[0].reshape(gr["n"], k)
+                            ref, own = sorted(ids[r].astype(int).tolist()), sorted(int(e) for e in ob["ids"][r])
+                            if ref == own:
+                                continue
+                            (ok, why), (ok2, why2) = moe_tie_variant(ob["sel"][r], ref, k, cls.MOE_TIE_RTOL), \
+                                moe_tie_variant(ob["sel"][r], own, k, cls.MOE_TIE_RTOL)
+                        rows.append((r, t, ref))
+                        if not (ok and ok2):
+                            bad.append(f"{kind} L{il} pos {t} graph {g}: reference {why or 'valid'}, oracle "
+                                       f"{why2 or 'valid'}; reference {ref}, oracle {own}")
+                    if bad:
+                        cls.not_ties += bad
+                        return False
+                    if not rows:
                         continue
-                    args = (t, hp["idx_top_k"], kp, hp["select_tail"])
-                    ok, why = G.tie_variant(ob["scores"][r], s, *args)
-                    own, why_own = G.tie_variant(ob["scores"][r], ob["cells"][r], *args)
-                    if not (ok and own):
-                        cls.not_ties.append(f"L{il} pos {t} graph {gr['g']}: reference {why or 'valid'}, oracle "
-                                            f"{why_own or 'valid'}; reference {s}, oracle {ob['cells'][r]}")
-                        continue
-                    cls.ties += 1
-                    overrides_b.setdefault(("dsa", il), {})[(gr["g"], r)] = s
-                    if gr["kept"][r]:
-                        overrides_a.setdefault(("dsa", il), {})[t] = s
-        if cls.ties:
-            cls._oracles(overrides_b, overrides_a)
+                    for r, t, ref in rows:
+                        cls.ov_b.setdefault((kind, il), {})[(g, r)] = ref
+                        if gr["kept"][r]:
+                            cls.ov_a.setdefault((kind, il), {})[t] = ref
+                    if kind == "dsa":
+                        cls.ties += len(rows)
+                    else:
+                        cls.moe_ties += len(rows)
+                    return True
+        return False
 
     @classmethod
     def _oracles(cls, overrides_b, overrides_a=None):
         W, hp = cls.W, cls.hp
-        ov_a = None
-        if overrides_a:
-            base = G.forward(cls.R.final, W, hp)
-            ov_a = {k: [v.get(t, c) for t, c in enumerate(base["layers"][k[1]]["dsa"]["cells"])]
-                    for k, v in overrides_a.items()}
-        cls.A = G.forward(cls.R.final, W, hp, ov_a)
+        cls.A = G.forward(cls.R.final, W, hp, overrides_a or None, prec=cls.prec_full())
         cls.B, cache = {}, G.new_cache()
         by_call = {}
         for gr in cls.R.graphs:
             by_call.setdefault(gr["call"], []).append(gr)
+        done = []
         for c, call in enumerate(cls.R.calls):
             if call["kind"] == "rollback":
-                G.cache_truncate(cache, call["pos0"], W, hp)
+                # the kept prefix is rebuilt with the replays of the graphs that computed it
+                ov = {}
+                for gr in done:
+                    for key, v in overrides_b.items():
+                        ov.setdefault(key, {}).update({gr["pos"][r]: x for (g, r), x in v.items() if g == gr["g"]})
+                G.cache_truncate(cache, call["pos0"], W, hp, ov or None, prec=cls.PREC)
                 continue
             for gr in by_call[c]:
                 ov = {k: {gr["pos"][r]: cells for (g, r), cells in v.items() if g == gr["g"]}
                       for k, v in overrides_b.items()}
-                cls.B[gr["g"]] = G.forward_chunk(gr["toks"], W, hp, cache, ov)
+                cls.B[gr["g"]] = G.forward_chunk(gr["toks"], W, hp, cache, ov, prec=cls.prec_graph(gr))
+                done.append(gr)
+
+    @classmethod
+    def graph_mode(cls, gr):
+        """With PREC: the attention mode llama.cpp takes for the graph's DSA layers (ref/fattn.py mode_for, or the
+        gather path)."""
+        if cls.gather[gr["g"]]:          # ec7630a gather path: f32 mul_mat / soft_max over the cached latents
+            return "exact"
+        return F.mode_for(F.kv_f16(cls.PREC), cls.PREC.get("fa", False), gr["n"])
+
+    @classmethod
+    def prec_graph(cls, gr):
+        """Oracle precision for the replay of graph gr (None without PREC)."""
+        if not cls.PREC:
+            return None
+        return dict(cls.PREC, modes={p: cls.graph_mode(gr) for p in gr["pos"]})
+
+    @classmethod
+    def prec_full(cls):
+        """Oracle precision for the full-sequence oracle (A): every position in the mode of the last graph that
+        computed it (None without PREC)."""
+        if not cls.PREC:
+            return None
+        return dict(cls.PREC, modes={p: cls.graph_mode(gr) for gr in cls.R.graphs for p in gr["pos"]})
 
     # ---- helpers ----
-    def close(self, what, il, g, got, want, tol=TOL):
+    def close(self, what, il, g, got, want, tol=None):
+        tol = self.TOL if tol is None else tol
         got, want = np.asarray(got, dtype=np.float64), np.asarray(want, dtype=np.float64)
         self.assertEqual(got.size, want.size, f"{self.RUN} {what} L{il} g{g}: size {got.shape} vs {want.shape}")
         got = got.reshape(want.shape)
         d = np.abs(got - want)
         mx = float(d.max()) if d.size else 0.0
         rel = mx / (float(np.abs(want).max()) + 1e-30) if d.size else 0.0
-        TABLE.append((self.RUN, what, il, g, mx, rel, np.unravel_index(int(d.argmax()), d.shape) if d.size else ()))
+        self.TABLE.append((self.RUN, what, il, g, mx, rel,
+                           np.unravel_index(int(d.argmax()), d.shape) if d.size else ()))
         self.assertLess(rel, tol, f"{self.RUN} {what} L{il} graph {g}: rel err {rel:.2e} (abs {mx:.2e})")
 
-    def both(self, what, il, gr, got, a_full, b_rows, tol=TOL):
+    def both(self, what, il, gr, got, a_full, b_rows, tol=None):
         """Compare a per-token tensor of graph gr with (A) the full-sequence rows (kept rows only) and (B)."""
         got = np.asarray(got, dtype=np.float64).reshape(np.shape(b_rows))
         kept = np.array(gr["kept"])
@@ -375,7 +445,8 @@ class _RunParity:
         cache on the path the pin takes for the ubatch size."""
         R, hp = self.R, self.hp
         kp, d = hp["kpool"], hp["idx_dim"]
-        self.assertEqual(self.not_ties, [], "DSA selections that are no valid top-k by the oracle's scores")
+        self.assertEqual(self.not_ties, [], "DSA selections (or MoE expert sets) that are no valid top-k by the "
+                                            "oracle's scores")
         pooled_in_decode = straddle = 0
         for gr in R.graphs:
             g, p0, n = gr["g"], gr["p0"], gr["n"]
@@ -392,13 +463,14 @@ class _RunParity:
                     self.close("indexer_pool_k_new (pools completed here) [chunk]", il, g, new[:b1 - b0],
                                Db["pooled_new"])
                     if all(gr["kept"][:(b1 * kp) - p0]):
+                        # before the store: pooled_raw (equal to pooled unless the cache is f16)
                         self.close("indexer_pool_k_new (pools completed here) [full]", il, g, new[:b1 - b0],
-                                   Da["pooled"][b0:b1])
+                                   Da.get("pooled_raw", Da["pooled"])[b0:b1])
                     pooled_in_decode += n == 1
                     straddle += b0 * kp < p0
                 n_pad = new.shape[0] - (b1 - b0)
                 # KV cell = position: cells before the graph from (A), the graph's own cells from (B)
-                ik_all = np.concatenate([np.asarray(Da["ik"])[:p0], np.asarray(Db["ik"])])
+                ik_all = F.store(np.concatenate([np.asarray(Da["ik"])[:p0], np.asarray(Db["ik"])]), self.PREC)
                 if SHARED_PAD_CELL:
                     cells = [0 if b1 > b0 else p0] * n_pad
                 else:
@@ -432,7 +504,7 @@ class _RunParity:
                     self._gather_path(gr, il, Da, Db)
                 self.both("kqv_out (sparse MLA)", il, gr, R.dump(g, f"kqv_out-{il}")[0], Da["kqv"], Db["kqv"])
                 self.both("attn_out (wo)", il, gr, R.dump(g, f"attn_out-{il}")[0], Da["out"], Db["out"])
-        TABLE.append((self.RUN, f"dsa selection: tie replays = {self.ties}", self.DSA[0], -1, 0.0, 0.0, ()))
+        self.TABLE.append((self.RUN, f"dsa selection: tie replays = {self.ties}", self.DSA[0], -1, 0.0, 0.0, ()))
         if self.RUN in ("decode", "rollback"):
             self.assertGreater(pooled_in_decode, 0, "no pool completed by a one-token call")
         if self.RUN in ("ub10", "ub18", "decode", "rollback"):
@@ -450,7 +522,8 @@ class _RunParity:
         self.assertEqual(idx.shape[1], self.n_sel)
         p = R.dump(g, f"kq_soft_max_gathered-{il}")[0].reshape(n, hp["n_head"], self.n_sel)
         kv = R.dump(g, f"kv_gathered-{il}")[0].reshape(n, self.n_sel, -1)
-        lat_b = np.concatenate([np.asarray(Da["latent"])[:gr["p0"]], np.asarray(Db["latent"])])   # cell = position
+        # cell = position; the latents as the MLA cache holds them (f16 with an f16 cache)
+        lat_b = F.store(np.concatenate([np.asarray(Da["latent"])[:gr["p0"]], np.asarray(Db["latent"])]), self.PREC)
         for r, t in enumerate(gr["pos"]):
             live = gather_live(t, hp["kpool"], self.n_top, self.n_sel)
             self.assertTrue(np.array_equal((p[r] > 0).all(0), live), f"live slots L{il} pos {t} g{g}")
@@ -487,6 +560,9 @@ class _RunParity:
                               Fb["shexp"])
                 kind = "routed + shared" if il in self.MOE else "dense, clamped"
                 self.both(f"ffn_out ({kind})", il, gr, R.dump(g, f"ffn_out-{il}")[0], Fa["out"], Fb["out"])
+        if self.MOE_TIE_RTOL is not None:
+            self.TABLE.append((self.RUN, f"moe experts: tie replays = {self.moe_ties}", self.MOE[0], -1, 0.0, 0.0,
+                               ()))
 
     def test_head_and_logits(self):
         R = self.R
@@ -538,7 +614,7 @@ class _RunParity:
 
     def final_tokens(self):
         """The 64-token sequence every run must end with (tools/tinygen/run_parity_glm5next_decode.sh)."""
-        return [int(x) for x in pathlib.Path(DUMP, "tokens.txt").read_text().split(",")]
+        return [int(x) for x in pathlib.Path(self.ROOT, "tokens.txt").read_text().split(",")]
 
 
 @unittest.skipUnless(DUMP and GGUF and GGUF_PY, SKIP)
