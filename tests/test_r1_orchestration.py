@@ -276,8 +276,8 @@ class FullMockRun(unittest.TestCase):
         self.assertEqual(list(self.ends), [it.key for it in plan])           # one end record per item, plan order
         smi = shutil.which("nvidia-smi")
         for key, r in self.ends.items():
-            want = "skipped" if key in ("slot_persist", "logprob_compare") or (key.startswith("nvidia_smi") and not smi) \
-                else "ok"
+            want = "skipped" if key in ("slot_persist", "logprob_compare", "engine_build_check") or \
+                (key.startswith("nvidia_smi") and not smi) else "ok"     # the mock has no engine.pin
             self.assertEqual(r["status"], want, (key, r.get("reason")))
             if r["status"] == "ok":
                 self.assertLessEqual(r["utc_start"], r["utc_end"])
@@ -577,6 +577,196 @@ class FailurePaths(unittest.TestCase):
                         proc.wait()
                     if run_dir:
                         kill_leftovers(run_dir)
+
+
+# ---------------------------------------------------------------------------- pinned builds (engine_build_check)
+class PinnedBuild(unittest.TestCase):
+    """engine.pin ties a config to tools/engines/pins.json; engine_build_check compares the build-info.json of
+    scripts/engines/build_engine.py with the pin before the engine starts. The build directory here is SYNTHETIC (files
+    with fake contents, no CUDA); the engine that starts is still the mock server."""
+    PIN = "llama.cpp"
+    FILES = ("bin/llama-server", "bin/llama-bench", "bin/libggml-cuda.so")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="r1-pin-")
+        self.pin = run_r1.load_pins()[self.PIN]
+        self.build = os.path.join(self.tmp, "build", self.PIN)
+        files = {}
+        for rel in self.FILES:
+            path = os.path.join(self.build, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(("SYNTHETIC %s\n" % rel).encode())
+            files[rel] = run_r1.sha256_file(path)
+        self.info = {"engine": self.PIN, "repo": self.pin["repo"], "sha": self.pin["sha"], "deps": {}, "arch": 89,
+                     "checked_out": self.pin["sha"], "status": "ok", "bins": {b: True for b in self.pin["bins"]},
+                     "cubin_archs": {"bin/libggml-cuda.so": ["sm_89"]}, "files_sha256": files}
+        self.run_dirs = []
+
+    def tearDown(self):
+        for d in self.run_dirs:
+            kill_leftovers(d)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def write_info(self, info):
+        with open(os.path.join(self.build, "build-info.json"), "w") as f:
+            json.dump(info, f)
+
+    def config(self, name, **engine):
+        def edit(c):
+            del c["engine"]["commit"]
+            c["engine"].update(pin=self.PIN, build_info=os.path.join(self.build, "build-info.json"),
+                               binary=os.path.join(self.build, "bin", "llama-server"))
+            c["engine"].update(engine)
+        return write_config(self.tmp, name, edit)
+
+    def run_cfg(self, cfg, name):
+        root = os.path.join(self.tmp, "runs-" + name)
+        code, out = run_main(["--config", cfg, "--out", root, "--only", "engine_start,health_wait"])
+        run_dir = only_run_dir(root)
+        self.run_dirs.append(run_dir)
+        return code, out, ends(run_dir), run_dir
+
+    def assert_blocked(self, code, out, e, check):
+        self.assertEqual(code, 1, out)
+        bc = e["engine_build_check"]
+        self.assertEqual(bc["status"], "failed", bc)
+        if bc.get("checks_failed"):
+            self.assertIn(check, bc["checks_failed"], bc)
+        else:
+            self.assertIn(check, bc["reason"], bc)
+        self.assertEqual((e["engine_start"]["status"], e["engine_start"].get("blocked_by")),
+                         ("skipped", "engine_build_check"), "the engine must not start on a mismatching build")
+        self.assertNotIn("pid", e["engine_start"])
+        self.assertEqual(e["health_wait"]["status"], "skipped")
+
+    def test_matching_build_is_checked_and_the_engine_starts(self):
+        self.write_info(self.info)
+        code, out, e, run_dir = self.run_cfg(self.config("pinned-ok"), "ok")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(e["engine_build_check"]["status"], "ok", e["engine_build_check"])
+        self.assertEqual(e["engine_start"]["status"], "ok")
+        self.assertFalse(alive(e["engine_start"]["pid"]))
+        eng = os.path.join(run_dir, "artifacts", "engine")
+        with open(os.path.join(eng, "build_check.json")) as f:
+            bc = json.load(f)
+        self.assertTrue(bc["ok"])
+        self.assertEqual({c["check"] for c in bc["checks"]},
+                         {"engine", "repo", "sha", "checked_out", "deps", "status", "arch", "cubins", "binaries",
+                          "files_sha256", "binary"})
+        self.assertTrue(all(c["ok"] for c in bc["checks"]))
+        with open(os.path.join(eng, "build-info.json")) as f:
+            self.assertEqual(json.load(f), self.info)
+        with open(os.path.join(eng, "argv.json")) as f:
+            argv = json.load(f)
+        self.assertEqual((argv["commit"], argv["pin"]), (self.pin["sha"], self.PIN))
+        self.assertIn(self.pin["sha"], argv["engine_desc"])
+        recs = journal(run_dir)
+        order = [r["step"] for r in recs if r["event"] == "end"]
+        self.assertLess(order.index("engine_build_check"), order.index("engine_start"))
+
+    def test_every_mismatch_fails_the_check_and_the_engine_is_not_started(self):
+        cases = [("sha", lambda i: i.update(sha="0" * 40)),
+                 ("checked_out", lambda i: i.update(checked_out="0" * 40)),
+                 ("engine", lambda i: i.update(engine="ik_llama.cpp")),
+                 ("repo", lambda i: i.update(repo="https://github.com/example/llama.cpp")),
+                 ("deps", lambda i: i.update(deps={"ggml": {"sha": "1" * 40}})),
+                 ("status", lambda i: i.update(status="failed at: build")),
+                 ("arch", lambda i: i.update(arch=86)),
+                 ("cubins", lambda i: i.update(cubin_archs={"bin/libggml-cuda.so": ["sm_86"]})),
+                 ("cubins", lambda i: i.update(cubin_archs="cuobjdump not found",
+                                               status="ok (cubins not checked: no cuobjdump)")),
+                 ("binaries", lambda i: i["bins"].update({"bin/llama-bench": False})),
+                 ("files_sha256", lambda i: i.pop("files_sha256"))]
+        for n, (check, mutate) in enumerate(cases):
+            with self.subTest(check=check, case=n):
+                info = json.loads(json.dumps(self.info))
+                mutate(info)
+                self.write_info(info)
+                self.assert_blocked(*self.run_cfg(self.config("pinned-bad-%d" % n), "bad-%d" % n)[:3], check)
+
+    def test_binary_changed_after_the_build_is_caught(self):
+        self.write_info(self.info)
+        with open(os.path.join(self.build, "bin", "llama-server"), "ab") as f:
+            f.write(b"patched\n")
+        code, out, e, run_dir = self.run_cfg(self.config("pinned-tampered"), "tampered")
+        self.assert_blocked(code, out, e, "files_sha256")
+        with open(os.path.join(run_dir, "artifacts", "engine", "build_check.json")) as f:
+            bad = [c for c in json.load(f)["checks"] if c["check"] == "files_sha256"][0]
+        self.assertEqual([x["file"] for x in bad["got"]], ["bin/llama-server"])
+
+    def test_binary_outside_the_build_and_missing_build_info_are_caught(self):
+        self.write_info(self.info)
+        self.assert_blocked(*self.run_cfg(self.config("pinned-outside", binary=PY), "outside")[:3], "binary")
+        cfg = self.config("pinned-missing", build_info=os.path.join(self.tmp, "nowhere", "build-info.json"))
+        code, out, e, _ = self.run_cfg(cfg, "missing")
+        self.assert_blocked(code, out, e, "cannot read")
+
+    def test_source_checkout_must_be_at_the_pin(self):
+        self.write_info(self.info)
+        src = os.path.join(self.tmp, "src")
+        os.makedirs(src)
+        git = ["git", "-C", src, "-c", "user.name=SYNTHETIC", "-c", "user.email=synthetic@example.invalid"]
+        subprocess.run(["git", "init", "-q", src], check=True)
+        subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "SYNTHETIC"], check=True)
+        self.assert_blocked(*self.run_cfg(self.config("pinned-src-bad", source_dir=src), "src-bad")[:3], "source_head")
+        fake = os.path.join(self.tmp, "fakebin")
+        os.makedirs(fake)
+        with open(os.path.join(fake, "git"), "w") as f:
+            f.write("#!/bin/sh\necho %s\n" % self.pin["sha"])
+        os.chmod(os.path.join(fake, "git"), 0o755)
+        old = os.environ["PATH"]
+        os.environ["PATH"] = fake + os.pathsep + old
+        try:
+            code, out, e, _ = self.run_cfg(self.config("pinned-src-ok", source_dir=src), "src-ok")
+        finally:
+            os.environ["PATH"] = old
+        self.assertEqual(code, 0, out)
+        self.assertEqual(e["engine_build_check"]["status"], "ok", e["engine_build_check"])
+
+    def test_pin_config_errors_exit_2(self):
+        sha = self.pin["sha"]
+        bad = [("unknown-pin", dict(pin="llama.cpp-fork"), "engine.pin"),
+               ("wrong-commit", dict(commit="0" * 40), "contradicts"),
+               ("short-garbage", dict(commit="UNKNOWN"), "contradicts")]
+        for name, eng, needle in bad:
+            with self.subTest(case=name):
+                code, out = run_main(["--config", self.config(name, **eng), "--out", self.tmp, "--plan"])
+                self.assertEqual(code, 2, out)
+                self.assertIn(needle, out)
+
+        def no_pin(c):
+            c["engine"]["build_info"] = "/x/build-info.json"
+        code, out = run_main(["--config", write_config(self.tmp, "no-pin", no_pin), "--out", self.tmp, "--plan"])
+        self.assertEqual(code, 2, out)
+        self.assertIn("needs engine.pin", out)
+        code, out = run_main(["--config", self.config("prefix", commit=sha[:9]), "--out", self.tmp, "--plan", "--json"])
+        self.assertEqual(code, 0, out)
+        self.assertIn(sha[:9], json.loads(out)["engine_desc"])
+
+    def test_engine_templates_are_pinned_and_checked(self):
+        pins = run_r1.load_pins()
+        used = set()
+        for path in TEMPLATES:
+            with open(path, encoding="utf-8") as f:
+                raw = json.load(f)
+            if raw.get("mock"):
+                continue
+            with self.subTest(config=os.path.basename(path)):
+                e = raw["engine"]
+                self.assertIn(e.get("pin"), pins)
+                self.assertNotIn("commit", e, "the commit of a pinned template comes from tools/engines/pins.json")
+                self.assertTrue(e.get("build_info"))
+                used.add(e["pin"])
+                code, out = run_main(["--config", path, "--out", self.tmp, "--plan", "--json"])
+                self.assertEqual(code, 0, out)
+                p = json.loads(out)
+                bc = [it for it in p["items"] if it["step"] == "engine_build_check"]
+                self.assertEqual(len(bc), 1)
+                self.assertFalse(bc[0]["skip"], bc[0])
+                self.assertIn(pins[e["pin"]]["sha"], bc[0]["text"])
+                self.assertIn(pins[e["pin"]]["sha"], p["engine_desc"])
+        self.assertEqual(used, set(pins), "every pinned engine has an R1 template and every template a pinned engine")
 
 
 if __name__ == "__main__":

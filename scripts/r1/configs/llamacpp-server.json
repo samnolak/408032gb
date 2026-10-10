@@ -2,7 +2,7 @@
   "_label": "PROVISIONAL template, NOT RUN. llama.cpp llama-server, Qwen3.8-Flash-Next UD-Q4_K_XL with every layer and expert in VRAM (-sm layer over 4 GPUs). Flags: llama.cpp tools/server/README.md @79e2e74 (lines 35 --version, 50 -c, 56 -fa, 71-72 -ctk/-ctv, 85 -ngl all, 86 -sm, 87 -ts, 100 -m, 177 -np, 193-194 --host/--port, 222 --cache-reuse, 223 --metrics, 226 --slot-save-path, 232 --jinja; GET /health 503 while loading, 200 when ready: lines 472-484) and docs/reassessment/BENCH_PROTOCOL.md section 6 (README @ec7630a). Check every flag against `llama-server --help` of the build on the server: the engine_version step writes artifacts/engine/flags_check.json with the flags --help does not mention. Values marked in _notes are planning assumptions, not measurements.",
   "_notes": {
     "experiment": "B1 row 'llama.cpp mainline' on the first model of D2 (docs/reassessment/EXPERIMENTS.md); compare with strata-serve-qwen38fn.json (B0) on the same weights",
-    "LLAMA_BIN": "build directory of the pinned llama.cpp (ROADMAP R1.4: not older than c811cb8f0); record the build SHA with --set ENGINE_COMMIT=<sha>",
+    "LLAMA_BIN": "bin/ of the llama.cpp build of scripts/engines/build_engine.py (/srv/llm/engines/current-llamacpp -> /srv/llm/engines-build/llama.cpp); the commit is engine.pin = tools/engines/pins.json[llama.cpp] (79e2e74eb, contains c811cb8f0); step engine_build_check compares ${LLAMA_BIN}/../build-info.json with the pin (sha, sm_89 cubins, sha256 of every built file) and does not start the engine on a mismatch. Build: python3 scripts/engines/build_engine.py --engine llama.cpp --arch 89 --src-root /srv/llm/engines-src --build-root /srv/llm/engines-build",
     "WEIGHTS_DIR": "DEPLOY.md section 1 layout models/<model>/<revision>; the revision is the manifest's (PROVISIONAL manifest: transcribed from Strata docs, regenerate from the HF API first, models/weights/README.md)",
     "CTX": "262144 = native window of the model (BRINGUP-qwen38fn.md, 'Окно контекста', reading (a)); the matrix and probes use --length-mode total, so prompt + output <= CTX",
     "KV_TYPE": "f16 by default (ADR-012 D5, docs/reassessment/ADR-012-reassessment.md:97); q8_0 only after experiment K2",
@@ -15,7 +15,6 @@
   "name": "llamacpp-qwen38fn",
   "vars": {
     "LLAMA_BIN": "/srv/llm/engines/current-llamacpp/bin",
-    "ENGINE_COMMIT": "UNKNOWN (set --set ENGINE_COMMIT=<build sha>; artifacts/engine/version.txt has --version)",
     "WEIGHTS_DIR": "/srv/llm/models/qwen3.8-flash-next/38bb39ee97821de2c9009abb7e93950eec396e66",
     "CTX": "262144",
     "TENSOR_SPLIT": "1,1,1,1",
@@ -31,7 +30,8 @@
   },
   "engine": {
     "name": "llama.cpp llama-server (mainline)",
-    "commit": "${ENGINE_COMMIT}",
+    "pin": "llama.cpp",
+    "build_info": "${LLAMA_BIN}/../build-info.json",
     "argv": ["${LLAMA_BIN}/llama-server", "-m", "${MODEL}", "--host", "${HOST}", "--port", "${PORT}",
              "-c", "${CTX}", "-np", "1", "-ngl", "all", "-sm", "layer", "-ts", "${TENSOR_SPLIT}", "-fa", "on",
              "-ctk", "${KV_TYPE}", "-ctv", "${KV_TYPE}", "--jinja", "--metrics", "--cache-reuse", "256",

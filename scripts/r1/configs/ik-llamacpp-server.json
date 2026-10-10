@@ -1,7 +1,8 @@
 {
   "_label": "PROVISIONAL template, NOT RUN on the 4x4080 server. ik_llama.cpp llama-server, GLM-5.3-Flash UD-Q4_K_XL (architecture string glm5next, which ik_llama loads: docs/reassessment/research/R2-engines.md:137). Flags are those of the command that ran on the 3x3090 host (scripts/run-glm-3090-1gpu.sh:29-34; PROBLEMS.md:105, pp 166.8 / tg 15.0 tok/s on 1x3090 there, REPORTED), changed for 4 GPUs: -sm layer and -ts instead of -sm none, -t/--threads-batch for the 48-core EPYC 7H43, KV f16 (ADR-012 D5) instead of q8_0. ik_llama's -sm graph does not support glm5next (R2-engines.md:116). Check every flag against `llama-server --help` of the ik_llama build on the server (artifacts/engine/flags_check.json); whether /tokenize, ignore_eos/n_predict and /slots match mainline is UNKNOWN (BENCH_PROTOCOL.md section 6).",
   "_notes": {
-    "experiment": "B1 row 'ik_llama.cpp, the same GGUF' (docs/reassessment/EXPERIMENTS.md); ik_llama pin 5194a9e (R2-engines.md:66), record the build SHA with --set ENGINE_COMMIT=<sha>",
+    "experiment": "B1 row 'ik_llama.cpp, the same GGUF' (docs/reassessment/EXPERIMENTS.md); ik_llama pin 5194a9e (R2-engines.md:66)",
+    "IK_BIN": "bin/ of the ik_llama.cpp build of scripts/engines/build_engine.py (/srv/llm/engines/current-ik_llama -> /srv/llm/engines-build/ik_llama.cpp); the commit is engine.pin = tools/engines/pins.json[ik_llama.cpp] (5194a9e14); step engine_build_check compares ${IK_BIN}/../build-info.json with the pin (sha, sm_89 cubins, sha256 of every built file) and does not start the engine on a mismatch. Build: python3 scripts/engines/build_engine.py --engine ik_llama.cpp --arch 89 --src-root /srv/llm/engines-src --build-root /srv/llm/engines-build",
     "WEIGHTS_DIR": "the UD-Q4_K_XL files: 6 shards, 185.983 GiB on the 3090 host (AGENTS.md); the choice of weights for the 4x4080 server is open (ADR-005/ADR-009), the HF revision and manifest are UNKNOWN here, so weights_verify is skipped until model.weights_manifest is set",
     "NCMOE": "PROVISIONAL: 17 of 42 MoE layers on the CPU, from the uniform-routing placement of tools/roofline.py (UD-Q4_K_XL, experts 4.89 bpw: resident 60.7% at 262144 tokens); tune on the server (the 3090 host used 39 of 42 with one 24 GB card)",
     "HIT": "PROVISIONAL: (42 - NCMOE) / 42 = 0.595 with uniform routing; keep it equal to the placement when NCMOE changes",
@@ -13,7 +14,6 @@
   "name": "ik-llamacpp-glm53f",
   "vars": {
     "IK_BIN": "/srv/llm/engines/current-ik_llama/bin",
-    "ENGINE_COMMIT": "UNKNOWN (set --set ENGINE_COMMIT=<build sha>; artifacts/engine/version.txt has --version)",
     "WEIGHTS_DIR": "/srv/llm/models/glm-5.3-flash/REVISION-UNKNOWN",
     "CTX": "262144",
     "TENSOR_SPLIT": "1,1,1,1",
@@ -31,7 +31,8 @@
   },
   "engine": {
     "name": "ik_llama.cpp llama-server",
-    "commit": "${ENGINE_COMMIT}",
+    "pin": "ik_llama.cpp",
+    "build_info": "${IK_BIN}/../build-info.json",
     "argv": ["${IK_BIN}/llama-server", "-m", "${MODEL}", "--host", "${HOST}", "--port", "${PORT}",
              "--ctx-size", "${CTX}", "--parallel", "1", "--jinja", "-ngl", "999", "-sm", "layer", "-ts", "${TENSOR_SPLIT}",
              "-ncmoe", "${NCMOE}", "-fa", "on", "--dsa", "-ctk", "${KV_TYPE}", "-ctv", "${KV_TYPE}",

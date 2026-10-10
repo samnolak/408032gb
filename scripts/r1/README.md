@@ -19,11 +19,15 @@ UNKNOWN, NOT RUN.
 
 ```bash
 cd /srv/llm/repo                                    # клон репозитория (бандл), Python 3 без pip
+# 0. собрать движок на пине tools/engines/pins.json (N1) и указать на сборку ссылкой, которую ждёт шаблон
+python3 scripts/engines/build_engine.py --engine llama.cpp --arch 89 \
+    --src-root /srv/llm/engines-src --build-root /srv/llm/engines-build
+ln -sfn /srv/llm/engines-build/llama.cpp /srv/llm/engines/current-llamacpp
 # 1. выбрать шаблон, при необходимости скопировать и поправить пути/значения (или передать --set)
 python3 scripts/r1/run_r1.py --config scripts/r1/configs/llamacpp-server.json --out /srv/llm/r1-runs \
-    --set ENGINE_COMMIT=<sha сборки> --plan          # 2. посмотреть ВСЕ команды; ничего не запускается и не создаётся
-python3 scripts/r1/run_r1.py --config scripts/r1/configs/llamacpp-server.json --out /srv/llm/r1-runs \
-    --set ENGINE_COMMIT=<sha сборки>                 # 3. прогон; Ctrl-C в любой момент останавливает движок
+    --plan                                          # 2. посмотреть ВСЕ команды; ничего не запускается и не создаётся
+python3 scripts/r1/run_r1.py --config scripts/r1/configs/llamacpp-server.json --out /srv/llm/r1-runs
+                                                    # 3. прогон; Ctrl-C в любой момент останавливает движок
 # 4. посмотреть сводку в конце вывода, run.json и pack/VERDICT.md; каталог прогона целиком (без правок) —
 #    в docs/evidence/R1-matrix/<дата>-<движок>-<модель>/ (BENCH_PROTOCOL.md, раздел 7), коммит, бандл
 ```
@@ -51,6 +55,7 @@ python3 scripts/r1/run_r1.py --config scripts/r1/configs/llamacpp-server.json --
 | 2 | `quant_audit` | `tools/gguf_quant_audit.py <первый GGUF> --json` | эксперты и не-экспертные матрицы ≥ 4 bpw (V1) | нет файлов модели → skipped |
 | 3 | `roofline_prediction` | `tools/roofline.py … --json` на каждую длину входа матрицы, затем `prereg/prereg.json` с sha256 каждого предсказания | предсказание записано **до** старта движка (журнал: время и порядок) | нет `roofline.spec` → skipped |
 | 4 | `nvidia_smi_before` | `nvidia-smi -q` | состояние GPU до прогона | нет `nvidia-smi` → skipped |
+| 4a | `engine_build_check` | `engine.build_info` (файл `build-info.json` от `scripts/engines/build_engine.py`) против `tools/engines/pins.json[engine.pin]`; копия → `artifacts/engine/build-info.json`, результат по каждой проверке → `artifacts/engine/build_check.json` | движок, репозиторий, SHA и реально выгруженный коммит = пин; зависимости (ggml у Strata) = пин; статус сборки `ok`; архитектура и cubin `sm_<engine.arch>` (по умолчанию 89); sha256 **каждого** собранного файла не изменился после сборки; `engine.binary` (по умолчанию `argv[0]`) — бинарник этой сборки; `git HEAD` у `engine.source_dir` = пин (Strata: Python-часть `serve/`). Любое расхождение → failed, **движок не запускается** (`engine_start` blocked) | нет `engine.pin` → skipped (mock); нет `engine.build_info` → skipped |
 | 5 | `engine_version` | команда версии шаблона и `--help` | флаги argv движка, которых нет в `--help` → `artifacts/engine/flags_check.json` и WARNING в выводе (шаг не падает) | — |
 | 6 | `engine_start` | argv движка в своей группе процессов; stdout+stderr → `artifacts/engine/engine.log`; argv, cwd, переменные окружения → `artifacts/engine/argv.json`; файлы конфигурации движка (`engine.config_files`) → `artifacts/engine/` | — | нет `engine.argv` → движок внешний |
 | 7 | `health_wait` | GET health URL до ожидаемого кода; затем `engine.after_ready` (например `free -g`, память GPU) → `artifacts/hw/after-ready-N.txt` | таймаут → failed; движок завершился раньше → failed сразу, с кодом выхода | — |
@@ -63,7 +68,8 @@ python3 scripts/r1/run_r1.py --config scripts/r1/configs/llamacpp-server.json --
 | 14 | `nvidia_smi_after` | `nvidia-smi -q` | — | нет `nvidia-smi` → skipped |
 | 15 | `pack` | `tools/verify/pack.py --runs RUN/artifacts --out RUN/pack`, затем `pack.py --check RUN/pack` | вердикт по V1–V11 (PASS / FAIL / NOT RUN) и целостность пакета | — |
 
-Зависимости: `health_wait` зависит от `engine_start`; `matrix`, `probes`, `slot_persist`, `logprob_compare` — от
+Зависимости: `engine_start` зависит от `engine_build_check` (`--only engine_start` всегда добавляет его, как и
+`engine_stop`); `health_wait` зависит от `engine_start`; `matrix`, `probes`, `slot_persist`, `logprob_compare` — от
 `engine_start` и `health_wait`. Если зависимость **упала** (или прервана), шаг записывается как `skipped` с `blocked_by`;
 если зависимость просто не выбрана или выключена, шаг выполняется (движок управляется снаружи). `after_ready` — «мягкие»
 команды: их ошибка записывается и даёт код выхода 1, но не блокирует замеры.
@@ -104,7 +110,7 @@ NOT RUN) — не код выхода**: он печатается в конце
 
 | файл | ячейка | статус | что UNKNOWN |
 |---|---|---|---|
-| `llamacpp-server.json` | llama.cpp `llama-server`, Qwen3.8-Flash-Next UD-Q4_K_XL, всё в VRAM, `-sm layer` на 4 GPU (B1 на модели №1) | PROVISIONAL: флаги — `tools/server/README.md`@79e2e74 (строки в `_label`), NOT RUN | SHA сборки; манифест весов PROVISIONAL (переписан из документации Strata) |
+| `llamacpp-server.json` | llama.cpp `llama-server`, Qwen3.8-Flash-Next UD-Q4_K_XL, всё в VRAM, `-sm layer` на 4 GPU (B1 на модели №1) | PROVISIONAL: флаги — `tools/server/README.md`@79e2e74 (строки в `_label`), NOT RUN | манифест весов PROVISIONAL (переписан из документации Strata) |
 | `llamacpp-server-moecache.json` | llama.cpp с `-ncmoe` + `--moe-cache-mib` (B1, D1), GLM-5.3-Flash | PROVISIONAL, NOT RUN | **GGUF архитектуры `glm5-next`**: mainline не знает строку `glm5next` файлов Unsloth (R2-engines.md:136) — имя файла, ревизия, манифест; доля попаданий в кэш (`HIT`) |
 | `ik-llamacpp-server.json` | ik_llama.cpp, GLM-5.3-Flash UD-Q4_K_XL, `-ncmoe -muge` (B1 ik) | PROVISIONAL: флаги команды, работавшей на хосте 3×3090 (`scripts/run-glm-3090-1gpu.sh:29-34`), под 4 GPU; NOT RUN | ревизия и манифест весов; `/slots` в ik_llama; `NCMOE` под 4×32 GB |
 | `strata-serve-qwen38fn.json` | Strata upstream serve, Qwen3.8-Flash-Next UD-Q4_K_XL, split на 4 GPU, MTP `--spec 4` (B0) | PROVISIONAL: JSON сервера и строка запуска — Strata `docs/UNSLOTH_Q4.md:107-136`@fb58e0d с изменениями `BRINGUP-qwen38fn.md` шаг 4; NOT RUN | флаги `serve.server` (`--engine/--config/--port`), health-эндпоинт (шаблон ждёт `/v1/models`), совместимость API с `tools/bench`; RAM 128 GB против рекомендованных ~135 GB |
@@ -116,8 +122,12 @@ NOT RUN) — не код выхода**: он печатается в конце
 Для следующего прогона битность берётся из `artifacts/quant/quant_audit.json` этого прогона.
 
 Чтобы сделать новую ячейку: скопировать ближайший шаблон, поменять `name`, `engine`, `model`, `roofline`, `mode` и `vars`,
-проверить `--plan`. Имя движка — свободный текст: файла `tools/engines/pins.json` в этой ветке нет (когда он появится в N1,
-имя стоит брать оттуда; сверка с ним **не реализована**).
+проверить `--plan`. `engine.name` — свободный текст для отчёта; **какой движок измеряется, задаёт `engine.pin`** — ключ
+`tools/engines/pins.json` (`llama.cpp`, `ik_llama.cpp`, `strata`). Коммит тогда берётся из пина (`engine.commit` можно не
+писать; если написан, он обязан быть префиксом SHA пина, иначе ошибка шаблона, код 2). Неизвестный пин, `engine.build_info`,
+`binary` или `source_dir` без пина — тоже код 2. Все четыре шаблона реальных движков привязаны к пинам (это проверяет
+`tests/test_r1_orchestration.py`: каждому пину — шаблон, каждому шаблону — пин); переменной `ENGINE_COMMIT` больше нет.
+Сдвинуть пин — отдельный коммит в `pins.json` (N1), пересборка, и проверка шаблона пройдёт только на новой сборке.
 
 ## Сухой прогон без GPU (mock)
 

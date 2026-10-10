@@ -542,3 +542,75 @@ R-b emergency kill does nothing to the engine -> CAUGHT
     FAIL: test_engine_is_killed_even_when_the_regular_stop_fails (tests.test_r1_orchestration.FailurePaths.test_engine_is_killed_even_when_the_regular_stop_fails)
 restored identical: True
 ```
+
+## N6: шаблоны привязаны к пинам движков, шаг `engine_build_check` (2026-10-10)
+Что сделано: `engine.pin` в шаблоне — ключ `tools/engines/pins.json`; коммит движка берётся из пина (переменной
+`ENGINE_COMMIT` больше нет). Новый шаг `engine_build_check` перед стартом движка сравнивает `build-info.json` сборки
+`scripts/engines/build_engine.py` с пином: движок, репозиторий, SHA, выгруженный коммит, зависимости, статус, архитектура и
+cubin `sm_89`, sha256 каждого собранного файла (`build_engine.py` теперь записывает `files_sha256`), принадлежность
+запускаемого бинарника сборке, `git HEAD` исходников (Strata). Расхождение — шаг failed, `engine_start` blocked: движок не
+запускается. Все четыре шаблона реальных движков привязаны (`llama.cpp` ×2, `ik_llama.cpp`, `strata`); mock — без пина
+(шаг skipped).
+
+Тесты (CONFIRMED, песочница без GPU; сборка в тестах — SYNTHETIC файлы):
+```
+$ python3 -m unittest tests.test_r1_orchestration tests.test_engines_build
+Ran 32 tests in 11.433s
+
+OK (skipped=1)
+```
+Мутационная проверка ведущим (скрипт вне репозитория, копия `git ls-files -co` во временном каталоге, одна правка за
+прогон, тесты `tests.test_r1_orchestration tests.test_engines_build`):
+```
+baseline                             rc=0 ok       OK (skipped=1)
+B1 engine_start not gated            rc=1 caught   FAILED (failures=14, skipped=1)
+B2 --only does not pull the check    rc=1 caught   FAILED (failures=15, skipped=1)
+B3 sha unchecked                     rc=1 caught   FAILED (failures=1, skipped=1)
+B4 checked_out unchecked             rc=1 caught   FAILED (failures=1, skipped=1)
+B5 deps unchecked                    rc=1 caught   FAILED (failures=1, skipped=1)
+B6 status unchecked                  rc=1 caught   FAILED (failures=1, skipped=1)
+B7 arch unchecked                    rc=1 caught   FAILED (failures=1, skipped=1)
+B8 any cubin accepted                rc=1 caught   FAILED (failures=1, skipped=1)
+B9 file hashes unchecked             rc=1 caught   FAILED (failures=1, skipped=1)
+B10 binary location unchecked        rc=1 caught   FAILED (failures=1, skipped=1)
+B11 source HEAD unchecked            rc=1 caught   FAILED (failures=1, skipped=1)
+B12 commit contradiction accepted    rc=1 caught   FAILED (failures=2, skipped=1)
+B13 unknown pin accepted             rc=1 caught   FAILED (errors=1, skipped=1)
+B14 build_info without pin accepted  rc=1 caught   FAILED (failures=1, skipped=1)
+B15 binaries flags unchecked         rc=1 caught   FAILED (failures=1, skipped=1)
+B16 build_engine records no hashes   rc=1 caught   FAILED (failures=1, skipped=1)
+caught 16/16
+```
+Проверка на настоящей сборке (CONFIRMED для компиляции, не для GPU): локальная сборка llama.cpp `79e2e74` под sm_89 из
+N1 (`docs/evidence/2026-10-10-engines-build.md`, CUDA 13.4 из pip, `-DGGML_CUDA_NO_VMM=ON`; `<S>` — каталог песочницы).
+1) Старый `build-info.json` (до `files_sha256`): шаг падает на `files_sha256, binary` — всё остальное совпадает (код выхода
+этого прогона не записан: в той команде `$?` показал код `grep`):
+```
+[r1] engine_build_check                 failed: the build does not match the pin: files_sha256, binary
+```
+2) Инкрементальная пересборка новым `build_engine.py` (`--engine llama.cpp --arch 89 --extra-cmake=-DGGML_CUDA_NO_VMM=ON`):
+```
+configure                                rc=0
+build                                    rc=0
+{"engine": "llama.cpp", "sha": "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6", "arch": 89, "status": "ok"}
+cubins bin/libggml-cuda.so                      sm_89
+```
+затем `run_r1.py --config scripts/r1/configs/llamacpp-server.json --only engine_build_check --set LLAMA_BIN=<S>/eng-build/llama.cpp/bin`:
+```
+run_r1 exit=0
+[r1] engine_build_check                 ok
+  sha True 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6
+  checked_out True 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6
+  arch True 89
+  cubins True ['bin/libggml-cuda.so', 'bin/libggml-cuda.so.0', 'bin/libggml-cuda.so.
+  files_sha256 True 25 files unchanged
+  binary True bin/llama-server
+```
+3) Копия той же сборки с одним дописанным байтом в `bin/libggml-cuda.so.0.26.0`, `--only engine_build_check,engine_start`:
+```
+run_r1 exit=1
+[r1] engine_build_check                 failed: the build does not match the pin: files_sha256
+[r1] engine_start                       skipped: depends on engine_build_check, which failed
+```
+Не проверено: шаблоны ik_llama.cpp и Strata на настоящих сборках (их сборки были в CI, `build-info.json` там без
+`files_sha256`) — NOT RUN; запуск любого движка на GPU — NOT RUN.

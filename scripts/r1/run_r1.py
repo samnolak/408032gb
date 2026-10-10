@@ -13,7 +13,11 @@ Steps, in this order; each can be disabled in the config ("steps": {"<step>": {"
                        every prediction: written BEFORE the engine starts (preregistration rule of
                        docs/reassessment/EXPERIMENTS.md); the same mode flags later go to vs_roofline
   nvidia_smi_before    nvidia-smi -q (when nvidia-smi exists)
-  engine_version       the template's version command and --help; flags of the engine argv absent from --help are listed
+  engine_build_check   engine.build_info (build-info.json of scripts/engines/build_engine.py) against
+                       tools/engines/pins.json[engine.pin]: sha, checked-out commit, deps, status, sm_<arch> cubins,
+                       sha256 of every built file, engine.binary inside that build, git HEAD of engine.source_dir;
+                       a mismatch fails it and engine_start is not run (skipped without engine.pin / build_info)
+  engine_version      the template's version command and --help; flags of the engine argv absent from --help are listed
   engine_start         the engine argv in its own process group; stdout+stderr -> artifacts/engine/engine.log;
                        the exact argv, cwd and environment overrides -> artifacts/engine/argv.json
   health_wait          GET the health URL until the expected status; fails at the timeout or as soon as the engine exits
@@ -65,16 +69,18 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
+PINS = os.path.join(REPO, "tools", "engines", "pins.json")
 sys.path.insert(0, os.path.join(REPO, "tools", "bench"))
 import runlog  # noqa: E402  (tools/bench/runlog.py: UTC stamps, git and host info)
 
 SCHEMA = "408032gb-r1-run/1"
-STEPS = ["weights_verify", "quant_audit", "roofline_prediction", "nvidia_smi_before", "engine_version",
-         "engine_start", "health_wait", "matrix", "probes", "slot_persist", "logprob_compare", "vs_roofline",
+STEPS = ["weights_verify", "quant_audit", "roofline_prediction", "nvidia_smi_before", "engine_build_check",
+         "engine_version", "engine_start", "health_wait", "matrix", "probes", "slot_persist", "logprob_compare", "vs_roofline",
          "engine_stop", "nvidia_smi_after", "pack"]
 TAIL = ("engine_stop", "nvidia_smi_after", "pack")      # run in the finally block
 NEEDS_ENGINE = ("matrix", "probes", "slot_persist", "logprob_compare")
-DEPENDS = dict({"health_wait": ("engine_start",)}, **{s: ("engine_start", "health_wait") for s in NEEDS_ENGINE})
+DEPENDS = dict({"engine_start": ("engine_build_check",), "health_wait": ("engine_start",)},
+               **{s: ("engine_start", "health_wait") for s in NEEDS_ENGINE})
 TOOLS = {"weights": "scripts/offline/weights.py", "quant": "tools/gguf_quant_audit.py", "roofline": "tools/roofline.py",
          "matrix": "tools/bench/run_matrix.py", "probes": "tools/bench/probes.py", "prompts": "tools/bench/prompts.py",
          "slot": "tools/kv/slot_persist.py", "logprob": "tools/quality/logprob_compare.py",
@@ -121,6 +127,11 @@ def free_port(host):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((host, 0))
         return s.getsockname()[1]
+
+
+def load_pins():
+    with open(PINS, encoding="utf-8") as f:
+        return json.load(f)["engines"]
 
 
 def repo_path(p):
@@ -346,7 +357,10 @@ class Cell:
             "mkdirs": str_list(e.get("mkdirs"), "engine.mkdirs"),
             "after_ready": [str_list(x, "engine.after_ready[%d]" % i, allow_empty=False)
                             for i, x in enumerate(e.get("after_ready") or [])],
+            "pin": str(e.get("pin") or ""), "build_info": e.get("build_info"), "binary": e.get("binary"),
+            "source_dir": e.get("source_dir"), "arch": num(e.get("arch", 89), "engine.arch", 30, 200, True),
         }
+        self.validate_pin()
         if not self.engine["name"]:
             raise ConfigError("engine.name is required (free text: engine and build, e.g. 'llama.cpp llama-server')")
         for fname in self.engine["config_files"]:
@@ -399,11 +413,38 @@ class Cell:
         o = obj(c.get("orchestrator"), "orchestrator")
         self.child_grace_s = num(o.get("child_grace_s", 30), "orchestrator.child_grace_s", 0)
         self.version_timeout_s = num(o.get("version_timeout_s", 120), "orchestrator.version_timeout_s", 1)
-        self.engine_desc = "%s @ %s; server argv: %s" % (self.engine["name"], self.engine["commit"] or "commit not given",
-                                                         shell(self.engine["argv"]) if self.engine["argv"] else
-                                                         "(started outside this run)")
+        self.engine_desc = "%s @ %s%s; server argv: %s" % (
+            self.engine["name"], self.engine["commit"] or "commit not given",
+            " (pin %r of tools/engines/pins.json)" % self.engine["pin"] if self.engine["pin"] else "",
+            shell(self.engine["argv"]) if self.engine["argv"] else "(started outside this run)")
         first = self.vars.get("MODEL")
         self.model_desc = self.model["desc"] + ("; first file: %s" % os.path.basename(first) if first else "")
+
+    def validate_pin(self):
+        """engine.pin names an engine of tools/engines/pins.json (the builds of scripts/engines/build_engine.py); the
+        commit then comes from the pin. engine.build_info / binary / source_dir say where that build is on this host."""
+        e = self.engine
+        self.pin_spec = None
+        for k in ("build_info", "binary", "source_dir"):
+            if e[k] is not None and not isinstance(e[k], str):
+                raise ConfigError("engine.%s must be a string or null" % k)
+            if e[k] and not e["pin"]:
+                raise ConfigError("engine.%s needs engine.pin (the pinned build it belongs to)" % k)
+            if e[k]:
+                e[k] = os.path.normpath(e[k])
+        if not e["pin"]:
+            return
+        pins = load_pins()
+        if e["pin"] not in pins:
+            raise ConfigError("engine.pin %r is not an engine of tools/engines/pins.json (known: %s)"
+                              % (e["pin"], ", ".join(sorted(pins))))
+        self.pin_spec = pins[e["pin"]]
+        sha = self.pin_spec["sha"]
+        if not e["commit"]:
+            e["commit"] = sha
+        elif not (re.fullmatch(r"[0-9a-f]{7,40}", e["commit"]) and sha.startswith(e["commit"])):
+            raise ConfigError("engine.commit %r contradicts engine.pin %r = %s (drop engine.commit: the pin gives it)"
+                              % (e["commit"], e["pin"], sha))
 
     def step_cfg(self, s):
         return self.steps.get(s) or {}
@@ -523,8 +564,28 @@ class Cell:
                                  "planned measurement commands) before the engine starts"))
         # nvidia_smi_before
         P.append(self.smi_item("nvidia_smi_before", "before"))
-        # engine_version
+        # engine_build_check
         e = self.engine
+        if not self.enabled("engine_build_check"):
+            P.append(Item("engine_build_check", skip="disabled in the config"))
+        elif not e["pin"]:
+            P.append(Item("engine_build_check", skip="no engine.pin: the engine is not tied to tools/engines/pins.json "
+                                                     "(commit as written in engine.commit)"))
+        elif not e["build_info"]:
+            P.append(Item("engine_build_check", skip="no engine.build_info: the build of pin %r is not checked"
+                                                     % e["pin"]))
+        else:
+            binary = e["binary"] or (e["argv"][0] if e["argv"] else None)
+            P.append(Item("engine_build_check", kind="buildcheck", stdout=self.a("engine", "build_check.json"),
+                          build_info=e["build_info"], binary=binary, source_dir=e["source_dir"],
+                          action="compare %s with tools/engines/pins.json[%s] = %s: engine, repo, sha, checked-out "
+                                 "commit, deps, status ok, arch and sm_%d cubins, sha256 of every built file%s%s; copy "
+                                 "it to artifacts/engine/build-info.json; any mismatch fails this step and the engine "
+                                 "is not started" % (e["build_info"], e["pin"], self.pin_spec["sha"], e["arch"],
+                                                     "; %s is a binary of that build" % binary if binary else "",
+                                                     "; git HEAD of %s is the pin" % e["source_dir"]
+                                                     if e["source_dir"] else "")))
+        # engine_version
         if not self.enabled("engine_version"):
             P.append(Item("engine_version", skip="disabled in the config"))
         elif not (e["version_argv"] or e["help_argv"]):
@@ -712,6 +773,7 @@ def parse_only(only):
         raise ConfigError("--only: unknown steps %s (known: %s)" % (", ".join(bad), ", ".join(STEPS)))
     if "engine_start" in sel:
         sel.add("engine_stop")              # an engine started by this run is always stopped by it
+        sel.add("engine_build_check")       # and is never started without its build check (a no-op without a pin)
     return sel
 
 
@@ -918,7 +980,7 @@ class Run:
             return self.skip(it, "depends on %s, which is %s" % (it.after, self.item_state.get(it.after)),
                              blocked_by=it.after)
         handler = {"cmd": self.run_cmd, "engine": self.start_engine, "health": self.wait_health,
-                   "stop": self.stop_engine, "prereg": self.write_prereg}[it.kind]
+                   "stop": self.stop_engine, "prereg": self.write_prereg, "buildcheck": self.check_build}[it.kind]
         n = len(self.records)
         try:
             return handler(it)
@@ -961,7 +1023,7 @@ class Run:
                 "argv": it.argv, "cwd": it.cwd, "env_overrides": it.env, "utc": runlog.utc_now(),
                 "inherited_env_of_interest": {k: v for k, v in sorted(os.environ.items()) if ENV_OF_INTEREST.match(k)},
                 "engine": self.cell.engine["name"], "commit": self.cell.engine["commit"],
-                "engine_desc": self.cell.engine_desc})
+                "pin": self.cell.engine["pin"] or None, "engine_desc": self.cell.engine_desc})
         elif it.step == "engine_start":
             content = self.cell.engine["config_files"][os.path.relpath(path, self.cell.engine_dir)]
             with open(path, "w", encoding="utf-8") as f:
@@ -1168,6 +1230,80 @@ class Run:
         return self.end(it, t, "failed" if missing or not preds else "ok",
                         reason=("no prediction for ctx %s" % missing) if missing else None,
                         outputs=[it.stdout] + [p for _c, p in it.extra["predictions"] if os.path.isfile(p)])
+
+    def check_build(self, it):
+        """engine_build_check: the build the engine runs from is the pinned one, for this GPU architecture, unchanged."""
+        t = self.begin(it)
+        e, pin = self.cell.engine, self.cell.pin_spec
+        path = it.extra["build_info"]
+        try:
+            with open(path, encoding="utf-8") as f:
+                info = json.load(f)
+            if not isinstance(info, dict):
+                raise ValueError("not a JSON object")
+        except (OSError, ValueError) as err:
+            return self.end(it, t, "failed", reason="cannot read %s: %s" % (path, err))
+        copy = os.path.join(self.cell.engine_dir, "build-info.json")
+        os.makedirs(self.cell.engine_dir, exist_ok=True)
+        shutil.copyfile(path, copy)
+        build = os.path.dirname(os.path.abspath(path))
+        checks = []
+
+        def chk(name, ok, got, want):
+            checks.append({"check": name, "ok": bool(ok), "got": got, "want": want})
+
+        for k in ("engine", "repo", "sha"):
+            want = e["pin"] if k == "engine" else pin[k]
+            chk(k, info.get(k) == want, info.get(k), want)
+        chk("checked_out", info.get("checked_out") == pin["sha"], info.get("checked_out"), pin["sha"])
+        want_deps = {k: d["sha"] for k, d in (pin.get("deps") or {}).items()}
+        deps = info.get("deps")
+        got_deps = ({k: (d or {}).get("sha") if isinstance(d, dict) else d for k, d in deps.items()}
+                    if isinstance(deps, dict) else deps)
+        chk("deps", got_deps == want_deps, got_deps, want_deps)
+        st = info.get("status")
+        chk("status", isinstance(st, str) and st.startswith("ok"), st, "ok")
+        chk("arch", info.get("arch") == e["arch"], info.get("arch"), e["arch"])
+        sm = "sm_%d" % e["arch"]
+        cub = info.get("cubin_archs")
+        with_sm = sorted(f for f, v in cub.items() if isinstance(v, list) and sm in v) if isinstance(cub, dict) else []
+        chk("cubins", with_sm, with_sm if isinstance(cub, dict) else cub, "a built file with %s code" % sm)
+        bins = info.get("bins")
+        chk("binaries", isinstance(bins, dict) and sorted(bins) == sorted(pin["bins"]) and all(bins.values()),
+            bins, pin["bins"])
+        files = info.get("files_sha256")
+        if not isinstance(files, dict) or not files:
+            chk("files_sha256", False, files, "sha256 of every built file (scripts/engines/build_engine.py writes it)")
+        else:
+            changed = []
+            for rel, h in sorted(files.items()):
+                p = os.path.join(build, rel)
+                got = sha256_file(p) if os.path.isfile(p) else None
+                if got != h:
+                    changed.append({"file": rel, "got": got, "want": h})
+            chk("files_sha256", not changed, changed or "%d files unchanged" % len(files),
+                "every built file unchanged since the build")
+        binary = it.extra.get("binary")
+        if binary:
+            rel = os.path.relpath(os.path.realpath(binary), os.path.realpath(build))
+            chk("binary", rel in pin["bins"] and isinstance(files, dict) and rel in files, rel,
+                "one of %s of the build in %s" % (pin["bins"], build))
+        src = it.extra.get("source_dir")
+        if src:
+            try:
+                p = subprocess.run(["git", "-C", src, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=60)
+                head = p.stdout.strip() if p.returncode == 0 else "git failed: " + p.stderr.strip()[-200:]
+            except (OSError, subprocess.SubprocessError) as err:
+                head = "git failed: %s" % err
+            chk("source_head", head == pin["sha"], head, pin["sha"])
+        bad = [c["check"] for c in checks if not c["ok"]]
+        self.write_json(it.stdout, {"_label": "engine_build_check of scripts/r1/run_r1.py: the build-info.json of "
+                                              "scripts/engines/build_engine.py against tools/engines/pins.json, before "
+                                              "the engine starts", "utc": runlog.utc_now(), "build_info": path,
+                                    "pin": e["pin"], "pin_sha": pin["sha"], "arch": e["arch"], "checks": checks,
+                                    "ok": not bad})
+        return self.end(it, t, "failed" if bad else "ok", outputs=[it.stdout, copy], checks_failed=bad,
+                        reason=("the build does not match the pin: " + ", ".join(bad)) if bad else None)
 
     def start_engine(self, it):
         t = self.begin(it)

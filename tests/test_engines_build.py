@@ -1,6 +1,7 @@
 """scripts/engines/build_engine.py and tools/engines/pins.json (ROADMAP R1.4, track N1): pins are well-formed, the plan
 pins the exact commits and passes the architecture, and the verification logic rejects a wrong build. Nothing is
 compiled here (the compile itself runs in .github/workflows/engines-sm89.yml and on the server)."""
+import hashlib
 import io
 import json
 import os
@@ -135,6 +136,8 @@ class Verification(unittest.TestCase):
         self.assertEqual(info["status"], "ok")
         self.assertEqual(info["checked_out"], self.sha)
         self.assertEqual(info["cubin_archs"], {"bin/x": ["sm_89"]})
+        with open(os.path.join(self.tmp.name, "build", "fake", "bin", "x"), "rb") as f:
+            self.assertEqual(info["files_sha256"], {"bin/x": hashlib.sha256(f.read()).hexdigest()})
         self.assertIn("13.4", info["nvcc_version"])
 
     def test_wrong_arch_fails(self):

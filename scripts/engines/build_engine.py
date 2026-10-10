@@ -11,11 +11,13 @@ Pins, CMake flags, targets and expected binaries are in tools/engines/pins.json.
 Steps: fetch the pinned commit (and pinned dependencies) with a shallow fetch by SHA; configure with CMake (Ninja when
 available); build the listed targets; check that the expected binaries exist; list the cubins of every built binary
 and shared library with cuobjdump and require code for sm_<arch>; write <build>/build-info.json (engine, repository,
-SHA, nvcc version, flags, binaries, cubin architectures). Exit 0 = built and verified, 1 = a step failed, 2 = usage.
+SHA, nvcc version, flags, binaries, cubin architectures, sha256 of every built binary and library).
+Exit 0 = built and verified, 1 = a step failed, 2 = usage.
 A build here says nothing about speed or correctness on the GPU: that is R1 on the server.
 """
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import shlex
@@ -100,6 +102,14 @@ def built_files(build):
     return sorted(out)
 
 
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 def nvcc_version(nvcc):
     try:
         return subprocess.run([nvcc, "--version"], capture_output=True, text=True).stdout.strip().splitlines()[-1]
@@ -159,11 +169,13 @@ def main(argv=None):
         cuobjdump = shutil.which("cuobjdump") or (os.path.join(os.path.dirname(a.nvcc), "cuobjdump")
                                                  if os.path.isfile(os.path.join(os.path.dirname(a.nvcc), "cuobjdump"))
                                                  else None)
-        archs = {}
+        archs, files = {}, {}
         for f in built_files(build):
+            files[os.path.relpath(f, build)] = sha256_file(f)
             got = cubin_archs(f, cuobjdump)
             if got:
                 archs[os.path.relpath(f, build)] = got
+        info["files_sha256"] = files     # scripts/r1/run_r1.py (engine_build_check) re-hashes them before a run
         info.update({"bins": {b: os.path.isfile(os.path.join(build, b)) for b in pin["bins"]},
                      "cubin_archs": archs if cuobjdump else "cuobjdump not found"})
         want = "sm_%d" % a.arch
