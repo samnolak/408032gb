@@ -133,8 +133,11 @@ class _RunParity:
                 for r in range(gr["n"]):
                     cls.seen[il][(gr["g"], r)] = sorted(np.where(np.isfinite(m[r]) & (m[r] > -1e30))[0].tolist())
         cls._oracles({})
-        # replay a reference choice among exactly tied pools (validated on the oracle's own scores), as N2 does
-        cls.ties, overrides_a, overrides_b = 0, {}, {}
+        # replay a reference choice among exactly tied pools (validated on the oracle's own scores), as N2 does;
+        # both selections must be valid top-k sets for the token's absolute position, else a bug in the oracle's
+        # own selection (e.g. its tail) would be replayed away; any other difference is kept for
+        # test_qsa_pool_cache_and_selection to report
+        cls.ties, cls.not_ties, overrides_a, overrides_b = 0, [], {}, {}
         for gr in cls.R.graphs:
             for il in cls.QSA:
                 ob = cls.B[gr["g"]]["layers"][il]["attn"]
@@ -143,7 +146,11 @@ class _RunParity:
                     if s == ob["cells"][r]:
                         continue
                     ok, why = Q.qsa_tie_variant(ob["scores"][r], s, t, hp["idx_top_k"], hp["kpool"])
-                    assert ok, f"{cls.RUN} QSA L{il} pos {t} graph {gr['g']}: {why}; reference {s}, oracle {ob['cells'][r]}"
+                    own, why_own = Q.qsa_tie_variant(ob["scores"][r], ob["cells"][r], t, hp["idx_top_k"], hp["kpool"])
+                    if not (ok and own):
+                        cls.not_ties.append(f"L{il} pos {t} graph {gr['g']}: reference {why or 'valid'}, oracle "
+                                            f"{why_own or 'valid'}; reference {s}, oracle {ob['cells'][r]}")
+                        continue
                     cls.ties += 1
                     overrides_b.setdefault(("qsa", il), {})[(gr["g"], r)] = s
                     if gr["kept"][r]:
@@ -331,6 +338,7 @@ class _RunParity:
         (indexer_k), scores and the selection use them."""
         R, hp = self.R, self.hp
         kp, d = hp["kpool"], hp["idx_dim"]
+        self.assertEqual(self.not_ties, [], "QSA selections that are no valid top-k by the oracle's scores")
         pooled_in_decode = straddle = 0
         for gr in R.graphs:
             g, p0, n = gr["g"], gr["p0"], gr["n"]
