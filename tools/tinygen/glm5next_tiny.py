@@ -7,7 +7,7 @@ graph on a CPU in seconds, so oracles in ref/ and our engine can be checked with
 
 No MTP block by default (nextn_predict_layers = 0). --mtp appends one (nextn_predict_layers = 1, block_count + 1):
 an MLA/DSA layer with a full indexer, MoE + shared expert and blk.<L>.nextn.{eh_proj,enorm,hnorm}, no mHC tensors
-(llama.cpp @79e2e74 src/models/glm5-next.cpp:79-90, 140, 175-182 load_arch_tensors; graph_mtp 543-663); its weights
+(llama.cpp @79e2e74 src/models/glm5-next.cpp:79-80, 85-92, 143, 175-182 load_arch_tensors; graph_mtp 543-666); its weights
 are drawn after the trunk's, so the trunk equals the default model and the default output is unchanged.
 
 Key and tensor names: llama.cpp @ec7630a src/llama-arch.cpp; shapes: src/models/glm5-next.cpp
