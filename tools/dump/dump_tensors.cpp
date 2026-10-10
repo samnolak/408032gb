@@ -33,9 +33,9 @@
 // When DUMP_N_RS_SEQ or DUMP_MTP is set, the model and the context(s) are created here instead of by
 // common_init_from_params.
 // Usage: DUMP_DIR=d DUMP_PREFIXES=... DUMP_TOKENS=1,5,9 ./dump-tensors -m model.gguf -c 512 -b 512 -ub 512
-// Output: <DUMP_DIR>/<tensor name>__<k>.bin (raw float32/int32, ggml order) + .json sidecar with
-// type and ne, k = occurrence index within the graph; logits.bin (n_tokens x n_vocab float32, one row per decoded
-// token in call order).
+// Output: <DUMP_DIR>/<tensor name>__<k>.bin (raw float32/int32, ggml order; f16 tensors widened to float32) + .json
+// sidecar with type (of the .bin), ggml_type (of the tensor) and ne, k = occurrence index within the graph; logits.bin
+// (n_tokens x n_vocab float32, one row per decoded token in call order).
 //
 // Graph boundaries: ggml_backend_sched_compute_splits asks the eval callback about every node of a graph once, in
 // node order (ggml/src/ggml-backend.cpp:1820-1850 @ec7630a), so a graph starts where the name of the first node
@@ -146,7 +146,9 @@ static bool dump_cb(struct ggml_tensor * t, bool ask, void * ud) {
     const std::string where = st->per_graph ? graph_dir(*st) : st->dir;
     const std::string stem = where + "/" + t->name + "__" + std::to_string(k);
     std::ofstream(stem + ".bin", std::ios::binary).write(buf.data(), (std::streamsize) buf.size());
+    // "type" is the type of the .bin (f16 widened to f32); "ggml_type" the tensor's own type (e.g. an f16 KV cache view)
     std::ofstream(stem + ".json") << "{\"type\":\"" << (t->type == GGML_TYPE_I32 ? "i32" : "f32")
+        << "\",\"ggml_type\":\"" << ggml_type_name(t->type)
         << "\",\"ne\":[" << t->ne[0] << "," << t->ne[1] << "," << t->ne[2] << "," << t->ne[3] << "]}\n";
     if (st->per_graph) st->graphs[st->graph].n_dumped++;
     return true;
