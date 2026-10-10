@@ -31,8 +31,10 @@ Hardware defaults are the ones R8 used (labels in the dataclass), except: NVMe p
    h_v .61, 1% on NVMe | 8ch | 30.83 | 7.9e-05
    h_v .61, 5% on NVMe | 8ch | 21.93 | 0.000393
    ```
-   (columns: case, DRAM, tok/s, NVMe seconds per layer). Every other R8 row is reproduced to 0.05 tok/s
-   (`test_r8_rows_reproduced_with_r8_constants`). R8's conclusion stands with a smaller penalty: 1% of routed bytes from
+   (columns: case, DRAM, tok/s, NVMe seconds per layer). Every other R8 row is reproduced to within 0.05 tok/s of R8's
+   one-decimal print (`test_r8_rows_reproduced_with_r8_constants`); the row "5% NVMe, p=.5 W=1 layer to RAM" moves from
+   R8's unrounded 26.55 to 26.64 because fix 3 below applies to it (only the two GPU-prefetch rows of the R8 table use
+   `prefetch_opt=False`, tier_cost.py `R8_CASES`). R8's conclusion stands with a smaller penalty: 1% of routed bytes from
    NVMe costs 34.4 -> 30.8 tok/s in this model (R8: 34.4 -> 27.9).
 2. **Link-rate prefetch made a faster link slower.** With R8's rule (copy predicted experts at link rate; wasted
    copies still cost DMA that steals DRAM bandwidth), PCIe x16 came out slower than x8 for low-precision predictions;
@@ -41,7 +43,10 @@ Hardware defaults are the ones R8 used (labels in the dataclass), except: NVMe p
    in the count, the layer time convex, ternary search). R8's rule stays available (`prefetch_opt=False`) and the R8
    table uses it.
 3. **All-or-nothing NVMe staging made more recall slower.** The tornado around a 5%-NVMe point with prediction showed
-   recall 0.3 -> 25.6 tok/s but 0.95 -> 23.1 (more recall, more wasted background reads). The scheduler now stages the
+   recall 0.3 -> 25.6 tok/s but 0.95 -> 23.1 (more recall, more wasted background reads). Those two numbers come from an
+   intermediate version of the tool that was never committed and are not reproducible from a commit (PROVISIONAL; an
+   emulation by the second evidence audit gave 25.57 / 20.31). The defect itself is reproducible in R8's scratch file:
+   at 5% NVMe it gives recall 0.3 -> 24.25 tok/s and 0.95 -> 19.21 (second evidence audit, same day). The scheduler now stages the
    best part of the predicted set; the cost is concave on each side of the point where reads start to overrun the lead
    time, so the optimum is at 0, that point, or all — checked against a 401-point brute force
    (`test_nvme_staging_optimum_matches_a_fine_grid`) and by `test_better_prediction_is_never_slower`.
@@ -110,6 +115,7 @@ The same with 5% of the routed experts on NVMe and prediction on (recall 0.85, p
 ```
 $ python3 tools/ceilings/tier_cost.py --model glm --tornado --set p_recall=0.85 --set pi_prec=0.5 --set W=0.44e-3 --set h_r=0.34
 # tornado around: {... 'h_r': 0.34, 'p_recall': 0.85, 'pi_prec': 0.5, 'W': 0.00044, ...}  -> base 25.9 tok/s
+(excerpt: header row and the rows below n_drives - t_pre 2.3, t_sync 0.9, n_cpu 0.6 and the zero-swing rows - omitted)
 h_v | 0.45 | 0.82 | 22.1 | 33.6 | 11.5
 B_dram | 1.024e+11 | 2.048e+11 | 18.2 | 25.9 | 7.7
 eta_dram | 0.55 | 0.85 | 23.2 | 28.0 | 4.8
@@ -181,9 +187,10 @@ n_cpu=46  h_v=0.75 --set p_recall=0.95 --set pi_prec=0.9 --set W=1.3e-3    41.0 
 ```
 
 Reading (HYPOTHESIS, conditional on the model): with 32 expert threads at 3.6 GB/s (115 GB/s < 143 GB/s DRAM) the CPU
-is compute-bound and predicted PCIe copies add 6–10% (30.4 -> 33.6 at hit 0.61, 37.6 -> 40.7 at 0.75); with 46 threads the
-CPU reaches the DRAM limit and prefetch adds nothing. PCIe prefetch is therefore a substitute for CPU cores, worth at most
-~10% here, not a lever on the ceiling; R8's recommendation (compute misses on the CPU in place, spend prediction on
+is compute-bound and predicted PCIe copies add 8–11% at recall 0.95 / precision 0.9 / 3 layers of lead time
+(30.4 -> 33.6 = +10.5% at hit 0.61, 37.6 -> 40.7 = +8.2% at 0.75) and 5–6% at recall 0.85 / precision 0.5 / one layer
+(+6.3%, +4.8%); with 46 threads the CPU reaches the DRAM limit and prefetch adds nothing. PCIe prefetch is therefore a
+substitute for CPU cores, worth at most ~11% here, not a lever on the ceiling; R8's recommendation (compute misses on the CPU in place, spend prediction on
 NVMe -> RAM warming and cache adaptation) stands, for this reason rather than the link-capacity one. The deciding
 measurements on the server: Q4_K expert throughput per Zen 3 core, the number of cores free for experts, DRAM channels.
 

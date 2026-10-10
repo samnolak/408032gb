@@ -1,4 +1,4 @@
-"""tools/ceilings/tier_cost.py: closed-form cases, the properties R8 section 8.3 asks for, and the two fixes against the
+"""tools/ceilings/tier_cost.py: closed-form cases, the properties R8 section 8.3 asks for, and the fixes against the
 R8 scratch implementation."""
 import io
 import json
@@ -57,7 +57,8 @@ class ClosedForm(unittest.TestCase):
         self.assertAlmostEqual(tc.distinct(288, 8, 4), rl.distinct_experts(288, 8, 4))
 
     def test_r8_rows_reproduced_with_r8_constants(self):
-        # R8 section 8.3 (literal output, B_s_drive 4.2e9): rows without an NVMe share are unchanged by the fixes
+        # R8 section 8.3 (literal output, B_s_drive 4.2e9): rows the fixes do not change, to R8's one-decimal print; the
+        # 5%-NVMe row with prediction moves 26.55 -> 26.64 (optimal staging), still within that print
         hw8 = replace(HW, B_s_drive=4.2e9)
         for po, want in ((tc.Policy(h_v=1.0, h_r=0.0), 39.0), (tc.Policy(), 34.4), (tc.Policy(overlap=False), 27.1),
                          (tc.Policy(miss_path="pcie"), 10.4), (tc.Policy(h_v=0.82, h_r=0.18), 41.8),

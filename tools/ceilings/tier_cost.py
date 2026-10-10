@@ -29,6 +29,8 @@ Changes against the R8 scratch implementation (each covered by a test):
     (max(0, 0 + L_s - W) = L_s at p = 0): R8's "1% on NVMe" row carried 80 us per layer that no read causes;
   * prefetch_opt: with link-rate copying a faster link can be slower (more wasted copies steal DRAM bandwidth;
     found by the x8-vs-x16 property test), which no rational scheduler would do; the ceiling uses the best copy count;
+  * all-or-nothing NVMe staging made more recall slower; the scheduler stages the best part of the predicted set
+    (exact optimum at 0, the overrun point or all);
   * GPU prefetch takes only RAM-resident experts (an NVMe-resident expert would have to reach RAM first, which this
     model does not chain); predicted NVMe experts are staged into RAM in the background whatever prefetch_to says.
 With overlap the result is not monotone in h_v: past the GPU/CPU balance point more VRAM residency makes the GPU the
