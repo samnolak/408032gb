@@ -5,7 +5,9 @@ the oracle carries between chunks (G.forward_chunk: KDA conv history and state, 
 rows and pooled keys; see ref/glm5next.py "incremental path") must give the rows of the whole-sequence forward
 (causality), and a rollback (G.cache_truncate) must leave exactly the state of the kept prefix. The model is a random
 5-layer glm5-next built here with the GGUF tensor shapes of tools/tinygen/glm5next_tiny.py: KDA on layers 0, 2, 3
-(layer 0 with the dense lead FFN), DSA on layers 1 and 4 (kpool 2, budget 2 pools + tail), MoE with a shared expert.
+(layer 0 with the dense lead FFN), DSA on layers 1 and 4 (kpool 2, budget 2 pools + tail), MoE with a shared expert,
+and an MTP block as layer 5 (DSA + MoE + nextn.*, as tools/tinygen/glm5next_tiny.py --mtp; drawn after the trunk):
+MtpChunkedEqualsOneShot checks G.mtp_forward_chunk the same way.
 The comparison against llama.cpp is tests/test_glm5next_decode_parity.py.
 """
 import pathlib
@@ -28,9 +30,10 @@ def random_model(seed=0):
     nh, d, kp, top_k = 2, 8, 2, 4
     X, F, n_used, L = 4, 8, 2, 5
     kda = [True, False, True, True, False]
-    hp = dict(arch="glm5-next", n_layer=L, n_embd=E, n_head=H, kda=kda, rms_eps=1e-5, norm_eps=0.0, kda_head_dim=D,
-              d_conv=K, kda_lower_bound=-5.0, k_mla=km, v_mla=vm, kv_lora=kl, q_lora=ql, dense_lead=1,
-              n_expert_used=n_used, w_scale=2.5, norm_w=True, clamp_exp=[0.5] * L, clamp_shexp=[0.5] * L,
+    hp = dict(arch="glm5-next", n_layer=L, n_nextn=1, n_embd=E, n_head=H, kda=kda + [False], rms_eps=1e-5,
+              norm_eps=0.0, kda_head_dim=D, d_conv=K, kda_lower_bound=-5.0, k_mla=km, v_mla=vm, kv_lora=kl, q_lora=ql,
+              dense_lead=1, n_expert_used=n_used, w_scale=2.5, norm_w=True, clamp_exp=[0.5] * (L + 1),
+              clamp_shexp=[0.5] * (L + 1),
               idx_heads=nh, idx_dim=d, idx_top_k=top_k, kpool=kp, select_tail=True, hc=hc, sinkhorn_iters=20,
               hc_eps=1e-6)
 
@@ -41,13 +44,16 @@ def random_model(seed=0):
 
     W = {"token_embd.weight": t(V, E, scale=1.0), "output_norm.weight": t(E, ones=True), "output.weight": t(V, E)}
     mix = (2 + hc) * hc
-    for il in range(L):
+    for il in range(L + 1):                                        # layer L: the MTP block
         b = f"blk.{il}."
         W[b + "attn_norm.weight"], W[b + "ffn_norm.weight"] = t(E, ones=True), t(E, ones=True)
-        for k in ("attn", "ffn"):
+        if il == L:
+            W.update({b + "nextn.eh_proj.weight": t(E, 2 * E), b + "nextn.enorm.weight": t(E, ones=True),
+                      b + "nextn.hnorm.weight": t(E, ones=True)})
+        for k in ("attn", "ffn") if il < L else ():
             W.update({b + f"hc_{k}_fn.weight": t(mix, hc * E, scale=0.3), b + f"hc_{k}_base.weight": t(mix, scale=0.5),
                       b + f"hc_{k}_scale.weight": t(3, ones=True)})
-        if kda[il]:
+        if il < L and kda[il]:
             for c in "qkv":
                 W[b + f"ssm_conv1d_{c}.weight"] = t(H * D, 1, K, scale=0.5)
                 W[b + f"attn_{c}.weight"] = t(H * D, E)
@@ -159,6 +165,25 @@ class ChunkedEqualsOneShot(unittest.TestCase):
                                     eps=G.L2_EPS)
         np.testing.assert_allclose(np.concatenate([out1, out2]), K["scan"], atol=1e-12)
         np.testing.assert_allclose(s2, K["state"], atol=1e-12)
+
+
+class MtpChunkedEqualsOneShot(unittest.TestCase):
+    """The MTP block over its own cache: chunks and one-token steps give the rows of one chunk; the h fed is the
+    trunk's h_nextn (result_norm) of the previous position, zeros at the start."""
+
+    def test_chunks_and_decode(self):
+        h = np.vstack([np.zeros((1, HP["n_embd"])), FULL["result_norm"][:-1]])
+        one = G.mtp_forward_chunk(TOKENS, h, W, HP, G.new_cache())
+        cache, p = G.new_cache(), 0
+        for n in (7, 1, 1, 6, 1, 7):
+            o = G.mtp_forward_chunk(TOKENS[p:p + n], h[p:p + n], W, HP, cache)
+            np.testing.assert_allclose(o["logits"], one["logits"][p:p + n], rtol=0, atol=1e-10)
+            np.testing.assert_allclose(o["h_nextn"], one["h_nextn"][p:p + n], rtol=0, atol=1e-10)
+            self.assertEqual(o["dsa"]["cells"], one["dsa"]["cells"][p:p + n])
+            p += n
+        self.assertEqual(p, len(TOKENS))
+        self.assertEqual(sorted(cache["dsa"]), [HP["n_layer"]], "the MTP cache holds the MTP layer alone")
+        self.assertTrue(any(len(c) < t + 1 for t, c in enumerate(one["dsa"]["cells"])), "MTP DSA never sparse")
 
 
 if __name__ == "__main__":

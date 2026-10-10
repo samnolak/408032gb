@@ -8,6 +8,12 @@ graph on a CPU in seconds, so oracles in ref/ and our engine can be checked with
 Key and tensor names: llama.cpp @ec7630a src/llama-arch.cpp; shapes: src/models/glm5-next.cpp
 load_arch_tensors. numpy shapes are ggml ne reversed.
 Needs gguf-py from the same llama.cpp checkout on PYTHONPATH.
+No MTP block by default (nextn_predict_layers absent). --mtp appends one (nextn_predict_layers = 1, block_count + 1):
+layer n_layer is a DSA + MoE layer without hc_* tensors plus blk.<n_layer>.nextn.{eh_proj, enorm, hnorm}; the
+optional nextn.embed_tokens / shared_head_head / shared_head_norm are left out, so the MTP graph falls back to
+token_embd / output / output_norm (src/models/glm5-next.cpp:178-183, graph_mtp 543-667 @79e2e74). Its weights are
+drawn after the trunk's, so the trunk equals the default model's; the default output is byte-identical to the
+generator before --mtp existed. ec7630a has no glm5-next MTP graph (src/models/glm5-next.cpp:189-191 throws).
 """
 import argparse
 
@@ -30,19 +36,22 @@ def layer_is_dsa(i):
     return i % 4 == 3                                        # GLM pattern: layers 3, 7, ...
 
 
-def build(path, cfg=DEFAULT, seed=0):
+def build(path, cfg=DEFAULT, seed=0, mtp=False):
     c = dict(cfg)
     rng = np.random.default_rng(seed)
     w = GGUFWriter(path, ARCH)
     p = ARCH
     E, L, H = c["n_embd"], c["n_layer"], c["n_head"]
     hc = c["hc"]
+    n_all = L + int(mtp)                                     # block_count counts the MTP block
     w.add_uint32(f"{p}.context_length", c["ctx"])
     w.add_uint32(f"{p}.embedding_length", E)
-    w.add_uint32(f"{p}.block_count", L)
+    w.add_uint32(f"{p}.block_count", n_all)
+    if mtp:
+        w.add_uint32(f"{p}.nextn_predict_layers", 1)
     w.add_uint32(f"{p}.feed_forward_length", c["n_ff"])
     w.add_uint32(f"{p}.attention.head_count", H)
-    w.add_array(f"{p}.attention.head_count_kv", [1 if layer_is_dsa(i) else 0 for i in range(L)])  # MLA latent = 1 MQA head; 0 = recurrent
+    w.add_array(f"{p}.attention.head_count_kv", [1 if layer_is_dsa(i) or i >= L else 0 for i in range(n_all)])  # MLA latent = 1 MQA head; 0 = recurrent
     w.add_float32(f"{p}.attention.layer_norm_rms_epsilon", c["rms_eps"])
     w.add_uint32(f"{p}.attention.key_length_mla", c["k_mla"])
     w.add_uint32(f"{p}.attention.value_length_mla", c["v_mla"])
@@ -62,7 +71,7 @@ def build(path, cfg=DEFAULT, seed=0):
     w.add_float32(f"{p}.expert_weights_scale", c["w_scale"])
     w.add_bool(f"{p}.expert_weights_norm", True)
     w.add_uint32(f"{p}.expert_gating_func", 2)               # LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID
-    w.add_array(f"{p}.swiglu_clamp_exp", [float(c["swiglu_limit"])] * L)
+    w.add_array(f"{p}.swiglu_clamp_exp", [float(c["swiglu_limit"])] * n_all)
     w.add_uint32(f"{p}.attention.indexer.head_count", c["idx_heads"])
     w.add_uint32(f"{p}.attention.indexer.key_length", c["idx_dim"])
     w.add_uint32(f"{p}.attention.indexer.top_k", c["idx_top_k"])
@@ -98,15 +107,19 @@ def build(path, cfg=DEFAULT, seed=0):
     t("output_norm.weight", E, ones=True)
     t("output.weight", V, E)
     mix = (2 + hc) * hc
-    for i in range(L):
+    for i in range(n_all):
         b = f"blk.{i}"
         t(f"{b}.attn_norm.weight", E, ones=True)
         t(f"{b}.ffn_norm.weight", E, ones=True)
-        for k in ("attn", "ffn"):
+        if i >= L:                                            # MTP block: no mHC (load_arch_tensors G:87-94)
+            t(f"{b}.nextn.eh_proj.weight", E, 2 * E)
+            t(f"{b}.nextn.enorm.weight", E, ones=True)
+            t(f"{b}.nextn.hnorm.weight", E, ones=True)
+        for k in ("attn", "ffn") if i < L else ():
             t(f"{b}.hc_{k}_fn.weight", mix, hc * E, scale=0.3)
             t(f"{b}.hc_{k}_base.weight", mix, scale=0.5)
             t(f"{b}.hc_{k}_scale.weight", 3, ones=True)
-        if not layer_is_dsa(i):                               # KDA
+        if not layer_is_dsa(i) and i < L:                     # KDA
             for q in ("q", "k", "v"):
                 t(f"{b}.ssm_conv1d_{q}.weight", d_inner, 1, c["d_conv"], scale=0.5)
                 t(f"{b}.attn_{q}.weight", d_inner, E)
@@ -163,10 +176,11 @@ if __name__ == "__main__":
     ap.add_argument("out")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--layers", type=int, default=12, help="12 gives 3 DSA layers (3, 7, 11)")
+    ap.add_argument("--mtp", action="store_true", help="append the MTP block (nextn_predict_layers = 1)")
     ap.add_argument("--arch", default=ARCH,
                     help="GGUF architecture string and key prefix: glm5-next (llama.cpp master, default) or "
                          "glm5next (Unsloth UD files; what lighttransport/Strata reads, ADR-009)")
     a = ap.parse_args()
     ARCH = a.arch
-    build(a.out, cfg=dict(DEFAULT, n_layer=a.layers), seed=a.seed)
+    build(a.out, cfg=dict(DEFAULT, n_layer=a.layers), seed=a.seed, mtp=a.mtp)
     print("wrote", a.out)

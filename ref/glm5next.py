@@ -94,16 +94,19 @@ def hparams(fields):
         vals = [p.tolist()[0] if hasattr(p, "tolist") else p for p in raw(name)]
         return vals if array or len(vals) > 1 else vals[0]
 
-    n_layer = int(get("block_count"))
+    n_all = int(get("block_count"))                                        # counts the MTP block, if any
+    n_nextn = int(get("nextn_predict_layers", 0))
+    n_layer = n_all - n_nextn                                               # n_layer() = n_layer_all - n_layer_nextn
     hkv = get("attention.head_count_kv", array=True)
-    hkv = hkv * n_layer if len(hkv) == 1 else hkv
-    clamp_exp = get("swiglu_clamp_exp", [0.0] * n_layer, array=True)
-    clamp_exp = clamp_exp * n_layer if len(clamp_exp) == 1 else clamp_exp
+    hkv = hkv * n_all if len(hkv) == 1 else hkv
+    clamp_exp = get("swiglu_clamp_exp", [0.0] * n_all, array=True)
+    clamp_exp = clamp_exp * n_all if len(clamp_exp) == 1 else clamp_exp
     clamp_sh = get("swiglu_clamp_shexp", clamp_exp, array=True)            # G:35-37: defaults to the expert limit
-    clamp_sh = clamp_sh * n_layer if len(clamp_sh) == 1 else clamp_sh
+    clamp_sh = clamp_sh * n_all if len(clamp_sh) == 1 else clamp_sh
     return dict(
-        arch=arch, n_layer=n_layer, n_embd=int(get("embedding_length")), n_head=int(get("attention.head_count")),
-        kda=[int(h) == 0 for h in hkv[:n_layer]],                           # G:21-23 is_recr = head_count_kv == 0
+        arch=arch, n_layer=n_layer, n_nextn=n_nextn, n_embd=int(get("embedding_length")),
+        n_head=int(get("attention.head_count")),
+        kda=[int(h) == 0 for h in hkv[:n_all]],                             # G:21-23 is_recr = head_count_kv == 0
         rms_eps=float(get("attention.layer_norm_rms_epsilon")),
         norm_eps=float(get("attention.layer_norm_epsilon", 0.0)),           # G:9, optional; the tiny model has none
         kda_head_dim=int(get("kda.head_dim")), d_conv=int(get("ssm.conv_kernel")),
@@ -112,7 +115,7 @@ def hparams(fields):
         kv_lora=int(get("attention.kv_lora_rank")), q_lora=int(get("attention.q_lora_rank")),
         dense_lead=int(get("leading_dense_block_count", 0)), n_expert_used=int(get("expert_used_count")),
         w_scale=float(get("expert_weights_scale", 0.0)), norm_w=bool(get("expert_weights_norm", False)),
-        clamp_exp=[float(v) for v in clamp_exp[:n_layer]], clamp_shexp=[float(v) for v in clamp_sh[:n_layer]],
+        clamp_exp=[float(v) for v in clamp_exp[:n_all]], clamp_shexp=[float(v) for v in clamp_sh[:n_all]],
         idx_heads=int(get("attention.indexer.head_count")), idx_dim=int(get("attention.indexer.key_length")),
         idx_top_k=int(get("attention.indexer.top_k")), kpool=int(get("attention.indexer.kpool")),
         select_tail=bool(get("attention.indexer.kpool_select_tail", True)),
@@ -442,3 +445,50 @@ def forward_chunks(tokens, W, hp, sizes, overrides=None):
         i += n
     assert i == len(tokens), (i, len(tokens))
     return outs
+
+
+# ---------------------------------------------------------------- MTP block (nextn_predict_layers = 1)
+
+def mtp_forward_chunk(tokens, h_prev, W, hp, cache, overrides=None):
+    """The MTP block, graph_mtp of src/models/glm5-next.cpp @79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6 ("M79" below;
+    ec7630a has none: G:189-191 throws), on one ubatch of the MTP draft context. No mHC: a plain residual.
+
+    tokens: the ubatch's ids; h_prev (T, n_embd): the row paired with each token. common/speculative.cpp pairs token p
+    with the target's h_nextn of position p-1 (the first token of a call with the last row of the previous call,
+    zeros at the start) and, while drafting, the drafted token with the MTP's own h_nextn of the previous step
+    (tools/dump/dump_tensors.cpp DUMP_MTP). The target's h_nextn is its post-norm hidden state
+    rms_norm(hc_mean(res)) * output_norm (G:662-669; M79:780-787), i.e. forward()'s result_norm.
+    cache: new_cache() of the MTP context, whose memory holds the MTP layer alone (src/llama-model.cpp:2503-2512
+    @79e2e74: attention and indexer filters il >= n_layer, no recurrent layer). With il = n_layer:
+        e       = rms_norm(embed_tokens or tok_embd [token]) * enorm                           (M79:583-592)
+        h       = rms_norm(h_prev) * hnorm                                                        (M79:594-595)
+        x       = eh_proj [e ; h]                                                                 (M79:597-598)
+        y       = DSA layer il on rms_norm(x) * attn_norm, over its own MLA + indexer cache       (M79:600-607)
+        f       = y + x; out = MoE(rms_norm(f) * ffn_norm) + shared expert + f                    (M79:615-645)
+        h_nextn = rms_norm(out) * (shared_head_norm or output_norm), the next draft step's h     (M79:647-651)
+        logits  = (shared_head_head or output) @ h_nextn                                         (M79:658-662)
+    Returns a dict with those intermediates and logits."""
+    overrides = overrides or {}
+    il = hp["n_layer"]
+    w = layer_weights(W, il)
+    tokens = [int(t) for t in tokens]
+    eps = hp["rms_eps"]
+    p0 = len(cache["tokens"])
+    pos = np.arange(p0, p0 + len(tokens))
+    cache["tokens"] = cache["tokens"] + tokens
+    _cache_init_layer(cache, hp, il)
+    emb = w.get("nextn.embed_tokens.weight", W["token_embd.weight"])
+    e = rms_norm(emb[tokens], eps, w["nextn.enorm.weight"])
+    h = rms_norm(h_prev, eps, w["nextn.hnorm.weight"])
+    x = np.concatenate([e, h], axis=-1) @ np.asarray(w["nextn.eh_proj.weight"], dtype=np.float64).T
+    out = dict(pos=pos, e_norm=e, h_norm=h, eh_proj=x)
+    out["attn_norm"] = an = rms_norm(x, eps, w["attn_norm.weight"])
+    out["dsa"] = blk = dsa_layer_chunk(an, w, hp, pos, cache["dsa"][il], overrides.get(("dsa", il)))
+    out["ffn_inp"] = f = blk["out"] + x
+    out["ffn_norm"] = fn = rms_norm(f, eps, w["ffn_norm.weight"])
+    out["ffn"] = ffn = ffn_layer(fn, w, hp, il)
+    out["post_ffn"] = post = ffn["out"] + f
+    out["h_nextn"] = hn = rms_norm(post, eps, w.get("nextn.shared_head_norm.weight", W["output_norm.weight"]))
+    head = w.get("nextn.shared_head_head.weight", W["output.weight"])
+    out["logits"] = hn @ np.asarray(head, dtype=np.float64).T
+    return out
