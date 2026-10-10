@@ -156,4 +156,8 @@ systemd 90 с — PROVISIONAL, сверить `systemctl show -p TimeoutStopUSec
 ## 7. Безопасность и данные
 - Движок слушает только `127.0.0.1`; наружу — только шлюз с ключами. Ключи — файл `0600` владельца `llm`; в журналах не пишутся.
 - Тексты промптов в журнал шлюза по умолчанию не пишутся (`--log-prompts` — только по решению заказчика).
-- Интернета на сервере нет (заявление; проверяется R0): обновления — бандлами и через ПК заказчика (`scripts/offline/weights.py`).
+- Интернета на сервере нет (заявление; проверяется R0): обновления — бандлами и через ПК заказчика (`scripts/offline/weights.py`
+  для весов; `scripts/offline/engines.py` для движков: на ПК `pack --out <kit> --python-version <Python сервера>` — исходники
+  на пинах `tools/engines/pins.json` как git-бандлы по одному коммиту и колёса Python для ExLlamaV3; на сервере `verify <kit>`,
+  затем `scripts/engines/build_engine.py --engine <имя> --offline-kit <kit>`; для ExLlamaV3 сначала
+  `engines.py install-python <kit> --engine exllamav3 --venv <путь>`).
