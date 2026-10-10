@@ -149,6 +149,18 @@ class Ple(unittest.TestCase):
         tri = bi ^ (t[1] * m[2])
         self.assertEqual(rows[3].tolist(), [int(bi % np.uint64(7)), int(tri % np.uint64(11)) + 7])
 
+    def test_hash_wraps_like_uint64(self):
+        # products above 2^64 wrap (llama.cpp multiplies uint64_t, G:1269-1272); the tiny dump never wraps
+        big = [0xFFFFFFFFFFFFFFF1, 0xF0F0F0F0F0F0F0F1, 0x9E3779B97F4A7C15]
+        toks = [95, 77, 63]
+        rows = Q.ple_rows(toks, big, [0, 1000003], [1000003, 999983], ngram=3, heads_per_ngram=1, eos=2)
+        m = np.array(big, dtype=np.uint64)
+        t = np.array(toks[::-1], dtype=np.uint64)          # ctx[0] = newest token
+        bi = np.bitwise_xor.reduce(t[:2] * m[:2])            # array products wrap silently mod 2^64
+        tri = np.bitwise_xor.reduce(t * m)
+        self.assertGreater(int(toks[2]) * big[0], 2 ** 64)
+        self.assertEqual(rows[2].tolist(), [int(bi % np.uint64(1000003)), int(tri % np.uint64(999983)) + 1000003])
+
     def test_eos_and_sequence_start_reset_the_window(self):
         kw = dict(multipliers=self.M, offsets=[0, 50], vocab_sizes=[50, 53], ngram=3, heads_per_ngram=1, eos=2)
         # after an EOS every older predecessor reads as EOS: same rows whatever came before it
