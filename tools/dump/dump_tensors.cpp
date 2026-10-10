@@ -257,11 +257,11 @@ int main(int argc, char ** argv) {
                 if (!mtp_ctx) { LOG_ERR("failed to create the MTP context\n"); return 1; }
                 llama_set_embeddings_nextn(ctx, true, /*masked*/ false);
                 llama_set_embeddings_nextn(mtp_ctx.get(), true, /*masked*/ true);
-                // set_embeddings_nextn does not ask for a scheduler reserve (src/llama-context.cpp:1226-1227 @ec7630a),
+                // set_embeddings_nextn does not ask for a scheduler reserve (src/llama-context.cpp:1230-1235 @ec7630a),
                 // so the first MTP graph would reuse the allocation of the graph reserved at context creation: same
                 // node and leaf counts, but the out_ids leaf sits elsewhere, and ggml_gallocr_alloc_graph (which
-                // compares nodes only, ggml/src/ggml-alloc.c:1009-1050) leaves it unallocated -> SIGSEGV at
-                // ggml-alloc.c:987. Re-setting a default that does ask for the reserve (src/llama-context.cpp:
+                // compares counts and nodes only, ggml/src/ggml-alloc.c:1009-1050) leaves it unallocated -> SIGSEGV
+                // at ggml-alloc.c:987. Re-setting a default that does ask for the reserve (src/llama-context.cpp:
                 // 1237-1245) avoids it; embeddings_layer_inp[0] stays false. DUMP_MTP_NO_RESERVE=1 skips this, to
                 // reproduce the crash.
                 const char * no_reserve = std::getenv("DUMP_MTP_NO_RESERVE");
