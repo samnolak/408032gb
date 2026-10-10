@@ -106,5 +106,55 @@ T8 torch builds take the cmake path  rc=1 caught   FAILED (errors=5, skipped=1)
 T9 build isolation on                rc=1 caught   FAILED (failures=3, skipped=1)
 caught 9/9
 ```
-Настоящая компиляция под sm_89 (локально, CUDA 13.0.3 из pip, 4 ядра): идёт — **NOT RUN** до её завершения; задание CI для
-`exllamav3` добавляется только после успешной локальной сборки. На GPU — NOT RUN.
+Настоящая компиляция под sm_89 (локально, песочница без GPU, 4 ядра, Python 3.13, torch 2.14.1+cu130, nvcc 13.0 из pip):
+- попытка 2 (с `cccl`): все 188 объектов скомпилированы с `-gencode=arch=compute_89,code=sm_89` за 16:17:53 → 16:37:35 UTC
+  (~20 мин), затем линковка упала (CONFIRMED, лог сборки):
+  ```
+  /usr/bin/ld: cannot find -lcudart: No such file or directory
+  collect2: error: ld returned 1 exit status
+  ```
+  `cpp_extension` передаёт `-lcudart`, а pip-рантайм CUDA 13 содержит только `libcudart.so.13` (в `nvidia/cu13/lib`:
+  `libcudart.so.13`, `libcudart_static.a`). Исправление (`16f39d6`): шаг `link shim for libcudart` создаёт
+  `<build>-linkshim/libcudart.so` → `libcudart.so.13` (только если в тулките нет `libcudart.so`) и кладёт его в `LIBRARY_PATH`.
+- попытка 3 (код `16f39d6`, объекты из кэша ninja, только линковка):
+  ```
+  check torch 2.14.1 with CUDA 13.0        rc=0
+  link shim for libcudart                  rc=0
+  build wheel                              rc=0
+  unpack exllamav3_ext                     rc=0
+  {"engine": "exllamav3", "sha": "151539c77abc7ab7425d30da7a4e8e3c5c154e7b", "arch": 89, "status": "ok"}
+  cubins ext/exllamav3_ext.so                     sm_89
+  rc=0
+  ```
+  Проверка результата (CONFIRMED командами `readelf -d`, `cuobjdump --list-elf | … | uniq -c` и загрузкой расширения в torch):
+  ```
+  dist/exllamav3-1.6.0-cp313-cp313-linux_x86_64.whl   57461120 байт
+  ext/exllamav3_ext.so                                151110072 байт
+  NEEDED: libc10.so libtorch_cpu.so libtorch_python.so libcudart.so.13 libc10_cuda.so libtorch_cuda.so libstdc++.so.6 …
+      167 sm_89
+  torch 2.14.1+cu130 cuda available False
+  ext loaded: exllamav3_ext 189 symbols
+  ```
+  То есть расширение собрано только под sm_89 (167 cubin, других архитектур нет), зависит от `libcudart.so.13` того же torch
+  и загружается этим torch без GPU. Колесо — под CPython 3.13 этой песочницы; на сервере колесо собирается тем Python, что там
+  стоит (тег cp3XX — часть ABI). Работа ядер на RTX 4080 Super, скорость и корректность — **NOT RUN**.
+
+Мутации после шима (`docs/evidence/mutation-scripts/2026-10-10-torch-extension-build-shim.py`, код на `16f39d6`):
+```
+baseline                             rc=0 ok       OK (skipped=1)
+T1 torch check step dropped          rc=1 caught   FAILED (failures=2, skipped=1)
+T2 arch list fixed to 8.6            rc=1 caught   FAILED (failures=2, skipped=1)
+T3 PYTORCH_NVCC not set              rc=1 caught   FAILED (failures=1, errors=1, skipped=1)
+T4 MAX_JOBS ignored                  rc=1 caught   FAILED (failures=2, skipped=1)
+T5 unpack takes any .so              rc=1 caught   FAILED (failures=1, skipped=1)
+T6 wheel not hashed                  rc=1 caught   FAILED (failures=1, skipped=1)
+T7 --extra-cmake accepted            rc=1 caught   FAILED (failures=1, skipped=1)
+T8 torch builds take the cmake path  rc=1 caught   FAILED (errors=5, skipped=1)
+T9 build isolation on                rc=1 caught   FAILED (failures=3, skipped=1)
+T10 link shim step dropped           rc=1 caught   FAILED (failures=1, errors=1, skipped=1)
+T11 shim not on LIBRARY_PATH         rc=1 caught   FAILED (failures=2, skipped=1)
+T12 shim links the wrong file        rc=1 caught   FAILED (failures=1, skipped=1)
+caught 12/12
+```
+CI: `exllamav3` добавлен в матрицу `.github/workflows/engines-sm89.yml` (`16f39d6`; venv из `python.install` пина, nvcc из того
+же pip-тулкита, колесо — артефакт прогона на 30 дней). Результат CI — в следующем разделе после прогона (пока NOT RUN).
