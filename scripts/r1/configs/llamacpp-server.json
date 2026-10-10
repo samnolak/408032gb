@@ -1,0 +1,97 @@
+{
+  "_label": "PROVISIONAL template, NOT RUN. llama.cpp llama-server, Qwen3.8-Flash-Next UD-Q4_K_XL with every layer and expert in VRAM (-sm layer over 4 GPUs). Flags: llama.cpp tools/server/README.md @79e2e74 (lines 35 --version, 50 -c, 56 -fa, 71-72 -ctk/-ctv, 85 -ngl all, 86 -sm, 87 -ts, 100 -m, 177 -np, 193-194 --host/--port, 222 --cache-reuse, 223 --metrics, 226 --slot-save-path, 232 --jinja; GET /health 503 while loading, 200 when ready: lines 472-484) and docs/reassessment/BENCH_PROTOCOL.md section 6 (README @ec7630a). Check every flag against `llama-server --help` of the build on the server: the engine_version step writes artifacts/engine/flags_check.json with the flags --help does not mention. Values marked in _notes are planning assumptions, not measurements.",
+  "_notes": {
+    "experiment": "B1 row 'llama.cpp mainline' on the first model of D2 (docs/reassessment/EXPERIMENTS.md); compare with strata-serve-qwen38fn.json (B0) on the same weights",
+    "LLAMA_BIN": "build directory of the pinned llama.cpp (ROADMAP R1.4: not older than c811cb8f0); record the build SHA with --set ENGINE_COMMIT=<sha>",
+    "WEIGHTS_DIR": "DEPLOY.md section 1 layout models/<model>/<revision>; the revision is the manifest's (PROVISIONAL manifest: transcribed from Strata docs, regenerate from the HF API first, models/weights/README.md)",
+    "CTX": "262144 = native window of the model (BRINGUP-qwen38fn.md, 'Окно контекста', reading (a)); the matrix and probes use --length-mode total, so prompt + output <= CTX",
+    "KV_TYPE": "f16 by default (ADR-012 D5, docs/reassessment/ADR-012-reassessment.md:97); q8_0 only after experiment K2",
+    "mode": "overlap no (llama.cpp: no CPU/GPU overlap inside a layer, tools/roofline.py decode() docstring), hit 1.0 (PROVISIONAL: every expert in VRAM, ROOFLINE.md table 2 'in VRAM 1.00'), no speculation",
+    "bpw": "experts 5.10 / dense 10 (PROVISIONAL, ROOFLINE.md table 2, from file sizes); replace with the class bpw of this run's artifacts/quant/quant_audit.json for the next run",
+    "EXTRA_BODY": "sent with every bench request; e.g. {\"chat_template_kwargs\": {\"enable_thinking\": false}} if reasoning must be off (part of the preregistration, BENCH_PROTOCOL.md section 4)",
+    "REFERENCE_URL": "empty = logprob_compare is skipped (V6 NOT RUN); the reference must be an engine on the SAME weights with every expert (VERIFICATION_PACK.md V6)",
+    "SLOT_DIR": "llama-server --slot-save-path; DEPLOY.md section 1 puts slot states on a separate NVMe"
+  },
+  "name": "llamacpp-qwen38fn",
+  "vars": {
+    "LLAMA_BIN": "/srv/llm/engines/current-llamacpp/bin",
+    "ENGINE_COMMIT": "UNKNOWN (set --set ENGINE_COMMIT=<build sha>; artifacts/engine/version.txt has --version)",
+    "WEIGHTS_DIR": "/srv/llm/models/qwen3.8-flash-next/38bb39ee97821de2c9009abb7e93950eec396e66",
+    "CTX": "262144",
+    "TENSOR_SPLIT": "1,1,1,1",
+    "KV_TYPE": "f16",
+    "SLOT_DIR": "/srv/llm/state/slots",
+    "HEALTH_TIMEOUT_S": "3600",
+    "EXPERT_BPW": "5.10",
+    "DENSE_BPW": "10",
+    "HIT": "1.0",
+    "EXTRA_BODY": "{}",
+    "REFERENCE_URL": "",
+    "CORPUS": ""
+  },
+  "engine": {
+    "name": "llama.cpp llama-server (mainline)",
+    "commit": "${ENGINE_COMMIT}",
+    "argv": ["${LLAMA_BIN}/llama-server", "-m", "${MODEL}", "--host", "${HOST}", "--port", "${PORT}",
+             "-c", "${CTX}", "-np", "1", "-ngl", "all", "-sm", "layer", "-ts", "${TENSOR_SPLIT}", "-fa", "on",
+             "-ctk", "${KV_TYPE}", "-ctv", "${KV_TYPE}", "--jinja", "--metrics", "--cache-reuse", "256",
+             "--slot-save-path", "${SLOT_DIR}"],
+    "version_argv": ["${LLAMA_BIN}/llama-server", "--version"],
+    "help_argv": ["${LLAMA_BIN}/llama-server", "--help"],
+    "env": {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
+    "mkdirs": ["${SLOT_DIR}"],
+    "health": {"url": "http://${HOST}:${PORT}/health", "timeout_s": "${HEALTH_TIMEOUT_S}", "interval_s": 5,
+               "expect_status": 200},
+    "after_ready": [["free", "-g"], ["${NVIDIA_SMI}", "--query-gpu=index,memory.used,memory.total", "--format=csv"]],
+    "stop": {"timeout_s": 60},
+    "supports_slots": true
+  },
+  "model": {
+    "desc": "Qwen3.8-Flash-Next UD-Q4_K_XL (unsloth/Qwen3.8-Flash-Next-GGUF @38bb39ee97821de2c9009abb7e93950eec396e66, 4 files)",
+    "files": ["${WEIGHTS_DIR}/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+              "${WEIGHTS_DIR}/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf",
+              "${WEIGHTS_DIR}/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf",
+              "${WEIGHTS_DIR}/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"],
+    "weights_manifest": "models/weights/qwen3.8-flash-next-UD-Q4_K_XL.manifest.json",
+    "weights_dest": "${WEIGHTS_DIR}"
+  },
+  "roofline": {
+    "spec": "models/specs/qwen3.8-flash-next.json",
+    "hw": "hardware/target-4x4080-32g.unverified.json",
+    "expert_bpw": "${EXPERT_BPW}",
+    "dense_bpw": "${DENSE_BPW}",
+    "kv_bytes": 2.0
+  },
+  "mode": {"overlap": "no", "strategy": "pp", "miss": "cpu", "hit": "${HIT}", "spec_k": 0, "spec_accept": 0.0},
+  "reference": {"url": "${REFERENCE_URL}"},
+  "steps": {
+    "matrix": {"runs": [
+      {"name": "smoke-2k",
+       "args": ["--inputs", "2048", "--outputs", "128", "--states", "cold,warm", "--concurrency", "1", "--repeats", "1",
+                "--scenarios", "matrix", "--seed", "0", "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-2k",
+       "args": ["--inputs", "2048", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-32k",
+       "args": ["--inputs", "32768", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-128k",
+       "args": ["--inputs", "131072", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "filled-262k",
+       "args": ["--inputs", "262144", "--length-mode", "total", "--outputs", "512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix,agent", "--agent-target-tokens",
+                "131072", "--seed", "0", "--extra-body", "${EXTRA_BODY}"]}
+    ]},
+    "probes": {"runs": [
+      {"name": "32k-128k-262k",
+       "args": ["--contexts", "32768,131072,262144", "--length-mode", "total", "--answer-tokens", "1024", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]}
+    ]},
+    "slot_persist": {"prompt_tokens": 131072, "args": ["--gen", "64", "--repeats", "3"]},
+    "logprob_compare": {"corpus": ["${CORPUS}"], "args": ["--prefixes", "200", "--top-k", "20"]}
+  }
+}
