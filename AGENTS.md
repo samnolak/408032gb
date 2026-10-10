@@ -82,7 +82,18 @@ If you did not run it, write "NOT RUN" — that is acceptable; a fabricated resu
 ## Git and sync
 
 - The VM has no internet. Sync is by `git bundle` through the customer's Windows PC.
-- Never push to third-party remotes. Never rewrite published history.
+- Publication policy (customer decision 2026-10-10, docs/reassessment/ADR-012.1-git-publication-policy.md):
+  - Agents may create `claude/*` branches, commit intermediate results there and publish them with a plain
+    fast-forward `git push [-u] origin claude/<name>` to `origin` = github.com/samnolak/408032gb, without asking
+    each time. Agents may open **Draft** pull requests from `claude/*` into `main`.
+  - Never: push to `main` or any branch outside `claude/*`; force-push (`--force`, `-f`, `--force-with-lease`,
+    `+refspec`); delete remote branches or tags; `--mirror`/`--all`/`--tags`; push to any other remote, fork or URL;
+    change remotes, refspecs, `insteadOf` or aliases to get around these rules; merge pull requests or enable
+    auto-merge (the owner merges); publish secrets (tokens, keys, credentials, `.env` files).
+  - Enforced by hooks (`.claude/settings.json`): `scripts/hooks/guard-bash.sh` (git, gh, curl), `guard-github.sh`
+    (GitHub tools), `secret_scan.py` (outgoing commits); tests in `tests/test_hooks.py`. Never bypass or weaken a
+    hook; a change to these rules needs a documented customer decision and updated tests.
+- Never rewrite published history (no `reset --hard`, interactive rebase, `filter-branch`, amend of pushed commits).
 - One logical change per commit; prefix the subject with the role, e.g.
   `[parity-qa] ref: KDA oracle`.
 

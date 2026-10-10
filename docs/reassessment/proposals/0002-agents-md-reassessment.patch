@@ -57,17 +57,3 @@
  - Only the lead-architect role moves a gate to ACCEPTED, and only by citing evidence.
  - Every new kernel ships with a parity test against `ref/` (numpy oracle) AND against
    llama.cpp tensor dumps (tensor names from `cb(..., "<name>", il)` in the reference graph).
-@@ -82,11 +82,12 @@
- ## Git and sync
- 
- - The VM has no internet. Sync is by `git bundle` through the customer's Windows PC.
-+- Cloud agent sessions may push only a plain `claude/*` branch to origin (proposal 0001); never `main`.
- - Never push to third-party remotes. Never rewrite published history.
- - One logical change per commit; prefix the subject with the role, e.g.
-   `[parity-qa] ref: KDA oracle`.
- 
--## Roles and routing (Sol = complex agentic, Terra = everyday, Luna = quick lookups)
-+## Roles and routing (Sol/Terra/Luna are effort labels only: every agent file has `model: inherit`)
- 
- | role (.claude/agents/) | routing | owns |
- |---|---|---|

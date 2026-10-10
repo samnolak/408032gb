@@ -21,3 +21,6 @@ VM -> PC: same commands in the other direction; the PC pushes to GitHub.
 Rules: always `git bundle verify` before fetching; fast-forward only; never push from the VM;
 never push to a third-party remote. Record the bundle file name and `git log --oneline -n 3`
 in the sync note.
+
+Cloud agent sessions (not the VM) publish their `claude/*` branches to origin directly (AGENTS.md "Git and sync");
+a bundle is still made as an independent backup copy of the work.
