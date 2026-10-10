@@ -269,6 +269,89 @@ class Store(unittest.TestCase):
         self.assertFalse(ta.is_alive() or tb.is_alive())
         self.assertIsNotNone(st.manifest("a"), "b's eviction removed a while a was being saved")
 
+    def eviction_race_store(self):
+        import threading
+        srv_a, srv_b = self.server(), self.server()
+        for srv in (srv_a, srv_b):
+            hc.complete(srv.url, PROMPT, 3)
+        st = self.store()
+        size = st.save(srv_a.url, 0, "a")["size"]           # a exists (gen 1) and is the least recently used
+        st.budget = size                                     # room for one session: saving b evicts a
+        return threading, srv_a, srv_b, st
+
+    def test_session_resaved_after_the_eviction_snapshot_is_kept(self):
+        # second audit, M12: b's eviction chose a (gen 1) from its snapshot; a is saved again (gen 2) and that save has
+        # finished before b drops: only the generation re-check under a's lock keeps gen 2
+        threading, srv_a, srv_b, st = self.eviction_race_store()
+        b_paused, go_b = threading.Event(), threading.Event()
+
+        def before_evict_drop():
+            if threading.current_thread().name == "saver-b":
+                b_paused.set()
+                go_b.wait(30)
+        st.hooks = {"before_evict_drop": before_evict_drop}
+        tb = threading.Thread(target=st.save, args=(srv_b.url, 0, "b"), name="saver-b", daemon=True)
+        tb.start()
+        self.assertTrue(b_paused.wait(30))                   # b: victim a chosen, not dropped yet
+        self.assertEqual(st.save(srv_a.url, 0, "a")["gen"], 2)   # a saved again, its save finished
+        go_b.set()
+        tb.join(30)
+        self.assertFalse(tb.is_alive())
+        self.assertIsNotNone(st.manifest("a"), "a was evicted by a stale eviction choice")
+        self.assertEqual(st.manifest("a")["gen"], 2)
+
+    def test_save_started_after_the_eviction_snapshot_keeps_the_previous_generation(self):
+        # b's eviction chose a (gen 1) from its snapshot; then a's save starts (registered, not yet holding a's lock):
+        # the re-check of saves in progress under a's lock must keep gen 1, which is what a failed save would fall back to
+        threading, srv_a, srv_b, st = self.eviction_race_store()
+        b_paused, go_b, a_started, go_a = (threading.Event() for _ in range(4))
+
+        def before_evict_drop():
+            if threading.current_thread().name == "saver-b":
+                b_paused.set()
+                go_b.wait(30)
+
+        def save_started():
+            if threading.current_thread().name == "saver-a":
+                a_started.set()
+                go_a.wait(30)
+        st.hooks = {"before_evict_drop": before_evict_drop, "save_started": save_started}
+        tb = threading.Thread(target=st.save, args=(srv_b.url, 0, "b"), name="saver-b", daemon=True)
+        tb.start()
+        self.assertTrue(b_paused.wait(30))                   # b: victim a chosen from a snapshot without a's save
+        ta = threading.Thread(target=st.save, args=(srv_a.url, 0, "a"), name="saver-a", daemon=True)
+        ta.start()
+        self.assertTrue(a_started.wait(30))                  # a: save registered, gen 1 still the committed one
+        go_b.set()
+        tb.join(30)
+        self.assertFalse(tb.is_alive())
+        self.assertEqual(st.manifest("a")["gen"], 1, "gen 1 was evicted while a's save was in progress")
+        go_a.set()
+        ta.join(30)
+        self.assertFalse(ta.is_alive())
+        self.assertEqual(st.manifest("a")["gen"], 2)
+
+    def test_previous_generation_kept_while_its_save_is_starting(self):
+        # a save registered but not yet holding the session lock: eviction must keep the previous generation
+        threading, srv_a, srv_b, st = self.eviction_race_store()
+        a_started, go_a = threading.Event(), threading.Event()
+
+        def save_started():
+            if threading.current_thread().name == "saver-a":
+                a_started.set()
+                go_a.wait(30)
+        st.hooks = {"save_started": save_started}
+        ta = threading.Thread(target=st.save, args=(srv_a.url, 0, "a"), name="saver-a", daemon=True)
+        ta.start()
+        self.assertTrue(a_started.wait(30))
+        st.save(srv_b.url, 0, "b")                           # evicts nothing: a's save is in progress
+        self.assertEqual(st.manifest("a")["gen"], 1)
+        self.assertEqual(sorted(self.slot_files()), ["a.1.slot", "b.1.slot"])
+        go_a.set()
+        ta.join(30)
+        self.assertFalse(ta.is_alive())
+        self.assertEqual(st.manifest("a")["gen"], 2)
+
     def test_new_generation_replaces_the_old_file(self):
         srv, _, m1 = self.saved_session()
         hc.complete(srv.url, PROMPT + [91, 92], 3)

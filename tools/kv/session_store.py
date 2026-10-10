@@ -16,7 +16,8 @@ wrote a file, and its own write is not atomic. This store adds, around the docum
     the previous generation is deleted after the commit. Any crash leaves either the old or the new generation
     restorable; recover() removes temporaries, orphans and dangling manifests;
   * a disk budget with least-recently-used eviction; a session whose save is in progress in this process (including
-    the one being saved) is never evicted.
+    the one being saved) is never evicted, nor a generation committed after eviction chose its victims: the choice is
+    re-checked under the victim's lock.
 Layout: everything in the server's --slot-save-path directory (the server accepts plain file names only):
   <sid>.<gen>.slot  state files;  <sid>.manifest.json  manifests;  tmp-*.slot  in-flight saves;  quarantine/  rejects.
 Single writer per store directory (an fcntl lock file enforces it across processes); one lock per session in-process,
@@ -147,6 +148,7 @@ class SessionStore:
         with self._guard:
             self._saving.add(sid)
         try:
+            self._hook("save_started")
             return self._save(url, slot, sid)
         finally:
             with self._guard:
@@ -234,11 +236,14 @@ class SessionStore:
         with self._lock(sid):
             m = self.manifest(sid)
             if m:
-                os.remove(self._manifest_path(sid))
-                _fsync_dir(self.dir)
-                p = os.path.join(self.dir, m["file"])
-                if os.path.exists(p):
-                    os.remove(p)
+                self._drop_locked(m)
+
+    def _drop_locked(self, m):
+        os.remove(self._manifest_path(m["sid"]))
+        _fsync_dir(self.dir)
+        p = os.path.join(self.dir, m["file"])
+        if os.path.exists(p):
+            os.remove(p)
 
     def _evict(self, keep):
         if self.budget is None:
@@ -250,8 +255,22 @@ class SessionStore:
         for m in ms:
             if used <= self.budget:
                 break
-            self.drop(m["sid"])
-            used -= m["size"]
+            self._hook("before_evict_drop")
+            if self._evict_one(m["sid"], m["gen"]):
+                used -= m["size"]
+
+    def _evict_one(self, sid, gen):
+        """Drop `sid` for eviction only if, under its lock, no save of it is in progress and its manifest is still the
+        generation eviction chose from its snapshot: a save that starts or commits after the snapshot wins."""
+        with self._lock(sid):
+            with self._guard:
+                if sid in self._saving:
+                    return False
+            m = self.manifest(sid)
+            if not m or m["gen"] != gen:
+                return False
+            self._drop_locked(m)
+            return True
 
     # -- recovery -------------------------------------------------------------------------------------------------
     def recover(self, deep=False):

@@ -20,12 +20,17 @@ MUT = {
     "S5 recover keeps temporaries": ('if name.startswith("tmp-") and name.endswith(".slot") or', 'if False and'),
     "S6 transient error judges the file": ('except urllib.error.HTTPError as e:', 'except (urllib.error.URLError, OSError) as e:'),
     "S7 identity not checked": ('if m.get("identity") != self.identity:', 'if False:'),
+    # since the second audit S8 is an equivalent mutant: the snapshot exclusion is a first layer, the re-check under
+    # the victim's lock (S12, S13) prevents the same evictions on its own; expected: SURVIVED
     "S8 eviction may evict a session being saved": ('busy = set(self._saving) | {keep}', 'busy = set()'),
     "S9 slot not erased after a refused restore": (
         '                    _post(url, f"/slots/{slot}?action=erase", {}, self.timeout)   # never leave a half-loaded slot',
         '                    pass'),
     "S10 save size check skipped": ('if size <= 0 or size != resp.get("n_written"):', 'if size <= 0:'),
     "S11 quarantine names not unique": ('f"{time.time_ns()}-{uuid.uuid4().hex[:8]}-{fname}"', 'f"{int(time.time())}-{fname}"'),
+    "S12 eviction drop does not re-check a save in progress": ('                if sid in self._saving:\n                    return False',
+                                                              '                if False:\n                    return False'),
+    "S13 eviction drop does not re-check the generation": ('if not m or m["gen"] != gen:', 'if not m:'),
 }
 
 
