@@ -761,3 +761,32 @@ M15 CAUGHT
 M16 CAUGHT
 caught 16 / 16
 ```
+
+## Перепроверка ведущим (2026-10-10, после слияния в `claude/relaxed-dijkstra-1d7i5o`)
+```
+$ python3 -m unittest tests.test_eval
+Ran 34 tests in 7.202s
+OK
+$ python3 tools/eval/run_eval.py --tasks tools/eval/tasks-synthetic --validate-only   (хвост)
+validated 15 tasks: all OK
+```
+Выборочная мутационная проверка ведущим своим скриптом (`<S>/scripts/ev_mut.py`, вне репозитория) на копии ветки
+(`git archive claude/n3-eval-stand`), по одной правке за прогон:
+```
+baseline: Ran 34 tests in 6.282s / OK
+E-a Wilson half-width halved -> CAUGHT
+    FAIL: test_wilson_known_values (tests.test_eval.Stats.test_wilson_known_values)
+    Ran 34 tests in 6.309s
+    FAILED (failures=1)
+E-b McNemar k = max(b, c) -> CAUGHT
+    FAIL: test_known_example (tests.test_eval.Compare.test_known_example)
+    FAIL: test_mcnemar_exact_uses_only_discordant_pairs (tests.test_eval.Stats.test_mcnemar_exact_uses_only_discordant_pairs)
+    Ran 34 tests in 6.628s
+    FAILED (failures=2)
+E-c code task passes regardless of the test exit code -> CAUGHT
+    FAIL: test_wrong_answers_fail_every_task_with_a_reason (tests.test_eval.EndToEnd.test_wrong_answers_fail_every_task_with_a_reason)
+    FAIL: test_reference_patch_passes_wrong_patch_fails (tests.test_eval.Sandbox.test_reference_patch_passes_wrong_patch_fails)
+    FAIL: test_validate_only_on_synthetic_set (tests.test_eval.TaskFiles.test_validate_only_on_synthetic_set)
+    Ran 34 tests in 6.408s
+    FAILED (failures=3)
+```
