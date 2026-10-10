@@ -21,6 +21,7 @@ Usage:
   python3 tools/roofline.py models/specs/*.json --ctx 262144 --json
 """
 import argparse
+import functools
 import itertools
 import json
 import math
@@ -136,6 +137,7 @@ def draft_bytes_per_token(spec, q):
 
 # ---------------------------------------------------------------------------------------------- helpers
 
+@functools.lru_cache(maxsize=None)
 def ep_imbalance(top_k, n_gpu):
     """E[max experts on one GPU] / (top_k / n_gpu) when each of top_k experts lands on a uniformly random GPU."""
     if n_gpu <= 1:
@@ -318,6 +320,32 @@ def quant_from_args(a):
     return {"expert_bpw": a.expert_bpw, "dense_bpw": a.dense_bpw, "kv_bytes_per_elem": a.kv_bytes}
 
 
+def miss_split(ps, hv):
+    """RAM share of reads when hv is served from VRAM: misses split between RAM and NVMe like the offloaded bytes
+    (ps=None: every miss is served from RAM, the decode() default)."""
+    if ps is None:
+        return 1 - hv
+    off = ps["ram_frac"] + ps["ssd_frac"]
+    return (1 - hv) * (ps["ram_frac"] / off if off > 0 else 1.0)
+
+
+def envelope(spec, hw, q, ctx, hv, ps, strategy, miss, spec_k, spec_accept, ram_channels, overlap, draft_gb):
+    """Max of the bound over hit' <= hv (grid 0.01 plus hv itself) and the hit' where it is reached.
+
+    With overlap the bound is not monotone in the hit share (decode() docstring): when the GPU is the bottleneck, a
+    scheduler that holds copies of the resident experts in RAM can give part of the resident work to the CPU. Without
+    overlap the bound is monotone, so the envelope equals the bound at hv.
+    """
+    grid = [i / 100 for i in range(int(math.floor(hv * 100 + 1e-9)) + 1)] + [hv]
+    best = (-1.0, hv)
+    for h in grid if overlap else [hv]:
+        t = decode(spec, hw, q, ctx, h, miss_split(ps, h), strategy, miss, spec_k, spec_accept, ram_channels, overlap,
+                   draft_gb)["tok_s"]
+        if t > best[0] + 1e-12:
+            best = (t, h)
+    return best
+
+
 def report(spec, hw, q, ctx, hits, strategies, misses, spec_k, spec_accept, ram_channels, overlap=True, draft_gb=None):
     p = placement(spec, hw, q, ctx)
     places = {s: placement(spec, hw, q, ctx, s) for s in strategies}
@@ -325,14 +353,17 @@ def report(spec, hw, q, ctx, hits, strategies, misses, spec_k, spec_accept, ram_
     for h in hits:
         for s in strategies:
             ps = places[s]
-            off = ps["ram_frac"] + ps["ssd_frac"]
             if h == "auto":                   # uniform routing: accesses follow bytes
                 hv, hr = ps["resident_frac"], ps["ram_frac"]
             else:                             # a better cache: misses split between RAM and NVMe like the bytes
                 hv = float(h)
-                hr = (1 - hv) * (ps["ram_frac"] / off if off > 0 else 1.0)
+                hr = miss_split(ps, hv)
             for mi in misses:
-                rows.append(decode(spec, hw, q, ctx, hv, hr, s, mi, spec_k, spec_accept, ram_channels, overlap, draft_gb))
+                d = decode(spec, hw, q, ctx, hv, hr, s, mi, spec_k, spec_accept, ram_channels, overlap, draft_gb)
+                d["tok_s_envelope"], d["envelope_hit_vram"] = envelope(spec, hw, q, ctx, hv, ps, s, mi, spec_k,
+                                                                       spec_accept, ram_channels, overlap, draft_gb)
+                d["tok_s_envelope"] = max(d["tok_s_envelope"], d["tok_s"])
+                rows.append(d)
     return {"model": spec["name"], "quant": q, "placement": p, "placement_by_strategy": places, "decode": rows,
             "ttft": ttft(spec, hw, q, ctx, p["resident_frac"])}
 
@@ -355,7 +386,9 @@ def render(r):
         out.append(f"  ctx {d['ctx']:>7} hit VRAM {d['hit_vram']:.2f} RAM {d['hit_ram']:.2f} SSD {d['hit_ssd']:.2f} "
                    f"{d['strategy']:>2}/{d['miss']:<4}{'' if d['overlap'] else ' serial'} RAM {d['ram_channels']}ch: {d['tok_s']:6.1f} tok/s "
                    f"({d['ms_per_step']:.2f} ms/step; read GiB dense {b['dense']:.2f} routed {b['routed']:.2f} "
-                   f"kv {b['kv_state']:.3f})")
+                   f"kv {b['kv_state']:.3f})"
+                   + (f" | envelope {d['tok_s_envelope']:.1f} tok/s at hit {d['envelope_hit_vram']:.2f}"
+                      if d["tok_s_envelope"] > d["tok_s"] + 0.05 else ""))
     t = r["ttft"]
     out.append(f"  TTFT bound @ctx {t['ctx']}: {t['ttft_s_bound']:.0f} s (compute {t['t_compute_s']:.0f} s, "
                f"expert streaming {t['t_stream_s']:.0f} s, attention share of FLOPs {100 * t['attn_flops_share']:.0f}%)")

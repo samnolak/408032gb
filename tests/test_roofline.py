@@ -187,6 +187,33 @@ class ReviewFixes(unittest.TestCase):
             prev = ser
 
 
+class Envelope(unittest.TestCase):
+    """docs/reassessment/REVIEW-adversarial.md item 8 and the 2026-10-09 evidence audit (F1): the report prints the
+    maximum of the bound over hit' <= hit, because with overlap the bound is not monotone in the hit share."""
+
+    def rows(self, overlap, hits=("0.7", "0.8", "0.9", "1.0")):
+        s = spec("glm-5.3-flash")
+        q = dict(Q4, expert_bpw=4.89, dense_bpw=8.04)
+        return rl.report(s, HW, q, 262144, list(hits), ["pp"], ["cpu"], 2, 0.7, None, overlap)["decode"]
+
+    def test_envelope_is_an_upper_envelope_and_monotone(self):
+        prev = 0.0
+        for d in self.rows(True):
+            self.assertGreaterEqual(d["tok_s_envelope"], d["tok_s"] - 1e-9)
+            self.assertGreaterEqual(d["tok_s_envelope"], prev - 1e-9)
+            self.assertLessEqual(d["envelope_hit_vram"], d["hit_vram"] + 1e-12)
+            prev = d["tok_s_envelope"]
+
+    def test_overlap_bound_peaks_below_full_hit(self):
+        r = {round(d["hit_vram"], 2): d for d in self.rows(True)}
+        self.assertGreater(r[0.9]["tok_s_envelope"], r[0.9]["tok_s"] + 1.0)      # GLM PP + MTP: peak near hit 0.8
+        self.assertLess(r[0.9]["envelope_hit_vram"], 0.9)
+
+    def test_serial_envelope_equals_the_bound(self):
+        for d in self.rows(False):
+            self.assertAlmostEqual(d["tok_s_envelope"], d["tok_s"], places=9)
+
+
 class Cli(unittest.TestCase):
     def test_cli_json_for_every_spec(self):
         files = sorted(glob.glob(os.path.join(ROOT, "models", "specs", "*.json")))

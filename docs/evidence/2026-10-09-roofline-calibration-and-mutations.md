@@ -55,3 +55,86 @@ OK
 the serial CPU/GPU mode; M5-M7 are the three original mutations whose output had not been recorded before).
 Note (review item 11): `test_cpu_compute_beats_pcie_copy_for_batch_one` checks the code, not physics - with 143 GB/s RAM and
 25 GB/s PCIe it is true by construction. The physics is experiment M4.
+
+## Аудит доказательств 2026-10-10, F1/F2: огибающая roofline и режим движка в vs_roofline
+
+Изменения: `tools/roofline.py` печатает и пишет в JSON огибающую (`tok_s_envelope`, `envelope_hit_vram` — максимум по hit' ≤ hit;
+с перекрытием CPU/GPU граница не монотонна); `ep_imbalance` кэшируется (без этого полный прогон CLI занимал 95 с вместо 0.5 с);
+`tools/bench/vs_roofline.py` получил `--overlap`, `--spec-k`, `--spec-accept`, `--draft-gb`, сравнивает с огибающей, пишет
+`bound_at_hit`, `bound_hit` и входы границы (`inputs`); из докстринга убрана «калибровка ~0.70» (ROOFLINE §1 запрещает её как порог).
+Мутации — в временных worktree от `abfdfd0` с незакоммиченными файлами (sha256 на момент прогона: `tools/roofline.py`
+`67ca3e9fcf6a9c1eb86b1f1c5fa6a97536940822a363371aa7a07fc26b088b62` — после правки `miss_split` для ps=None; прогон E1–E3 шёл на
+предыдущей версии `d68a5fd0…` того же файла, отличие — только ветка `ps is None`; `tests/test_roofline.py`
+`e352b924e6c9a4c4f8e59b310db2fce6de1d016cb5b3d49fb33ee263d7d8c876`; `tools/bench/vs_roofline.py`
+`3d9104d526f918f0b1b9da211a3a97773b313e992d5288e5f9b2bd371e88e702`; `tests/test_vs_roofline.py`
+`a5c56ebbe308af4cb42570be2b5fe2fc46e0b07276ec05e9be5291b33610ae23`).
+
+Огибающая в `tools/roofline.py` (`tests.test_roofline`); метка E3 в выводе неточна — мутация меняет `max` на `min` при сведении
+огибающей и значения при доле попаданий:
+```
+baseline: Ran 26 tests in 0.490s / OK
+E1 envelope ignores lower hits -> CAUGHT
+    FAIL: test_envelope_is_an_upper_envelope_and_monotone (tests.test_roofline.Envelope.test_envelope_is_an_upper_envelope_and_monotone)
+    FAIL: test_overlap_bound_peaks_below_full_hit (tests.test_roofline.Envelope.test_overlap_bound_peaks_below_full_hit)
+    Ran 26 tests in 0.499s
+    FAILED (failures=2)
+E2 envelope searches above the hit -> CAUGHT
+    FAIL: test_envelope_is_an_upper_envelope_and_monotone (tests.test_roofline.Envelope.test_envelope_is_an_upper_envelope_and_monotone)
+    Ran 26 tests in 0.520s
+    FAILED (failures=1)
+E3 envelope applied to the serial mode is replaced by min -> CAUGHT
+    FAIL: test_envelope_is_an_upper_envelope_and_monotone (tests.test_roofline.Envelope.test_envelope_is_an_upper_envelope_and_monotone)
+    FAIL: test_overlap_bound_peaks_below_full_hit (tests.test_roofline.Envelope.test_overlap_bound_peaks_below_full_hit)
+    Ran 26 tests in 0.499s
+    FAILED (failures=2)
+restored identical: True
+```
+
+`tools/bench/vs_roofline.py` (`tests.test_vs_roofline`). Первый круг: V5 (флаги спекуляции не доходят до значения при доле
+попаданий) **выжила** — тест сверял только итоговую границу, которую огибающая всё равно считала со спекуляцией:
+```
+V5 speculation flags ignored -> SURVIVED
+    Ran 3 tests in 0.011s
+    OK
+```
+Тест дополнен сверкой `bound_at_hit` с прямым `roofline.decode(..., spec_k=2, spec_accept=0.7)`, добавлена V8; повторный прогон:
+```
+baseline: Ran 3 tests in 0.009s / OK
+V5 speculation flags ignored -> CAUGHT
+    FAIL: test_engine_mode_flags_envelope_and_inputs (tests.test_vs_roofline.VsRoofline.test_engine_mode_flags_envelope_and_inputs)
+    Ran 3 tests in 0.010s
+    FAILED (failures=1)
+V6 bound at the hit instead of the envelope -> CAUGHT
+    FAIL: test_engine_mode_flags_envelope_and_inputs (tests.test_vs_roofline.VsRoofline.test_engine_mode_flags_envelope_and_inputs)
+    Ran 3 tests in 0.010s
+    FAILED (failures=1)
+V7 overlap flag ignored -> CAUGHT
+    FAIL: test_engine_mode_flags_envelope_and_inputs (tests.test_vs_roofline.VsRoofline.test_engine_mode_flags_envelope_and_inputs)
+    Ran 3 tests in 0.013s
+    FAILED (failures=1)
+V8 speculation dropped from the envelope -> CAUGHT
+    FAIL: test_engine_mode_flags_envelope_and_inputs (tests.test_vs_roofline.VsRoofline.test_engine_mode_flags_envelope_and_inputs)
+    Ran 3 tests in 0.010s
+    FAILED (failures=1)
+restored identical: True
+```
+
+Повтор E1–E3 на итоговом `tools/roofline.py` (`67ca3e9f…`):
+```
+baseline: Ran 26 tests in 0.518s / OK
+E1 envelope ignores lower hits -> CAUGHT
+    FAIL: test_envelope_is_an_upper_envelope_and_monotone (tests.test_roofline.Envelope.test_envelope_is_an_upper_envelope_and_monotone)
+    FAIL: test_overlap_bound_peaks_below_full_hit (tests.test_roofline.Envelope.test_overlap_bound_peaks_below_full_hit)
+    Ran 26 tests in 0.480s
+    FAILED (failures=2)
+E2 envelope searches above the hit -> CAUGHT
+    FAIL: test_envelope_is_an_upper_envelope_and_monotone (tests.test_roofline.Envelope.test_envelope_is_an_upper_envelope_and_monotone)
+    Ran 26 tests in 0.482s
+    FAILED (failures=1)
+E3 envelope applied to the serial mode is replaced by min -> CAUGHT
+    FAIL: test_envelope_is_an_upper_envelope_and_monotone (tests.test_roofline.Envelope.test_envelope_is_an_upper_envelope_and_monotone)
+    FAIL: test_overlap_bound_peaks_below_full_hit (tests.test_roofline.Envelope.test_overlap_bound_peaks_below_full_hit)
+    Ran 26 tests in 0.482s
+    FAILED (failures=2)
+restored identical: True
+```

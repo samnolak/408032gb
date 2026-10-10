@@ -75,7 +75,7 @@ scripts/verify_pack.sh --check docs/evidence/verification-pack-<YYYY-MM-DD>     
 | аудит битности | `python3 tools/gguf_quant_audit.py <первый файл GGUF, -00001-of-0000N.gguf> --json > runs/quant_audit.json` — с порогами по умолчанию и **без** `--dense-warn-only` (иначе критерий NOT RUN или FAIL) |
 | точная маршрутизация | `python3 tools/quality/logprob_compare.py --ref http://<эталон> --cand http://<проверяемый движок> --corpus <корпус>/*.txt --prefixes 200 --top-k 20 --out runs/logprob_compare.json`; эталон — llama.cpp на **том же** GGUF со всеми экспертами (без пропуска), кандидат — развёрнутый движок |
 | сохранение/восстановление KV | сервер llama-server с `--slot-save-path <каталог на NVMe>` и `-np 1`; `python3 tools/kv/slot_persist.py --url http://127.0.0.1:<PORT> --prompt-file <текст на ≥ 100K токенов> --gen 64 --repeats 3 --out runs/slot_persist.json` |
-| сравнение с roofline | `python3 tools/bench/vs_roofline.py runs/matrix/<прогон 262K> --spec models/specs/<модель>.json --expert-bpw <bpw> --dense-bpw <bpw> --hit <доля попаданий> --strategy <pp\|ep\|tp> --json > runs/vs_roofline.json`; ту же команду целиком положить рядом в `runs/vs_roofline.cmd.txt` (JSON входные параметры не записывает) |
+| сравнение с roofline | `python3 tools/bench/vs_roofline.py runs/matrix/<прогон 262K> --spec models/specs/<модель>.json --expert-bpw <bpw> --dense-bpw <bpw> --hit <доля попаданий> --strategy <pp\|ep\|tp> --overlap <yes\|no> --spec-k <k> --spec-accept <доля> --json > runs/vs_roofline.json` — режим движка как он работал (llama.cpp: `--overlap no`; спекуляция — её k и измеренное принятие); с 2026-10-10 входы границы пишутся в поле `inputs` каждой строки, команду всё равно положить рядом в `runs/vs_roofline.cmd.txt` |
 | факты о железе | по `docs/reassessment/HW_DIAG_RUNBOOK.md`: `sudo bash scripts/diag/collect.sh`, затем `bash scripts/diag/bench_all.sh --run --out diag-out/<каталог> --mem --gpu --vram-check --nvme-all /mnt/a/d,... --size-gib 64`, затем `python3 scripts/diag/summarize.py diag-out/<каталог> --json runs/hw/<host>.facts.json`; на хосте Proxmox и в VM — по файлу; архивы `diag-out/*.tar.gz` можно положить в `runs/hw/` (копируются и хэшируются, но не разбираются) |
 
 Текстовый вывод `gguf_quant_audit.py` и `vs_roofline.py` (без `--json`) и `HARDWARE_FACTS.draft.md` пакет не разбирает:
@@ -125,7 +125,8 @@ scripts/verify_pack.sh --check docs/evidence/verification-pack-<YYYY-MM-DD>     
   моделей;
 - что аудит битности относится к обслуживаемой модели: связь только через имя файла в `--model-desc`
   (предупреждение в `single_configuration.details.warning`);
-- параметры границы roofline (`--spec`, `--hit`, `--strategy`, bpw) — их нет в JSON `vs_roofline.py`;
+- что параметры границы roofline (поле `inputs` в JSON `vs_roofline.py`: spec, hit, strategy, overlap, спекуляция, bpw) соответствуют
+  движку и модели — сборщик их не сверяет;
 - красные флаги диагностики железа (`hardware_facts.details.red_flags`);
 - что все прогоны сделаны на одном запуске сервера (проверяется только совпадение модели и описаний);
 - предрегистрация в `EXPERIMENTS.md` и литеральный лог запуска сервера (`BENCH_PROTOCOL.md`, раздел 7) — их сверяет
@@ -136,7 +137,7 @@ scripts/verify_pack.sh --check docs/evidence/verification-pack-<YYYY-MM-DD>     
 - `tools/quality/logprob_compare.py` и `tools/kv/slot_persist.py` не пишут признак mock, SHA репозитория, время и описание
   движка; mock распознаётся только по совпадению URL с mock-прогоном `tools/bench` в том же пакете (у mock-сервера нет
   `logprobs` и `/slots`, поэтому против него эти инструменты дают только ошибки, и критерий не может стать PASS).
-- `tools/bench/vs_roofline.py --json` не записывает входы границы (`--spec`, `--hw`, `--hit`, `--strategy`, `--miss`, bpw).
+- `tools/bench/vs_roofline.py --json` до 2026-10-10 не записывал входы границы; теперь они в поле `inputs` (сборщик их только копирует).
 - `scripts/diag/summarize.py` берёт признак `synthetic` из `manifest.json` диагностики; другого признака тестовых данных нет.
 - `tools/gguf_quant_audit.py --json` хранит находки только относительно порогов своего запуска; поэтому пакет дополнительно
   проверяет гистограммы типов по классам.
