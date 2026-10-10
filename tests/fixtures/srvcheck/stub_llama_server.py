@@ -19,6 +19,9 @@ Faults (env STUB_FAULT) imitate the bugs the checks must catch:
   shift_stale   a request with n_cache_reuse > 0 reuses its whole common prefix with a stale state (a KV shift
                 that the recurrent state did not follow)
   crosstalk     a completion that runs while another slot is busy is computed from a disturbed history
+  save_short    /slots save reports one byte more than it wrote (n_written)
+  restore_refuse  /slots restore answers 400
+  restore_partial /slots restore reports one token fewer than the file holds
   serial        completions are processed one at a time (a server that never decodes two slots together)
 Every slot (-np, default 1) has its own state; a completion takes 0.1 s, so two requests sent together overlap.
 GET /slots reports is_processing per slot, like llama-server.
@@ -156,15 +159,18 @@ class H(BaseHTTPRequestHandler):
                 with open(path, "w") as f:
                     json.dump({k: STATE[k] for k in ("tokens", "state", "ckpt")}, f)
                 return self.reply(200, {"id_slot": 0, "filename": body["filename"], "n_saved": len(STATE["tokens"]),
-                                        "n_written": os.path.getsize(path)})
+                                        "n_written": os.path.getsize(path) + (FAULT == "save_short")})
             if action == "restore":
+                if FAULT == "restore_refuse":
+                    return self.reply(400, {"error": {"code": 400, "message": "invalid slot save file"}})
                 with open(path) as f:
                     saved = json.load(f)
                 if FAULT == "restore_wrong":
                     saved["state"] = [(saved["state"][0] + 1) % V] + saved["state"][1:]
                 STATE.update(tokens=saved["tokens"], ckpt=saved["ckpt"])
                 STATE["state"] = [] if FAULT == "restore_noop" else saved["state"]
-                return self.reply(200, {"id_slot": 0, "filename": body["filename"], "n_restored": len(saved["tokens"])})
+                return self.reply(200, {"id_slot": 0, "filename": body["filename"],
+                                        "n_restored": len(saved["tokens"]) - (FAULT == "restore_partial")})
         return self.reply(404, {})
 
 

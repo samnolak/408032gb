@@ -141,13 +141,16 @@ def compare(a, b, tol):
         out["first_diff"] = next((i for i, (x, y) in enumerate(zip(ta, tb)) if x != y), min(len(ta), len(tb)))
         i = out["first_diff"]
         if i < len(a["top"]):        # a near tie explains a flip; a large margin does not
-            v = sorted(a["top"][i].values(), reverse=True)
+            v = sorted((x for x in a["top"][i].values() if x is not None), reverse=True)
             out["top1_margin_at_first_diff"] = v[0] - v[1] if len(v) > 1 else None
     if out["steps_compared"] == 0 or len(a["top"]) != len(b["top"]):
         out["max_abs_dlogprob"] = None   # nothing to compare is not a pass
     else:
         for sa, sb in zip(a["top"], b["top"]):
             for k in set(sa) & set(sb):
+                if sa[k] is None or sb[k] is None:     # llama-server sends null for a NaN log-prob
+                    out["max_abs_dlogprob"] = float("inf") if sa[k] is not sb[k] else out["max_abs_dlogprob"]
+                    continue
                 out["max_abs_dlogprob"] = max(out["max_abs_dlogprob"], abs(sa[k] - sb[k]))
     out["pass"] = bool(out["same_tokens"] and out["max_abs_dlogprob"] is not None and out["max_abs_dlogprob"] <= tol)
     return out

@@ -45,6 +45,14 @@ class Compare(unittest.TestCase):
         self.assertIsNone(c["max_abs_dlogprob"])
         self.assertFalse(c["pass"])
 
+    def test_null_logprob_is_an_infinite_difference(self):
+        # llama-server sends null for a NaN log-prob (seen after restoring a corrupted slot file)
+        c = hc.compare(run([5], [{"5": None, "7": -2.0}]), run([5], [{"5": -0.1, "7": -2.0}]), 1e-3)
+        self.assertEqual(c["max_abs_dlogprob"], float("inf"))
+        self.assertFalse(c["pass"])
+        c = hc.compare(run([5, 6], [{"5": None, "6": -1.0}, {"6": -0.2}]), run([5, 9], [{"5": -0.1}, {"9": -0.3}]), 1e-3)
+        self.assertEqual(c["first_diff"], 1)
+
     def test_step_count_mismatch_is_not_a_pass(self):
         self.assertFalse(hc.compare(run([5], [{"5": -0.1}]), run([5], [{"5": -0.1}, {"5": -0.1}]), 1e-3)["pass"])
 
