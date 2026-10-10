@@ -1,0 +1,15 @@
+{
+ "_doc": "Real-model routing traces for cache-policy and expert-prediction experiments (docs/reassessment/research/R8, experiment E-traces). Read by scripts/traces/run_real_traces.sh in workflow traces-real (GitHub Actions has huggingface.co; the agent sandbox does not). Models are PROXIES for GLM-5.3-Flash / Qwen3.8-Flash-Next routing (same families, fine-grained MoE), not the target models; the target models do not fit a CI runner. file_regex picks one GGUF from the repo listing; the chosen file name, repo revision and sha256 are recorded in each model's MANIFEST.json.",
+ "llama_cpp": "ec7630a640789c393694fb194f1bbbf0369fc62d",
+ "corpus": {"builder": "scripts/traces/build_agent_prompts.py", "n": 16, "max_chars": 7000},
+ "gen_tokens": 128,
+ "probe": {"holdout_every": 4, "tail": 256},
+ "models": [
+  {"name": "qwen3-coder-30b-a3b", "hf_repo": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+   "file_regex": "^Qwen3-Coder-30B-A3B-Instruct-Q4_K_M\\.gguf$",
+   "why": "128 routed experts, top-8, softmax router; coding model - closest public proxy for agentic code routing (Qwen family, like Qwen3.8-Flash-Next)"},
+  {"name": "glm-4.7-flash", "hf_repo": "unsloth/GLM-4.7-Flash-GGUF",
+   "file_regex": "^GLM-4\\.7-Flash-Q4_K_M\\.gguf$",
+   "why": "GLM family, sigmoid router with selection bias (noaux_tc, like GLM-5.3-Flash); llama.cpp arch deepseek2"}
+ ]
+}
