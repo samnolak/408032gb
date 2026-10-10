@@ -95,10 +95,15 @@ class Plan(unittest.TestCase):
         self.assertEqual(len(wheel), 1, t)
         for part in ("env TORCH_CUDA_ARCH_LIST=8.9 ", "CUDA_HOME=/usr/local/cuda-13.0 ",
                      "PYTORCH_NVCC=/usr/local/cuda-13.0/bin/nvcc ", "MAX_JOBS=4 ",
+                     "LIBRARY_PATH=/w/build/exllamav3-linkshim ",
                      "/w/venv/bin/python -m pip wheel --no-deps --no-build-isolation -w /w/build/exllamav3/dist "
                      "/w/src/exllamav3"):
             self.assertIn(part, wheel[0])
-        self.assertLess(t.index("torch.__version__"), t.index(" pip wheel "))
+        shim = [x for x in lines if "libcudart.so.[0-9]*" in x]
+        self.assertEqual(len(shim), 1, t)
+        self.assertTrue(shim[0].endswith(" /usr/local/cuda-13.0 /w/build/exllamav3-linkshim"), shim[0])
+        self.assertLess(t.index("torch.__version__"), t.index("libcudart.so.[0-9]*"))
+        self.assertLess(t.index("libcudart.so.[0-9]*"), t.index(" pip wheel "))
         self.assertLess(t.index(" pip wheel "), t.index("/w/build/exllamav3/ext exllamav3_ext"))
         self.assertNotIn("cmake", t)
         self.assertNotIn("${", t)
@@ -245,6 +250,9 @@ class TorchExtensionBuild(unittest.TestCase):
             return rc, json.load(f)
 
     def test_ok_build_unpacks_the_extension_and_hashes_the_wheel(self):
+        lib = os.path.join(self.tmp.name, "lib")         # CUDA_HOME = <tmp> (two levels above the fake nvcc)
+        os.makedirs(lib)
+        open(os.path.join(lib, "libcudart.so.13"), "wb").close()   # pip CUDA layout: no unversioned link name
         rc, info = self.run_build()
         self.assertEqual(rc, 0, info)
         self.assertEqual(info["status"], "ok")
@@ -260,6 +268,9 @@ class TorchExtensionBuild(unittest.TestCase):
             env = dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
         self.assertEqual((env["TORCH_CUDA_ARCH_LIST"], env["MAX_JOBS"]), ("8.9", "3"))
         self.assertEqual(env["PYTORCH_NVCC"], os.path.join(self.bin, "nvcc"))
+        shim = os.path.join(self.tmp.name, "build", "fake-linkshim")
+        self.assertEqual(env["LIBRARY_PATH"], shim)
+        self.assertEqual(os.readlink(os.path.join(shim, "libcudart.so")), os.path.join(lib, "libcudart.so.13"))
 
     def test_wrong_torch_stops_before_the_compile(self):
         rc, info = self.run_build(torch_ok=False)

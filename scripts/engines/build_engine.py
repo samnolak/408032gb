@@ -63,15 +63,29 @@ UNPACK = ("import glob, os, sys, zipfile; w = sorted(glob.glob(os.path.join(sys.
           "os.makedirs(sys.argv[2], exist_ok=True); "
           "open(os.path.join(sys.argv[2], sys.argv[3] + '.so'), 'wb').write(z.read(n[0])); print(w[0], '->', n[0])")
 
+# torch's cpp_extension links with -L<CUDA_HOME>/lib64 (or lib) -lcudart; the pip CUDA 13 runtime ships only
+# libcudart.so.13, so a shim directory with the unversioned link name goes on LIBRARY_PATH (the extension still
+# records the soname libcudart.so.13, the one torch loads). Nothing is created when the toolkit has libcudart.so.
+LINK_SHIM = ("import glob, os, sys; root, shim = sys.argv[1], sys.argv[2]; "
+             "have = [d for d in ('lib64', 'lib') if os.path.exists(os.path.join(root, d, 'libcudart.so'))]; "
+             "found = sorted(glob.glob(os.path.join(root, 'lib*', 'libcudart.so.[0-9]*'))); "
+             "dst = os.path.join(shim, 'libcudart.so'); "
+             "print('libcudart.so present in', os.path.join(root, have[0])) if have else "
+             "print('no libcudart.so.N under', root, '(the link will fail)') if not found else "
+             "(os.makedirs(shim, exist_ok=True), os.path.lexists(dst) and os.remove(dst), os.symlink(found[0], dst), "
+             "print(dst, '->', found[0]))")
+
 
 def torch_extension_steps(pin, arch, nvcc, cuda_root, src, build, jobs, python):
     """Build the pinned Python package as a wheel with its CUDA extension for one architecture, then unpack the
     extension to <build>/ext/<target>.so for the cubin check. The torch/CUDA pair comes from pins.json."""
     py = pin["python"]
     target = pin["targets"][0]
+    shim = build + "-linkshim"                   # outside the build tree: not a build product, not hashed
     env = ["env", "TORCH_CUDA_ARCH_LIST=%d.%d" % divmod(arch, 10), "CUDA_HOME=" + cuda_root, "PYTORCH_NVCC=" + nvcc,
-           "MAX_JOBS=%d" % jobs] + ["%s=%s" % kv for kv in sorted((py.get("env") or {}).items())]
+           "MAX_JOBS=%d" % jobs, "LIBRARY_PATH=" + shim] + ["%s=%s" % kv for kv in sorted((py.get("env") or {}).items())]
     return [("check torch %s with CUDA %s" % (py["torch"], py["cuda"]), [python, "-c", TORCH_CHECK, py["torch"], py["cuda"]]),
+            ("link shim for libcudart", [python, "-c", LINK_SHIM, cuda_root, shim]),
             ("build wheel", env + [python, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
                                    "-w", os.path.join(build, "dist"), src]),
             ("unpack %s" % target, [python, "-c", UNPACK, os.path.join(build, "dist"), os.path.join(build, "ext"),

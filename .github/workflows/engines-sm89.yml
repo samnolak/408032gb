@@ -2,6 +2,8 @@
 # (RTX 4080 Super = sm_89), compile only - the runner has no GPU, so nothing here says anything about speed or
 # correctness on the GPU. Pins and flags: tools/engines/pins.json; build steps: scripts/engines/build_engine.py (the
 # same script builds on the server). Runs when the pins, the script or this file change, and on demand.
+# exllamav3 is a torch extension (pins.json "kind": "torch-extension"): it builds a wheel in a venv with the pinned
+# torch and the pip CUDA toolkit torch was built with; the wheel is kept as an artifact for the offline server.
 name: engines-sm89
 on:
   workflow_dispatch:
@@ -21,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [llama.cpp, ik_llama.cpp, strata]
+        engine: [llama.cpp, ik_llama.cpp, strata, exllamav3]
     steps:
       - uses: actions/checkout@v4
       - name: CUDA 13 toolkit + cuBLAS (no GPU on the runner)
@@ -32,12 +34,27 @@ jobs:
             cuda-profiler-api-13-0 cuda-driver-dev-13-0 ninja-build
       - name: free disk space for the build trees
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+      - name: Python build environment from pins.json (torch-extension engines only)
+        if: matrix.engine == 'exllamav3'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          python3 -c "import json, sys; print('\n'.join(json.load(open('tools/engines/pins.json'))['engines'][sys.argv[1]]['python']['install']))" \
+            "${{ matrix.engine }}" > "$RUNNER_TEMP/requirements.txt"
+          cat "$RUNNER_TEMP/requirements.txt"
+          "$RUNNER_TEMP/venv/bin/pip" install -q -r "$RUNNER_TEMP/requirements.txt"
+          "$RUNNER_TEMP/venv/bin/python" -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)"
       - name: build ${{ matrix.engine }} for sm_89
         shell: bash
         run: |
           set +e
+          nvcc=/usr/local/cuda-13.0/bin/nvcc; extra=()
+          if [ "${{ matrix.engine }}" = exllamav3 ]; then
+            nvcc="$(ls -d "$RUNNER_TEMP"/venv/lib/python3*/site-packages/nvidia/cu13)/bin/nvcc"   # torch's CUDA 13.0
+            extra=(--python "$RUNNER_TEMP/venv/bin/python")
+            export PATH="$RUNNER_TEMP/venv/bin:$PATH:/usr/local/cuda-13.0/bin"                  # ninja; cuobjdump
+          fi
           python3 scripts/engines/build_engine.py --engine "${{ matrix.engine }}" --arch 89 \
-            --nvcc /usr/local/cuda-13.0/bin/nvcc --src-root engines-src --build-root engines-build --jobs 4 \
+            --nvcc "$nvcc" --src-root engines-src --build-root engines-build --jobs 4 "${extra[@]}" \
             | tee build.out
           rc=${PIPESTATUS[0]}
           info="engines-build/${{ matrix.engine }}/build-info.json"
@@ -53,4 +70,6 @@ jobs:
           path: |
             engines-build/${{ matrix.engine }}/build-info.json
             engines-build/${{ matrix.engine }}.log
+            engines-build/${{ matrix.engine }}/dist/*.whl
           if-no-files-found: warn
+          retention-days: 30
