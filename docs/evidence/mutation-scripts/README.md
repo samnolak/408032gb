@@ -17,6 +17,14 @@
 | `2026-10-10-torch-extension-build-shim.py` | то же + шаг `link shim for libcudart` (T1 переписан под новый порядок шагов, T10–T12 новые) | `16f39d6` | `python3 docs/evidence/mutation-scripts/2026-10-10-torch-extension-build-shim.py <репозиторий> <временный каталог>` | 12/12, там же |
 | `2026-10-10-glm5next-decode.py` | инкрементальный путь и MTP-блок `ref/glm5next.py`, правила тестов, зависящие от пина, и пары MTP против `tests/test_glm5next_decode_parity.py`, `tests/test_glm5next_mtp_parity.py`, `tests/test_glm5next_chunked_ref.py`; нужны дампы `run_parity_glm5next_decode.sh` (`GLM5NEXT_DECODE_WORK`) | `7d99e0b` | `python3 docs/evidence/mutation-scripts/2026-10-10-glm5next-decode.py <репозиторий> <каталог артефактов> <llama.cpp> <временный каталог>` | `ec7630a` 12/15, `79e2e74` 14/15 (каждый пропуск — путь, которого на этом пине нет), `docs/evidence/2026-10-10-glm5next-decode-parity.md` |
 
+Пробы N9 (не мутационные: печатают числа, вставленные в `docs/evidence/2026-10-10-glm5next-decode-parity.md`) —
+байт-в-байт копии из песочницы сессии; внутри абсолютные пути песочницы и рабочего дерева (`S=`, `REPO=`, `sys.path`),
+для повтора их нужно заменить на свои; дампы — из `run_parity_glm5next_decode.sh` (`GLM5NEXT_DECODE_WORK`):
+`2026-10-10-n9-g1run.sh` (обёртка G1 на пине), `2026-10-10-n9-check-forward.py` (ошибки `forward()` по слоям на дампе G1),
+`2026-10-10-n9-genhash.sh` (sha256 выхода генератора), `2026-10-10-n9-normed-probe.py` и `2026-10-10-n9-scan-norm.py`
+(находка 4; второй написал evidence-auditor), `2026-10-10-n9-ties-probe.py` (находка 6; модель с прежним порядком
+тензоров MTP в репозитории не сохранилась, поэтому повторить пробу нельзя).
+
 Проверку воспроизводимости первых двух сделал evidence-auditor на `git archive` нужного коммита: вывод совпал построчно
 (отчёт аудита 2026-10-10, строки 4–5 таблицы). Запускал проверки ведущий (эта же сессия) под ролевыми префиксами коммитов
 `[parity-qa]`, `[perf-bench]` и `[infra-ops]`.

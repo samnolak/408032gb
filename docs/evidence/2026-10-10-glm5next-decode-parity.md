@@ -23,7 +23,8 @@ at ec7630a unless "@79e2e74" is written; every cited line was printed from the p
 
 ## Runs
 
-Model: the G1 tiny model (tools/tinygen/glm5next_tiny.py --layers 12, seed 0): 12 layers, KDA (4 heads of 16, conv
+Model: the G1 tiny model (tools/tinygen/glm5next_tiny.py --layers 12, seed 0; hyperparameters CONFIRMED at
+tools/tinygen/glm5next_tiny.py:24-35): 12 layers, KDA (4 heads of 16, conv
 kernel 4, gate lower bound -5) on 0-2, 4-6, 8-10; DSA (nope MLA, kv_lora 16, k-pool indexer with kpool 4, budget 2 pools +
 tail, 2 indexer heads) on 3, 7, 11; dense SwiGLU on layer 0; MoE 8 experts top-2 + 1 shared expert elsewhere; mHC with
 hc = 4 and 20 Sinkhorn iterations; SwiGLU clamp 0.5 on every FFN. For the MTP run the same model with `--mtp`
@@ -75,21 +76,23 @@ replayed only if the oracle's own selection is valid too), counted. Pin-dependen
    No tolerance was loosened; the only check moved is finding 4.
 2. **ec7630a has a second DSA path that only small ubatches take.** For n_tokens <= 16 and n_kv > n_sel the graph
    gathers the selected latents and runs a dense softmax over n_sel = 11 slots with a host-side slot mask (G:324-331,
-   883-886, 971-996) instead of the additive mask over all 256 cells (G:889-918, 998-1005). So at ec7630a ub16, ub10,
+   883-886, 971-996) instead of the additive mask over all 256 cells (G:889-918, 998-1005). (n_sel = 4 * 2 + 3 by
+   G:329; CONFIRMED by the dump shapes: `kv_gathered-3` of ub16 graph 0 has ne [16, 11, 1, 16], `kq_mask_dsa-3` of
+   ub18 graph 0 ne [256, 18, 1, 1].) So at ec7630a ub16, ub10,
    the last ubatch of ub18, every decode step and the draft call run the gather path; the 48-token prefills and the
    first three ubatches of ub18 run the mask path (asserted per graph). 79e2e74 removed the gather path (G:990-1078
    @79e2e74): all graphs take the mask path there (asserted). The slot mask is not dumped; the test derives it from
-   M:978-1011, 1013-1037 (first min(nv, 2) pool slots, then tail slots k < (t+1) % 4) and checks it against the
+   M:978-1011, 1013-1040 (first min(nv, 2) pool slots, then tail slots k < (t+1) % 4) and checks it against the
    dumped softmax (exactly 0 on dead slots); `kv_gathered` live rows equal the cached latents of the selected cells.
 3. **k-pool padding rows differ by pin** (as for qwen4exp in N6): ec7630a re-pools one shared cell (cell 0 if a pool
    is new, else the ubatch's first cell; M:947-967), 79e2e74 one non-rep cell per padded entry (M:888-905 @79e2e74).
    A padded entry has kpool equal members, so its pooled key is that cell's indexer key; both rules hold at their pin
    (mutant U2 below shows the check bites).
 4. **`kda_normed` amplifies upstream f32 error; checked as an op.** End to end it reached 9.7e-05 at ec7630a (ub18
-   L10 pos 15 head 3), next to the 1e-4 bound. Localised (scratch probe, literal output below): that head row of the
-   scan has RMS 1.6e-3 against max |scan| 0.50; its absolute error 1.6e-06 is in line with the rest of the tensor
-   (normwise 1.6e-05), but the per-head RMS norm rescales the row to O(1), so its relative error 3.0e-04 becomes
-   9.7e-05 normwise. The op itself, rms_norm(dumped scan) * ssm_norm, matches the dumped `kda_normed` to 9.98e-08.
+   L10 pos 15 head 3), next to the 1e-4 bound. Localised (two probes, literal output below): that head row of the
+   scan has RMS 1.6e-3 against max |scan| 0.50; its absolute error 1.6e-06 is the largest in the tensor, yet only
+   3.2e-06 normwise for that graph and layer (second probe below), but the per-head RMS norm rescales the row to
+   O(1), so its relative error 3.0e-04 becomes 9.7e-05 normwise. The op itself, rms_norm(dumped scan) * ssm_norm, matches the dumped `kda_normed` to 9.98e-08.
    The test now checks `kda_normed` as an op on the dumped scan and keeps `kda_out` (which does not rescale rows) end
    to end. Not a llama.cpp bug (PROVISIONAL: the mechanism is the arithmetic above; no other cause was looked for).
 5. **MTP exists at 79e2e74 only.** ec7630a throws "GLM5-Next NextN graph not implemented yet" for
@@ -106,7 +109,7 @@ replayed only if the oracle's own selection is valid too), counted. Pin-dependen
 7. **Mutation check** (literal output below): ec7630a 12/15 caught, 79e2e74 14/15; every mutant is caught at one pin
    at least, and each miss is a mutant of a path that pin does not have (T1, T2, U3: MTP, no graph at ec7630a; U1: the
    gather path, gone at 79e2e74). All ten state-carry mutants of the incremental path (S1-S10) are caught by the dump
-   tests at both pins, and also by the property tests.
+   tests at both pins, and also by the property tests (`property failing:` lines of the mutation output below).
 
 ## Not covered (gaps that remain)
 
@@ -129,11 +132,21 @@ ec7630a640789c393694fb194f1bbbf0369fc62d
 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6
 ```
 
-Environment: sandbox, 4 CPU cores, Python 3.13.16, numpy 2.5.3, no GPU.
+Environment (sandbox, no GPU):
+
+```
+$ nproc; python3 --version; python3 -c "import numpy; print(numpy.__version__)"; nvidia-smi
+4
+Python 3.13.16
+2.5.3
+/bin/bash: line 1: nvidia-smi: command not found
+```
 
 ### Whole-model oracle on the G1 prefill dump (before the incremental path)
 
-`tools/tinygen/run_parity.sh <llama.cpp> <build>` (now with `GlmTinyWholeModel`), both pins, on HEAD `7d99e0b`:
+`tools/tinygen/run_parity.sh <llama.cpp> <build>` (now with `GlmTinyWholeModel`), both pins, on HEAD `7d99e0b`, run
+through the wrapper `docs/evidence/mutation-scripts/2026-10-10-n9-g1run.sh`, which first echoes
+`llama.cpp: $(git rev-parse HEAD)` of the checkout; the build's `CMAKE_BUILD_TYPE=Release`, the `wrote .../glm5next.gguf` and the `artifacts:` lines are cut:
 
 ```
 llama.cpp: ec7630a640789c393694fb194f1bbbf0369fc62d
@@ -170,8 +183,8 @@ Ran 9 tests in 0.401s
 OK
 ```
 
-Per-layer errors of `forward()` on the G1 dump at ec7630a (scratch script `check_forward.py`, same comparisons as
-`GlmTinyWholeModel` plus the mixers; the three largest of 88 lines, sorted):
+Per-layer errors of `forward()` on the G1 dump at ec7630a (`docs/evidence/mutation-scripts/2026-10-10-n9-check-forward.py`,
+`check_forward.py` below; same comparisons as `GlmTinyWholeModel` plus the mixers; the three largest of 88 lines, sorted):
 
 ```
 $ python3 check_forward.py <g1 dump dir> <ec7630a>/gguf-py | awk '{print $NF, $0}' | sort -g -r | sed -n 1,3p
@@ -181,6 +194,8 @@ $ python3 check_forward.py <g1 dump dir> <ec7630a>/gguf-py | awk '{print $NF, $0
 ```
 
 ### Generator: default output byte-identical
+
+`genhash.sh` is `docs/evidence/mutation-scripts/2026-10-10-n9-genhash.sh`.
 
 ```
 $ genhash.sh before/          # glm5next_tiny.py before --mtp: default, --layers 12, --layers 12 --seed 3, --layers 8 --arch glm5next
@@ -194,7 +209,10 @@ DEFAULT-OUTPUT-IDENTICAL
 
 ### ec7630a: `tools/tinygen/run_parity_glm5next_decode.sh <ec7630a> <build>` on HEAD `7d99e0b`
 
-`...` below stands for the verbose per-test lines (`... ok`), omitted; nothing else is cut.
+`...` below stands for the verbose per-test lines (`... ok`), omitted; also cut: the first three lines
+(`CMAKE_BUILD_TYPE=Release`, `wrote .../glm5next.gguf`, `wrote .../glm5next_mtp.gguf`), the two error tables (shown
+after the block, the per-run table only in part) and the last line `artifacts: <dir>`. The same holds for the 79e2e74
+block.
 
 ```
 ub16: 4 graphs, 1 calls, n_rs_seq 0
@@ -296,7 +314,7 @@ ub18     dsa selection: tie replays = 0                                 3    -1 
 dsa selection: tie replays = 0                                12    -1  0.000e+00  0.000e+00
 ```
 
-### Finding 4: the `kda_normed` probe (scratch `normed_probe.py ub18 0 10`, ec7630a dumps)
+### Finding 4: the `kda_normed` probe (`docs/evidence/mutation-scripts/2026-10-10-n9-normed-probe.py ub18 0 10`, ec7630a dumps)
 
 ```
 worst normed elem (np.int64(15), np.int64(3), np.int64(1)) abs 0.00037940292689642163 max|normed| 3.9150449434357393
@@ -306,7 +324,15 @@ per-row rel err of the scan (max over rows) 0.00030418844657143917
 op-level: rms_norm(dumped scan) vs dumped normed, rel 9.978474451465864e-08
 ```
 
-### Finding 6: the tie replays with the superseded MTP draw (scratch `ties_probe.py`, 79e2e74 dumps of that model)
+The whole-tensor error of that graph and layer (`docs/evidence/mutation-scripts/2026-10-10-n9-scan-norm.py ub18 0 10`, written by
+evidence-auditor; full output):
+
+```
+worst normed elem (np.int64(15), np.int64(3), np.int64(1)) abs 0.00037940292689642163 max|normed| 3.9150449434357393
+scan normwise rel (whole tensor, this graph/layer) 3.2015938214633257e-06 max abs 1.6149853978991713e-06
+```
+
+### Finding 6: the tie replays with the superseded MTP draw (`docs/evidence/mutation-scripts/2026-10-10-n9-ties-probe.py`, 79e2e74 dumps of that model)
 
 ```
 pos 19 graph 1 (process): reference [8, 9, 10, 11, 16, 17, 18, 19] oracle [4, 5, 6, 7, 16, 17, 18, 19]; visible pool scores {0: -0.044525746, 1: 0.0, 2: 0.0, 3: -0.089643179, 4: 0.001931746}
@@ -318,42 +344,58 @@ pos 46 graph 2 (process): reference [8, 9, 10, 11, 16, 17, 18, 19, 44, 45, 46] o
 
 `python3 docs/evidence/mutation-scripts/2026-10-10-glm5next-decode.py <repo> <artifacts> <llama.cpp> <scratch>` on HEAD
 `7d99e0b`, once per pin against that pin's dumps; shown through
-`grep "^llama\|^baseline\|^[STU][0-9]*\|^    rc=\|^caught" <log> | cut -c1-120` (the per-mutant lists of failing tests
-are in the full log). The mutant edits are in the script.
+`grep "^llama\|^baseline\|^[STU][0-9]*\|^    rc=\|^    property\|^caught" <log> | cut -c1-120` (the per-mutant lists of
+failing dump tests are in the full log; `property failing:` names the failing tests of
+tests/test_glm5next_chunked_ref.py, cut at 120 columns). The mutant edits are in the script.
 
 ```
 llama.cpp ec7630a640789c393694fb194f1bbbf0369fc62d; dumps /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86
 baseline (no mutation): rc=0 Ran 52 tests in 6.422s | OK (skipped=1)
 S1 KDA: state reset at every ubatch / call
     rc=1 Ran 52 tests in 4.528s | FAILED (failures=38, skipped=1)
+    property failing: test_carried_state, test_rollback_leaves_the_prefix_state, test_token_by_token_decode, test_ubatch
 S2 KDA: conv history of the earlier ubatches dropped (zeros)
     rc=1 Ran 52 tests in 5.124s | FAILED (failures=38, skipped=1)
+    property failing: test_carried_state, test_rollback_leaves_the_prefix_state, test_token_by_token_decode, test_ubatch
 S3 KDA: conv history keeps the oldest rows instead of the newest
     rc=1 Ran 52 tests in 5.013s | FAILED (failures=38, skipped=1)
+    property failing: test_carried_state, test_rollback_leaves_the_prefix_state, test_token_by_token_decode, test_ubatch
 S4 DSA: MLA latents of the earlier ubatches / calls forgotten (zeros)
     rc=1 Ran 52 tests in 5.599s | FAILED (failures=39, skipped=1)
+    property failing: test_carried_state, test_chunks_and_decode, test_rollback_leaves_the_prefix_state, test_token_by_t
 S5 DSA: pooled keys of the earlier ubatches / calls forgotten (zeros)
     rc=1 Ran 52 tests in 6.823s | FAILED (failures=39, skipped=1)
+    property failing: test_carried_state, test_chunks_and_decode, test_rollback_leaves_the_prefix_state, test_token_by_t
 S6 DSA: a pool straddling two ubatches loses the gate rows of its earlier members (zeros)
     rc=1 Ran 52 tests in 6.341s | FAILED (failures=32, skipped=1)
+    property failing: test_carried_state, test_chunks_and_decode, test_rollback_leaves_the_prefix_state, test_token_by_t
 S7 DSA: incomplete tail taken relative to the ubatch
     rc=1 Ran 52 tests in 4.720s | FAILED (failures=39, skipped=1)
+    property failing: test_carried_state, test_chunks_and_decode, test_rollback_leaves_the_prefix_state, test_token_by_t
 S8 DSA: pool visibility relative to the ubatch
     rc=1 Ran 16 tests in 1.548s | FAILED (failures=7, errors=9, skipped=1)
+    property failing: test_carried_state, test_chunks_and_decode, test_rollback_leaves_the_prefix_state, test_token_by_t
 S9 rollback: KDA conv history and state not rolled back (state after the rejected tokens)
     rc=1 Ran 52 tests in 6.102s | FAILED (failures=7, skipped=1)
+    property failing: test_rollback_leaves_the_prefix_state
 S10 rollback: MLA latent / indexer cache not rolled back (rejected cells kept)
     rc=1 Ran 52 tests in 6.602s | FAILED (failures=7, skipped=1)
+    property failing: test_rollback_leaves_the_prefix_state
 T1 MTP: eh_proj input concatenated as [h ; e] instead of [e ; h]
     rc=0 Ran 52 tests in 5.746s | OK (skipped=1)
+    property failing: none
 T2 MTP: FFN residual taken from the normed input instead of eh_proj
     rc=0 Ran 52 tests in 6.591s | OK (skipped=1)
+    property failing: none
 U1 test: gather-path tail slot live one cell too far (k <= n_tail)
     rc=1 Ran 52 tests in 5.659s | FAILED (failures=5, skipped=1)
+    property failing: none
 U2 test: k-pool padding rule of the other pin
     rc=1 Ran 52 tests in 6.227s | FAILED (failures=2, skipped=1)
+    property failing: none
 U3 test: MTP token p paired with the target h of p instead of p-1
     rc=0 Ran 52 tests in 6.742s | OK (skipped=1)
+    property failing: none
 caught 12/15; caught by the dump parity tests alone 12/15
 ```
 
@@ -362,34 +404,49 @@ llama.cpp 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6; dumps /tmp/claude-0/-home-us
 baseline (no mutation): rc=0 Ran 58 tests in 6.507s | OK
 S1 KDA: state reset at every ubatch / call
     rc=1 Ran 58 tests in 4.605s | FAILED (failures=38)
+    property failing: test_carried_state, test_rollback_leaves_the_prefix_state, test_token_by_token_decode, test_ubatch
 S2 KDA: conv history of the earlier ubatches dropped (zeros)
     rc=1 Ran 58 tests in 5.080s | FAILED (failures=38)
+    property failing: test_carried_state, test_rollback_leaves_the_prefix_state, test_token_by_token_decode, test_ubatch
 S3 KDA: conv history keeps the oldest rows instead of the newest
     rc=1 Ran 58 tests in 5.116s | FAILED (failures=38)
+    property failing: test_carried_state, test_rollback_leaves_the_prefix_state, test_token_by_token_decode, test_ubatch
 S4 DSA: MLA latents of the earlier ubatches / calls forgotten (zeros)
     rc=1 Ran 58 tests in 5.457s | FAILED (failures=43)
+    property failing: test_carried_state, test_chunks_and_decode, test_rollback_leaves_the_prefix_state, test_token_by_t
 S5 DSA: pooled keys of the earlier ubatches / calls forgotten (zeros)
     rc=1 Ran 58 tests in 6.895s | FAILED (failures=42)
+    property failing: test_carried_state, test_chunks_and_decode, test_rollback_leaves_the_prefix_state, test_token_by_t
 S6 DSA: a pool straddling two ubatches loses the gate rows of its earlier members (zeros)
     rc=1 Ran 58 tests in 6.665s | FAILED (failures=36)
+    property failing: test_carried_state, test_chunks_and_decode, test_rollback_leaves_the_prefix_state, test_token_by_t
 S7 DSA: incomplete tail taken relative to the ubatch
     rc=1 Ran 58 tests in 4.632s | FAILED (failures=43)
+    property failing: test_carried_state, test_chunks_and_decode, test_rollback_leaves_the_prefix_state, test_token_by_t
 S8 DSA: pool visibility relative to the ubatch
     rc=1 Ran 16 tests in 1.861s | FAILED (failures=7, errors=10)
+    property failing: test_carried_state, test_chunks_and_decode, test_rollback_leaves_the_prefix_state, test_token_by_t
 S9 rollback: KDA conv history and state not rolled back (state after the rejected tokens)
     rc=1 Ran 58 tests in 6.245s | FAILED (failures=7)
+    property failing: test_rollback_leaves_the_prefix_state
 S10 rollback: MLA latent / indexer cache not rolled back (rejected cells kept)
     rc=1 Ran 58 tests in 6.714s | FAILED (failures=7)
+    property failing: test_rollback_leaves_the_prefix_state
 T1 MTP: eh_proj input concatenated as [h ; e] instead of [e ; h]
     rc=1 Ran 58 tests in 6.397s | FAILED (failures=4)
+    property failing: none
 T2 MTP: FFN residual taken from the normed input instead of eh_proj
     rc=1 Ran 58 tests in 6.564s | FAILED (failures=4)
+    property failing: none
 U1 test: gather-path tail slot live one cell too far (k <= n_tail)
     rc=0 Ran 58 tests in 6.392s | OK
+    property failing: none
 U2 test: k-pool padding rule of the other pin
     rc=1 Ran 58 tests in 6.108s | FAILED (failures=3)
+    property failing: none
 U3 test: MTP token p paired with the target h of p instead of p-1
     rc=1 Ran 58 tests in 6.770s | FAILED (failures=4)
+    property failing: none
 caught 14/15; caught by the dump parity tests alone 14/15
 ```
 
