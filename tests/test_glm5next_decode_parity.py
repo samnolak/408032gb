@@ -30,7 +30,7 @@ Pin differences the test follows (PARITY_LLAMA_COMMIT):
     selected latents (indexer_sel_idx, kv_gathered, kq_soft_max_gathered, kqv_gathered; G:883-886, 971-996) instead
     of the additive mask over all cells (kq_mask_dsa, G:889-918, 998-1005). 79e2e74 has only the mask path
     (G:990-1078 @79e2e74). The gather path's dead slots (pools not yet visible, missing tail cells) are masked by a
-    host-side mask (M:875-883, 986-1001, 1020-1036) that is not dumped: the test derives it from the rule and checks
+    host-side mask (M:875-883, 978-1011, 1013-1037) that is not dumped: the test derives it from the rule and checks
     it against the dumped softmax (exactly 0 on dead slots).
   * the padding rows of indexer_pool_k_new: ec7630a re-pools one shared cell (the first member of pool 0 if a pool
     is new, else the first token of the ubatch, M:947-967); 79e2e74 gives every padded entry its own cell, the
