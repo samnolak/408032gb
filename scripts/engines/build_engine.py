@@ -51,7 +51,34 @@ def subst(flags, values):
     return out
 
 
-def plan(name, pin, arch, nvcc, src_root, build_root, jobs, generator, extra=()):
+# torch-extension builds (pins.json "kind": "torch-extension", e.g. ExLlamaV3): the extension's ABI is tied to the
+# torch version and its CUDA, so the build environment is checked against the pin before compiling
+TORCH_CHECK = ("import sys, torch; v, c = torch.__version__.split('+')[0], torch.version.cuda or ''; "
+               "print('torch', torch.__version__, 'cuda', c or None); "
+               "sys.exit(0 if v == sys.argv[1] and (c + '.').startswith(sys.argv[2] + '.') else 1)")
+UNPACK = ("import glob, os, sys, zipfile; w = sorted(glob.glob(os.path.join(sys.argv[1], '*.whl'))); "
+          "assert len(w) == 1, 'expected one wheel, found %r' % w; z = zipfile.ZipFile(w[0]); "
+          "n = [x for x in z.namelist() if x.startswith(sys.argv[3] + '.') and x.endswith('.so')]; "
+          "assert len(n) == 1, 'expected one %s*.so in the wheel, found %r' % (sys.argv[3], n); "
+          "os.makedirs(sys.argv[2], exist_ok=True); "
+          "open(os.path.join(sys.argv[2], sys.argv[3] + '.so'), 'wb').write(z.read(n[0])); print(w[0], '->', n[0])")
+
+
+def torch_extension_steps(pin, arch, nvcc, cuda_root, src, build, jobs, python):
+    """Build the pinned Python package as a wheel with its CUDA extension for one architecture, then unpack the
+    extension to <build>/ext/<target>.so for the cubin check. The torch/CUDA pair comes from pins.json."""
+    py = pin["python"]
+    target = pin["targets"][0]
+    env = ["env", "TORCH_CUDA_ARCH_LIST=%d.%d" % divmod(arch, 10), "CUDA_HOME=" + cuda_root, "PYTORCH_NVCC=" + nvcc,
+           "MAX_JOBS=%d" % jobs] + ["%s=%s" % kv for kv in sorted((py.get("env") or {}).items())]
+    return [("check torch %s with CUDA %s" % (py["torch"], py["cuda"]), [python, "-c", TORCH_CHECK, py["torch"], py["cuda"]]),
+            ("build wheel", env + [python, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
+                                   "-w", os.path.join(build, "dist"), src]),
+            ("unpack %s" % target, [python, "-c", UNPACK, os.path.join(build, "dist"), os.path.join(build, "ext"),
+                                    target])]
+
+
+def plan(name, pin, arch, nvcc, src_root, build_root, jobs, generator, extra=(), python=None):
     """The list of (description, argv) steps for one engine."""
     src = os.path.join(src_root, name)
     build = os.path.join(build_root, name)
@@ -64,6 +91,11 @@ def plan(name, pin, arch, nvcc, src_root, build_root, jobs, generator, extra=())
         values["DEP_" + dep.upper()] = ddir
         steps += [("fetch dependency %s @ %s" % (dep, d["sha"][:12]), c) for c in fetch_cmds(d["repo"], d["sha"], ddir)]
     steps += [("fetch %s @ %s" % (name, pin["sha"][:12]), c) for c in fetch_cmds(pin["repo"], pin["sha"], src)]
+    if pin.get("kind") == "torch-extension":
+        if extra:
+            raise ValueError("--extra-cmake does not apply to a torch-extension build")
+        steps += torch_extension_steps(pin, arch, nvcc, cuda_root, src, build, jobs, python or sys.executable)
+        return steps, src, build
     gen = ["-G", "Ninja"] if generator == "ninja" else []
     steps.append(("configure", ["cmake", *gen, "-S", src, "-B", build, *subst(pin["cmake"], values), *extra]))
     steps.append(("build", ["cmake", "--build", build, "-j", str(jobs), "--target", *pin["targets"]]))
@@ -97,7 +129,8 @@ def built_files(build):
             continue
         for f in files:
             p = os.path.join(dirpath, f)
-            if (".so" in f or os.access(p, os.X_OK)) and os.path.isfile(p) and not f.endswith((".sh", ".py", ".cmake")):
+            if (".so" in f or f.endswith(".whl") or os.access(p, os.X_OK)) and os.path.isfile(p) \
+                    and not f.endswith((".sh", ".py", ".cmake")):
                 out.append(p)
     return sorted(out)
 
@@ -129,6 +162,8 @@ def main(argv=None):
     ap.add_argument("--pins", default=PINS)
     ap.add_argument("--extra-cmake", action="append", default=[],
                     help="extra -D flag appended to the pinned ones (recorded in build-info.json); repeatable")
+    ap.add_argument("--python", default=sys.executable,
+                    help="torch-extension builds: the interpreter with the pinned torch, setuptools, wheel and ninja")
     ap.add_argument("--plan", action="store_true", help="print the commands and exit without running anything")
     a = ap.parse_args(argv)
     pins = load_pins(a.pins)
@@ -138,7 +173,12 @@ def main(argv=None):
     pin = pins[a.engine]
     gen = a.generator if a.generator != "auto" else ("ninja" if shutil.which("ninja") else "make")
     src_root, build_root = os.path.abspath(a.src_root), os.path.abspath(a.build_root)
-    steps, src, build = plan(a.engine, pin, a.arch, a.nvcc, src_root, build_root, a.jobs, gen, a.extra_cmake)
+    try:
+        steps, src, build = plan(a.engine, pin, a.arch, a.nvcc, src_root, build_root, a.jobs, gen, a.extra_cmake,
+                                 a.python)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
     if a.plan:
         print("# plan for %s @ %s, sm_%d (nothing is run)" % (a.engine, pin["sha"], a.arch))
         for desc, argv_ in steps:
@@ -151,6 +191,8 @@ def main(argv=None):
             "nvcc": a.nvcc, "nvcc_version": nvcc_version(a.nvcc), "generator": gen, "extra_cmake": a.extra_cmake,
             "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
             "steps": [], "status": "running"}
+    if pin.get("kind") == "torch-extension":
+        info.update(kind="torch-extension", python=a.python, python_pin=pin["python"], generator=None)
     with open(log_path, "w") as log:
         for desc, argv_ in steps:
             if desc.startswith("fetch") and argv_[1] == "init" and os.path.isdir(os.path.join(argv_[-1], ".git")):

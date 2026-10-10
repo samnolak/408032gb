@@ -766,7 +766,10 @@ class PinnedBuild(unittest.TestCase):
                 self.assertFalse(bc[0]["skip"], bc[0])
                 self.assertIn(pins[e["pin"]]["sha"], bc[0]["text"])
                 self.assertIn(pins[e["pin"]]["sha"], p["engine_desc"])
-        self.assertEqual(used, set(pins), "every pinned engine has an R1 template and every template a pinned engine")
+        # every template has a pinned engine; every pinned engine has a template or says why not ("r1_template")
+        noted = {k for k, p in pins.items() if p.get("r1_template")}
+        self.assertEqual(used | noted, set(pins))
+        self.assertFalse(used & noted, "an engine with an R1 template must not say it has none")
 
 
 if __name__ == "__main__":
