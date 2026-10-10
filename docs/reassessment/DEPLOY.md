@@ -60,7 +60,7 @@ ExecStart=/srv/llm/engines/current-llamacpp/bin/llama-server \
   --host 127.0.0.1 --port 8080 \
   -c <CTX> -np 1 -ngl all -sm <layer|row> -ts <T0,T1,T2,T3> -fa on \
   <-ot/-ncmoe/--moe-cache-mib из R1> \
-  --jinja --metrics --cache-reuse 256 \
+  --jinja --metrics \
   --slot-save-path /srv/llm/state/slots
 Restart=on-failure
 RestartSec=10
@@ -70,6 +70,10 @@ StandardError=append:/srv/llm/logs/engine/engine.log
 [Install]
 WantedBy=multi-user.target
 ```
+Без `--cache-reuse`: на пине 79e2e74 для qwen4exp сервер его отключает (IMRoPE: `get_can_shift()` ложно,
+`src/llama-kv-cache.cpp:1208-1217`, `tools/server/server-context.cpp:1318-1327`), для glm5-next он сдвигает KV и всё равно
+пересчитывает промпт (CONFIRMED на CPU в N7: `docs/evidence/2026-10-10-n7-server-hybrid-cpu.md`, находка 5, ветка
+`claude/n7-server-hybrid-cpu`); префикс у гибридных моделей переиспользуется через контрольные точки контекста.
 `<CTX>`: для требования «≥ 262 144 используемых токенов + вывод» окно должно быть больше 262 144 на бюджет вывода, если модель это
 позволяет (YaRN/rope-scaling — только с замером проб K1 на этой длине, см. `BRINGUP-qwen38fn.md` «Окно контекста»).
 
