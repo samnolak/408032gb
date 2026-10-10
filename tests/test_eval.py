@@ -6,6 +6,7 @@ answers, tool-calling sequences (right, wrong arguments, wrong order, forbidden 
 transport faults (must be request errors, never model failures). Nothing here says anything about a model.
 """
 import contextlib
+import copy
 import io
 import json
 import os
@@ -479,6 +480,18 @@ class ToolScoring(unittest.TestCase):
         self.assertIn("turn limit", limit["reason"])
         self.assertEqual(limit["status"], "fail")
 
+    def test_turn_limit_alone_fails(self):
+        # mutation M8 (turn limit counted as OK) survived until this test: every other turn-limit case
+        # also failed another sub-check (final answer, max_calls)
+        t = copy.copy(self.T)
+        t.check = {k: v for k, v in self.T.check.items() if k not in ("final_answer", "max_calls")}
+        calls = self.calls(("get_order", {"order_id": "A-1027"}), ("issue_refund", {"order_id": "A-1027", "amount": 12.5}))
+        done = ev_scoring.grade_tool_use(t, calls, "anything", False)
+        self.assertEqual(done["status"], "pass", done["reason"])
+        looped = ev_scoring.grade_tool_use(t, calls, None, True)
+        self.assertEqual(looped["status"], "fail")
+        self.assertEqual(looped["reason"], "turn limit 6 reached; failed: turn_limit")
+
 
 # ---------------------------------------------------------------------------- task files
 class TaskFiles(unittest.TestCase):
@@ -602,6 +615,7 @@ class EndToEnd(RunCase):
                 self.assertFalse(tool_rows[0]["args_valid"])
             if name == "endless":
                 self.assertIn("turn limit 6 reached", row["reason"])
+                self.assertIn("turn_limit", row["reason"].split("failed: ", 1)[1])
                 self.assertEqual(row["n_requests"], 6)
 
     def test_request_errors_are_recorded_separately(self):
