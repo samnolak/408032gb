@@ -212,8 +212,10 @@ defaults (f16 fa-on)   2.41e-05    2.29e-05    0           2.38e-07    | 32, 3e-
    (`reusing chunk with size 104, shifting KV cache [80, 184) -> [64, 168)`, logged at TRACE) and then, since no
    checkpoint covers the new position, forces full re-processing; answer equal to cold, reused 0. The R1 templates
    `scripts/r1/configs/llamacpp-server.json:37`, `llamacpp-server-moecache.json:39` and `docs/reassessment/DEPLOY.md:63`
-   pass `--cache-reuse 256`. Recommendation to the lead (not changed here — those files belong to PR #1): drop it for
-   hybrid models or record that it is inert; correctness is not at risk on this evidence.
+   pass `--cache-reuse 256` (line numbers at `3f07850`). Recommendation to the lead (not changed here — those files belong
+   to PR #1): drop it for hybrid models or record that it is inert; correctness is not at risk on this evidence.
+   Follow-up: PR #1 dropped the flag from both templates, `DEPLOY.md` and `BENCH_PROTOCOL.md` in `bf1a72b`, citing this
+   finding; that commit is in this branch since the merge `9a48ed5`.
 6. **Slot save/restore, also across a server restart, gives the identical continuation** (CONFIRMED, CPU):
    `slot_persist.run_once` identical; after save → stop → new process → restore, same tokens with |d| = 0. The same
    prompt then re-processes only 4 tokens: the slot file carries the context checkpoints as an appendix
