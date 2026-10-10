@@ -7,6 +7,8 @@
 // Same capture hook as expert_trace.cpp (params.cb_eval); llama.cpp is not edited. Tensor names at ec7630a:
 // src/llama-graph.cpp:2051 `ffn_moe_logits`, :2134 `ffn_moe_topk`; `ffn_norm` is the router input in qwen3moe.cpp:134,
 // deepseek2.cpp:644, glm5-next.cpp:614 (the self-check in predict_eval.py verifies W_l x_l == logits_l per model).
+// Architectures without a `ffn_norm` callback before the router (e.g. qwen4exp) are reported as an inconsistent
+// capture (n_embd=-1). Every prompt token is a batch output (prompt_batch below), as in expert_trace.cpp.
 //
 // Usage (environment as expert_trace.cpp, plus):
 //   G0_PROBE_TAIL=256   prompt tokens recorded before generation starts (default 256; all prompt tokens if larger)
@@ -124,7 +126,20 @@ static void put_u32(std::ofstream & o, uint32_t v) {
     o.write(reinterpret_cast<const char *>(b), 4);
 }
 
-int main(int argc, char ** argv) {
+
+// Every prompt token is an output. With only the last token as output (common_batch_get_one), the model graphs drop
+// the other rows before the last layer's FFN (`if (il == n_layer - 1 && inp_out_ids) cur = ggml_get_rows(...)`,
+// e.g. src/models/qwen3moe.cpp:123-125 and deepseek2.cpp:636-638 @ec7630a), so the last MoE layer would see one row
+// per prompt batch instead of n. Asking for all outputs keeps all rows; the routing itself is unchanged.
+static common_batch prompt_batch(llama_context * ctx, const llama_token * tokens, int32_t n) {
+    common_batch batch = common_batch_get_one(ctx, tokens, n);
+    for (int32_t j = 0; j < n; ++j) {
+        batch.set_output(j, true);
+    }
+    return batch;
+}
+
+static int run(int argc, char ** argv) {
     std::setlocale(LC_NUMERIC, "C");
     const char * traces_dir = std::getenv("G0_TRACES_DIR");
     const char * out_dir = std::getenv("G0_OUT_DIR");
@@ -199,7 +214,7 @@ int main(int argc, char ** argv) {
         for (int32_t i = 0; i < n_prompt; i += n_batch) {
             const int32_t n = std::min(n_batch, n_prompt - i);
             st.pos0 = i;   // -b == -ub: one graph per call, rows are tokens i .. i+n-1
-            common_batch batch = common_batch_get_one(ctx, tokens.data() + i, n);
+            common_batch batch = prompt_batch(ctx, tokens.data() + i, n);
             if (llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get())) {
                 LOG_ERR("decode failed on %s at token %d\n", path.c_str(), i);
                 return 1;
@@ -261,4 +276,11 @@ int main(int argc, char ** argv) {
     }
     llama_backend_free();
     return 0;
+}
+
+int main(int argc, char ** argv) {
+    const int rc = run(argc, argv);
+    // the logger is asynchronous: without a flush, an error logged just before `return 1` can be lost
+    common_log_flush(common_log_main());
+    return rc;
 }

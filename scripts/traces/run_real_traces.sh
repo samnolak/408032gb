@@ -21,6 +21,8 @@ GEN=$(q "r['gen_tokens']"); HOLD=$(q "r['probe']['holdout_every']"); TAIL=$(q "r
 NPROMPTS=$(q "r['corpus']['n']"); MAXC=$(q "r['corpus']['max_chars']")
 rm -rf "$WORK" && mkdir -p "$WORK"/{model,prompts,ids,traces,train,test,probes} "$OUT"
 NT=$(nproc)
+# run a step with its full output in a log; on failure show the log's tail and stop (never filter errors away)
+logged() { local log=$1; shift; "$@" > "$log" 2>&1 || { echo "FAILED ($?): $*" >&2; tail -n 40 "$log" >&2; exit 1; }; }
 
 echo "== $NAME: download"
 python3 "$ROOT/scripts/traces/fetch_hf_gguf.py" --repo "$(q "m['hf_repo']")" --regex "$(q "m['file_regex']")" \
@@ -45,8 +47,9 @@ python3 "$ROOT/scripts/traces/render_ids.py" --url http://127.0.0.1:18765 --prom
 kill "$SPID"; wait "$SPID" || true
 
 echo "== $NAME: routing traces (prompt + $GEN generated tokens)"
-G0_TRACES_DIR="$WORK/ids" G0_OUT_DIR="$WORK/traces" G0_GEN_TOKENS="$GEN" "$G0/g0-expert-trace" -m "$MODEL" \
-  -c 8192 -b 512 -ub 512 -t "$NT" 2>&1 | grep -E "generated|ERR|error" || true
+logged "$WORK/trace.log" env G0_TRACES_DIR="$WORK/ids" G0_OUT_DIR="$WORK/traces" G0_GEN_TOKENS="$GEN" \
+  "$G0/g0-expert-trace" -m "$MODEL" -c 8192 -b 512 -ub 512 -t "$NT"
+grep -E "generated tokens" "$WORK/trace.log" | sed 's/ -> .*//' | tee "$OUT/trace.txt"
 i=0
 for f in "$WORK/ids"/*.ids; do   # bash globs are sorted
   b=$(basename "$f" .ids)
@@ -55,8 +58,9 @@ for f in "$WORK/ids"/*.ids; do   # bash globs are sorted
 done
 
 echo "== $NAME: expert-prediction probe on held-out conversations"
-G0_TRACES_DIR="$WORK/test" G0_OUT_DIR="$WORK/probes" G0_GEN_TOKENS="$GEN" G0_PROBE_TAIL="$TAIL" "$G0/g0-expert-probe" \
-  -m "$MODEL" -c 8192 -b 512 -ub 512 -t "$NT" 2>&1 | grep -E "recorded|ERR|error" || true
+logged "$WORK/probe.log" env G0_TRACES_DIR="$WORK/test" G0_OUT_DIR="$WORK/probes" G0_GEN_TOKENS="$GEN" \
+  G0_PROBE_TAIL="$TAIL" "$G0/g0-expert-probe" -m "$MODEL" -c 8192 -b 512 -ub 512 -t "$NT"
+grep -E "recorded" "$WORK/probe.log" | sed 's/ -> .*//' | tee "$OUT/probe.txt"
 PYTHONPATH="$LLAMA/gguf-py" python3 "$ROOT/tools/g0/predict_eval.py" "$WORK/probes" --gguf "$MODEL" \
   --train-traces "$WORK/train" --check-traces "$WORK/traces" -o "$OUT/predict.json" | tee "$OUT/predict.txt"
 

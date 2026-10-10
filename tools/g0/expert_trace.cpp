@@ -8,7 +8,7 @@
 //   G0_TRACES_DIR=traces/ G0_OUT_DIR=out/ G0_GEN_TOKENS=256 ./g0-expert-trace -m model.gguf -ngl 99 -c 65536 -b 2048
 // For every *.txt (text, tokenized by the model) or *.ids (token ids separated by commas or whitespace; exact and
 // reproducible, and usable with test models that have no real tokenizer) in G0_TRACES_DIR: clear the context, feed
-// the prompt in n_batch chunks, then generate
+// the prompt in n_batch chunks (every prompt token a batch output, see prompt_batch), then generate
 // G0_GEN_TOKENS tokens greedily (argmax, stops at end-of-generation), and write G0_OUT_DIR/<file>.trace:
 //   b"G0TR", u32 version=1, u32 n_layers, u32 k, u32 n_tokens, u32 n_prompt, u32 layer_ids[n_layers],
 //   then n_tokens x n_layers x k u16 expert ids (token-major).
@@ -92,7 +92,20 @@ static void put_u32(std::ofstream & o, uint32_t v) {
     o.write(reinterpret_cast<const char *>(b), 4);
 }
 
-int main(int argc, char ** argv) {
+
+// Every prompt token is an output. With only the last token as output (common_batch_get_one), the model graphs drop
+// the other rows before the last layer's FFN (`if (il == n_layer - 1 && inp_out_ids) cur = ggml_get_rows(...)`,
+// e.g. src/models/qwen3moe.cpp:123-125 and deepseek2.cpp:636-638 @ec7630a), so the last MoE layer would see one row
+// per prompt batch instead of n. Asking for all outputs keeps all rows; the routing itself is unchanged.
+static common_batch prompt_batch(llama_context * ctx, const llama_token * tokens, int32_t n) {
+    common_batch batch = common_batch_get_one(ctx, tokens, n);
+    for (int32_t j = 0; j < n; ++j) {
+        batch.set_output(j, true);
+    }
+    return batch;
+}
+
+static int run(int argc, char ** argv) {
     std::setlocale(LC_NUMERIC, "C");
     const char * traces_dir = std::getenv("G0_TRACES_DIR");
     const char * out_dir = std::getenv("G0_OUT_DIR");
@@ -181,7 +194,7 @@ int main(int argc, char ** argv) {
         const int32_t n_batch = params.n_batch;
         for (int32_t i = 0; i < n_prompt; i += n_batch) {
             const int32_t n = std::min(n_batch, n_prompt - i);
-            common_batch batch = common_batch_get_one(ctx, tokens.data() + i, n);
+            common_batch batch = prompt_batch(ctx, tokens.data() + i, n);
             if (llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get())) {
                 LOG_ERR("decode failed on %s at token %d\n", path.c_str(), i);
                 return 1;
@@ -244,4 +257,11 @@ int main(int argc, char ** argv) {
     }
     llama_backend_free();
     return 0;
+}
+
+int main(int argc, char ** argv) {
+    const int rc = run(argc, argv);
+    // the logger is asynchronous: without a flush, an error logged just before `return 1` can be lost
+    common_log_flush(common_log_main());
+    return rc;
 }
