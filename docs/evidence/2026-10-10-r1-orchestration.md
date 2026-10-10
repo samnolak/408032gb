@@ -559,7 +559,7 @@ Ran 32 tests in 11.433s
 
 OK (skipped=1)
 ```
-Мутационная проверка ведущим (скрипт вне репозитория, копия `git ls-files -co` во временном каталоге, одна правка за
+Мутационная проверка в сессии ведущего (скрипт `docs/evidence/mutation-scripts/2026-10-10-r1-build-check.py`, копия `git ls-files -co` во временном каталоге, одна правка за
 прогон, тесты `tests.test_r1_orchestration tests.test_engines_build`):
 ```
 baseline                             rc=0 ok       OK (skipped=1)

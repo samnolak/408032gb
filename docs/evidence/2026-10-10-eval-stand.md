@@ -806,7 +806,7 @@ Ran 3 tests in 2.200s
 
 OK
 ```
-Мутационная проверка ведущим (скрипт вне репозитория, копия `tools/` и `tests/` во временном каталоге, одна правка
+Мутационная проверка в сессии ведущего (скрипт `docs/evidence/mutation-scripts/2026-10-10-gateway-eval.py`, копия `tools/` и `tests/` во временном каталоге, одна правка
 `tools/gateway/gateway.py` за прогон, правка вставляется сразу после `apply_defaults` и переписывает пересылаемое тело):
 ```
 baseline                 rc=0 ok       OK
@@ -816,8 +816,8 @@ G3 force non-stream      rc=1 caught   FAILED (failures=3)
 G4 drop tool messages    rc=1 caught   FAILED (failures=1)
 G5 inject temperature    rc=1 caught   FAILED (failures=1)
 ```
-Полный набор после добавления (два лишних пропуска против прошлого прогона — `test_shellcheck` и `test_compile_sm89`, в этом
-прогоне не заданы `SHELLCHECK`/`NVCC`; с ними оба зелёные, вывод ниже):
+Полный набор после добавления (среди 40 пропусков — `test_shellcheck` и `test_compile_sm89`: в этом прогоне не заданы
+`SHELLCHECK`/`NVCC`; с ними оба зелёные, вывод ниже):
 ```
 $ python3 -m unittest discover -s tests
 Ran 361 tests in 92.825s

@@ -68,3 +68,43 @@ cubins strata                                   sm_89
 `build-strata-sm89`). Вывод: на CUDA 13.0 все три движка R1 на пинах компилируются под sm_89 (CONFIRMED сборкой); работоспособность
 на RTX 4080 Super, скорость и корректность — NOT RUN до сервера. ExLlamaV3 (B5) сюда не входит: это расширение PyTorch, его сборка —
 отдельный шаг (NOT RUN).
+
+## ExLlamaV3 (B5): сборка расширения PyTorch под sm_89 (N6, 2026-10-10)
+Пин `exllamav3` @ `151539c77abc7ab7425d30da7a4e8e3c5c154e7b` (v1.6.0, `docs/reassessment/research/R2-engines.md:71,96`) с
+`"kind": "torch-extension"` в `tools/engines/pins.json`. Расширение `exllamav3_ext` собирает `torch.utils.cpp_extension`
+(`setup.py`@151539c), поэтому в пин входят torch 2.14.1 и его CUDA 13.0: по метаданным PyPI torch 2.14.1 требует
+`cuda-toolkit==13.0.3` (`https://pypi.org/pypi/torch/2.14.1/json`, прочитано 2026-10-10 — CONFIRMED по этому URL); nvcc берётся из
+того же pip-тулкита. Архитектура задаётся только `TORCH_CUDA_ARCH_LIST` (`exllamav3/util/arch_list.py`@151539c), скрипт ставит
+`8.9`. `scripts/engines/build_engine.py`: проверка версии torch/CUDA → `pip wheel --no-deps --no-build-isolation` →
+распаковка `exllamav3_ext*.so` из колеса в `ext/exllamav3_ext.so` → те же проверки cubin `sm_89` и `files_sha256` (колесо тоже
+хешируется). У движка нет шаблона R1 (`"r1_template"` в пине: TabbyAPI — AGPL-3.0, квант EXL3 ≥ 4 bpw — UNKNOWN до выбора весов).
+
+Первая локальная попытка (CONFIRMED, лог сборки в песочнице): без компонента `cccl` тулкита компиляция падает —
+```
+.../nvidia/cu13/include/cuda_fp16.h:4492:10: fatal error: nv/target: No such file or directory
+```
+поэтому в `python.install` пина стоит `cuda-toolkit[nvcc,cudart,cublas,cccl]==13.0.3`.
+
+Тесты пути torch-extension (план и поддельный тулкит; настоящий nvcc не вызывается):
+```
+$ python3 -m unittest tests.test_engines_build
+Ran 13 tests in 1.336s
+
+OK (skipped=1)
+```
+Мутационная проверка (`docs/evidence/mutation-scripts/2026-10-10-torch-extension-build.py`, код на `62afac2`):
+```
+baseline                             rc=0 ok       OK (skipped=1)
+T1 torch check step dropped          rc=1 caught   FAILED (failures=2, skipped=1)
+T2 arch list fixed to 8.6            rc=1 caught   FAILED (failures=2, skipped=1)
+T3 PYTORCH_NVCC not set              rc=1 caught   FAILED (failures=1, errors=1, skipped=1)
+T4 MAX_JOBS ignored                  rc=1 caught   FAILED (failures=2, skipped=1)
+T5 unpack takes any .so              rc=1 caught   FAILED (failures=1, skipped=1)
+T6 wheel not hashed                  rc=1 caught   FAILED (failures=1, skipped=1)
+T7 --extra-cmake accepted            rc=1 caught   FAILED (failures=1, skipped=1)
+T8 torch builds take the cmake path  rc=1 caught   FAILED (errors=5, skipped=1)
+T9 build isolation on                rc=1 caught   FAILED (failures=3, skipped=1)
+caught 9/9
+```
+Настоящая компиляция под sm_89 (локально, CUDA 13.0.3 из pip, 4 ядра): идёт — **NOT RUN** до её завершения; задание CI для
+`exllamav3` добавляется только после успешной локальной сборки. На GPU — NOT RUN.
