@@ -1021,7 +1021,8 @@ FAILED (failures=2, skipped=2)
 ```
 
 ## Добавленные тесты (только `tests/`, инструменты не менялись)
-Each test closes one SURVIVED mutation. Not committed (task constraint: no commit, no `git add`).
+Each test closes one SURVIVED mutation. The parity-qa agent did not commit them (task constraint); the lead committed them in
+`cf4e793`, before this file (`2ee1bb6`).
 - `tests/test_bench.py`
   - `Stats.test_uncached_prefill_subtracts_server_cached_tokens` (B10). Covers `uncached_prefill_tok_s` with
     `usage.prompt_tokens_details.cached_tokens`, with the llama.cpp `timings.cache_n` fallback, and with no cache report
@@ -1283,3 +1284,19 @@ M10 summarize.py synthetic flag ignored -> CAUGHT
 restored identical: True
 caught 10/10
 ```
+
+## scripts/diag: сборка CUDA-программ под sm_89 (аудит доказательств 2026-10-10, F8)
+
+До этого «компилируются под sm_89» опиралось на отчёт infra-ops без сохранённого вывода. Повтор ведущим 2026-10-10 на HEAD
+`abfdfd0` (файлы `scripts/diag/*.cu` с тех пор не менялись); nvcc из PyPI-колеса `nvidia-cuda-nvcc` в venv песочницы:
+```
+$ NVCC=<S>/venv/lib/python3.13/site-packages/nvidia/cu13/bin/nvcc python3 -m unittest -v tests.test_diag_kit   (grep compile_sm89|Ran|OK)
+test_compile_sm89 (tests.test_diag_kit.CudaCompile.test_compile_sm89) ... ok
+Ran 33 tests in 27.204s
+OK (skipped=1)
+$ nvcc --version | tail -2
+Cuda compilation tools, release 13.4, V13.4.92
+Build cuda_13.4.r13.4/compiler.38855100_0
+```
+Оставшийся пропуск — `test_shellcheck` (shellcheck не установлен). Запуск на GPU — NOT RUN (в песочнице GPU нет). Бинарник CUDA 13
+требует свежего драйвера; на сервере программы собираются его собственным nvcc (`HW_DIAG_RUNBOOK.md`).

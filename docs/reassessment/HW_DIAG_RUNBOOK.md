@@ -214,7 +214,7 @@ infra-ops от 2026-10-09. В песочнице не было большинс�
 | запрещённых команд в `scripts/diag/` нет; root-утилиты без root не вызываются; `nvidia-smi` вызывается только с разрешёнными аргументами; sudo только `-n` | CONFIRMED | там же (статический поиск + заглушки); 4 мутации пойманы (`--readonly` убран, `nvidia-smi -pm 1`, `dmidecode` без root, выдуманное число каналов) |
 | `bench_nvme.sh` пишет только новый тестовый файл, все чтения идут с `--readonly`, файл удаляется; сырой режим только читает | CONFIRMED **с заглушкой fio** | там же; настоящий fio в песочнице NOT RUN (не установлен) |
 | `membw.c` собирается (`gcc -fopenmp -Wall -Wextra -Werror`) и проходит самопроверку на маленьком массиве | CONFIRMED | там же |
-| `gpu_p2p_matrix.cu` и `gpu_vram_check.cu` собираются под `sm_89` (nvcc 13.4 из PyPI-колеса `nvidia-cuda-nvcc`) | CONFIRMED (сборка) | там же |
+| `gpu_p2p_matrix.cu` и `gpu_vram_check.cu` собираются под `sm_89` (nvcc 13.4 из PyPI-колеса `nvidia-cuda-nvcc`) | CONFIRMED (сборка) | `test_compile_sm89 ... ok` — литерально в `docs/evidence/2026-10-09-tool-mutations.md`, раздел «scripts/diag: сборка CUDA-программ» (повтор 2026-10-10) |
 | запуск CUDA-программ, их числа и поведение на 4 GPU | **NOT RUN** | в песочнице нет GPU |
 | форматы вывода `dmidecode`, `nvidia-smi`, `nvme-cli`, `ipmitool`, `fio`, по которым написан парсер | PROVISIONAL | в песочнице этих утилит нет; фикстуры воспроизводят формат по памяти автора; первый реальный архив — проверка парсера |
 | поведение `lspci`, `numactl`, `cpupower`, `edac-util`, `ras-mc-ctl`, `qm`, `zpool`, `mdadm` | NOT RUN (проверены только вызовы через заглушки) | в песочнице не установлены |
