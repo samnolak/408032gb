@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook for Bash: blocks pushes (sync is by git bundle, AGENTS.md) and
-# history rewrites. Reads the hook JSON on stdin; exit 2 blocks the call.
-cmd=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("tool_input",{}).get("command",""))' 2>/dev/null)
-if printf '%s' "$cmd" | grep -Eq '(^|[;&|[:space:]])git[[:space:]]+push([[:space:]]|$)'; then
-  echo "Blocked: no git push from agents. Sync is by git bundle (skill bundle-sync)." >&2
-  exit 2
-fi
-if printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+(reset[[:space:]]+--hard|push[[:space:]].*--force|filter-branch|rebase[[:space:]]+-i)'; then
-  echo "Blocked: history rewrite is not allowed (AGENTS.md, Git and sync)." >&2
-  exit 2
-fi
-exit 0
+# PreToolUse hook for Bash. Rules: scripts/hooks/guard_bash.py; policy: AGENTS.md "Git and sync" and
+# docs/reassessment/ADR-012.1-git-publication-policy.md. Exit 2 blocks the call; a guard that cannot run blocks too.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "$here/guard_bash.py" || exit 2
