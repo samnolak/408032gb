@@ -256,7 +256,7 @@ finalize() {
     echo "}"
   } > "$OUT/manifest.json"
 }
-# shellcheck disable=SC2329  # invoked through trap
+# shellcheck disable=SC2317,SC2329  # invoked through trap (0.9 reports SC2317, 0.10+ SC2329)
 on_signal() {
   say "interrupted: writing a partial manifest"
   finalize interrupted
