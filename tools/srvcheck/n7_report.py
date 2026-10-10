@@ -38,7 +38,8 @@ def lines(path):
                f"{sp['run_once']['warm']['prompt_n']} | restart: same_tokens {sp['cmp_restart']['same_tokens']} max|d| "
                f"{sp['cmp_restart']['max_abs_dlogprob']} warm prompt_n {sp['after_restart']['prompt_n']} | file "
                f"{sp['file_bytes']} B | exits {sp['server_exit']}")
-    out.append(f"isolation        overlap {iso['overlap_s']:.3f} s same_tokens {[c.get('same_tokens') for c in iso['cmp']]} "
+    out.append(f"isolation        server max_busy_slots {iso.get('max_busy_slots')} client overlap {iso['overlap_s']:.3f} s "
+               f"same_tokens {[c.get('same_tokens') for c in iso['cmp']]} "
                f"max|d| {[c.get('max_abs_dlogprob') for c in iso['cmp']]}")
     if "mtp" in r:
         m = r["mtp"]
