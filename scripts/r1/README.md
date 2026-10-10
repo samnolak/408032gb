@@ -19,8 +19,10 @@ UNKNOWN, NOT RUN.
 
 ```bash
 cd /srv/llm/repo                                    # клон репозитория (бандл), Python 3 без pip
-# 0. собрать движок на пине tools/engines/pins.json (N1) и указать на сборку ссылкой, которую ждёт шаблон
-python3 scripts/engines/build_engine.py --engine llama.cpp --arch 89 \
+# 0. собрать движок на пине tools/engines/pins.json (N1) и указать на сборку ссылкой, которую ждёт шаблон;
+#    на сервере без интернета исходники берутся из офлайн-набора (scripts/offline/engines.py pack на ПК, verify здесь)
+python3 scripts/offline/engines.py verify /srv/llm/kits/engines-<дата>
+python3 scripts/engines/build_engine.py --engine llama.cpp --arch 89 --offline-kit /srv/llm/kits/engines-<дата> \
     --src-root /srv/llm/engines-src --build-root /srv/llm/engines-build
 ln -sfn /srv/llm/engines-build/llama.cpp /srv/llm/engines/current-llamacpp
 # 1. выбрать шаблон, при необходимости скопировать и поправить пути/значения (или передать --set)

@@ -8,10 +8,11 @@ Pins, CMake flags, targets and expected binaries are in tools/engines/pins.json.
   python3 scripts/engines/build_engine.py --engine llama.cpp --arch 89 \
       --nvcc /usr/local/cuda-13.0/bin/nvcc --src-root ../engines-src --build-root ../engines-build
 
-Steps: fetch the pinned commit (and pinned dependencies) with a shallow fetch by SHA; configure with CMake (Ninja when
-available); build the listed targets; check that the expected binaries exist; list the cubins of every built binary
-and shared library with cuobjdump and require code for sm_<arch>; write <build>/build-info.json (engine, repository,
-SHA, nvcc version, flags, binaries, cubin architectures, sha256 of every built binary and library).
+Steps: fetch the pinned commit (and pinned dependencies) with a shallow fetch by SHA, or, on a host without internet,
+from the one-commit git bundles of an offline kit (--offline-kit, made by scripts/offline/engines.py pack); configure
+with CMake (Ninja when available); build the listed targets; check that the expected binaries exist; list the cubins
+of every built binary and shared library with cuobjdump and require code for sm_<arch>; write <build>/build-info.json
+(engine, repository, SHA, nvcc version, flags, binaries, cubin architectures, sha256 of every built binary and library).
 Exit 0 = built and verified, 1 = a step failed, 2 = usage.
 A build here says nothing about speed or correctness on the GPU: that is R1 on the server.
 """
@@ -34,7 +35,28 @@ def load_pins(path=PINS):
         return json.load(f)["engines"]
 
 
-def fetch_cmds(repo, sha, dest):
+# Offline kit (scripts/offline/engines.py): one-commit git bundles <kit>/sources/<key>.bundle with the ref
+# refs/pins/<key>, key = <engine> or <engine>-dep-<dep>. Such a bundle carries the pinned commit without its parents, so
+# the checkout first marks that commit as a shallow boundary (.git/shallow); git then accepts the fetch, and the commit
+# hash proves the content.
+KIT_REF = "refs/pins/%s"
+SHALLOW = "import os, sys; open(os.path.join(sys.argv[1], '.git', 'shallow'), 'w').write(sys.argv[2] + '\\n')"
+
+
+def kit_key(name, dep=None):
+    return name if dep is None else "%s-dep-%s" % (name, dep)
+
+
+def kit_bundle(kit, key):
+    return os.path.join(kit, "sources", key + ".bundle")
+
+
+def fetch_cmds(repo, sha, dest, kit=None, key=None):
+    if kit:
+        return [["git", "init", "-q", dest],
+                [sys.executable, "-c", SHALLOW, dest, sha],
+                ["git", "-C", dest, "fetch", "-q", kit_bundle(kit, key), KIT_REF % key],
+                ["git", "-C", dest, "checkout", "-q", "--detach", "FETCH_HEAD"]]
     return [["git", "init", "-q", dest],
             ["git", "-C", dest, "fetch", "-q", "--depth", "1", repo, sha],
             ["git", "-C", dest, "checkout", "-q", "--detach", "FETCH_HEAD"]]
@@ -92,7 +114,7 @@ def torch_extension_steps(pin, arch, nvcc, cuda_root, src, build, jobs, python):
                                     target])]
 
 
-def plan(name, pin, arch, nvcc, src_root, build_root, jobs, generator, extra=(), python=None):
+def plan(name, pin, arch, nvcc, src_root, build_root, jobs, generator, extra=(), python=None, kit=None):
     """The list of (description, argv) steps for one engine."""
     src = os.path.join(src_root, name)
     build = os.path.join(build_root, name)
@@ -103,8 +125,10 @@ def plan(name, pin, arch, nvcc, src_root, build_root, jobs, generator, extra=(),
     for dep, d in sorted((pin.get("deps") or {}).items()):
         ddir = os.path.join(src_root, "%s-dep-%s" % (name, dep))
         values["DEP_" + dep.upper()] = ddir
-        steps += [("fetch dependency %s @ %s" % (dep, d["sha"][:12]), c) for c in fetch_cmds(d["repo"], d["sha"], ddir)]
-    steps += [("fetch %s @ %s" % (name, pin["sha"][:12]), c) for c in fetch_cmds(pin["repo"], pin["sha"], src)]
+        steps += [("fetch dependency %s @ %s" % (dep, d["sha"][:12]), c)
+                  for c in fetch_cmds(d["repo"], d["sha"], ddir, kit, kit_key(name, dep))]
+    steps += [("fetch %s @ %s" % (name, pin["sha"][:12]), c)
+              for c in fetch_cmds(pin["repo"], pin["sha"], src, kit, kit_key(name))]
     if pin.get("kind") == "torch-extension":
         if extra:
             raise ValueError("--extra-cmake does not apply to a torch-extension build")
@@ -178,6 +202,8 @@ def main(argv=None):
                     help="extra -D flag appended to the pinned ones (recorded in build-info.json); repeatable")
     ap.add_argument("--python", default=sys.executable,
                     help="torch-extension builds: the interpreter with the pinned torch, setuptools, wheel and ninja")
+    ap.add_argument("--offline-kit", default=None, metavar="KIT",
+                    help="fetch the pinned sources from the git bundles of scripts/offline/engines.py pack (no network)")
     ap.add_argument("--plan", action="store_true", help="print the commands and exit without running anything")
     a = ap.parse_args(argv)
     pins = load_pins(a.pins)
@@ -187,9 +213,24 @@ def main(argv=None):
     pin = pins[a.engine]
     gen = a.generator if a.generator != "auto" else ("ninja" if shutil.which("ninja") else "make")
     src_root, build_root = os.path.abspath(a.src_root), os.path.abspath(a.build_root)
+    kit = os.path.abspath(a.offline_kit) if a.offline_kit else None
+    if kit:
+        try:
+            with open(os.path.join(kit, "manifest.json")) as f:
+                kit_pin = json.load(f)["engines"][a.engine]
+        except (OSError, ValueError, KeyError) as e:
+            print("offline kit %s has no entry for %s: %s" % (kit, a.engine, e), file=sys.stderr)
+            return 2
+        want = {kit_key(a.engine): pin["sha"]}
+        want.update({kit_key(a.engine, dep): d["sha"] for dep, d in (pin.get("deps") or {}).items()})
+        got = {k: v.get("sha") for k, v in (kit_pin.get("sources") or {}).items()}
+        if got != want:
+            print("offline kit %s was packed for other commits: %s, pins.json wants %s" % (kit, got, want),
+                  file=sys.stderr)
+            return 2
     try:
         steps, src, build = plan(a.engine, pin, a.arch, a.nvcc, src_root, build_root, a.jobs, gen, a.extra_cmake,
-                                 a.python)
+                                 a.python, kit)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -207,6 +248,8 @@ def main(argv=None):
             "steps": [], "status": "running"}
     if pin.get("kind") == "torch-extension":
         info.update(kind="torch-extension", python=a.python, python_pin=pin["python"], generator=None)
+    if kit:
+        info["offline_kit"] = kit
     with open(log_path, "w") as log:
         for desc, argv_ in steps:
             if desc.startswith("fetch") and argv_[1] == "init" and os.path.isdir(os.path.join(argv_[-1], ".git")):
@@ -221,6 +264,12 @@ def main(argv=None):
     if info["status"] == "running":
         head = subprocess.run(["git", "-C", src, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         info["checked_out"] = head
+        dep_heads = {dep: subprocess.run(["git", "-C", os.path.join(src_root, "%s-dep-%s" % (a.engine, dep)), "rev-parse",
+                                          "HEAD"], capture_output=True, text=True).stdout.strip()
+                     for dep in sorted(pin.get("deps") or {})}
+        info["deps_checked_out"] = dep_heads
+        bad_deps = ["%s checked out %s, pinned %s" % (dep, h, pin["deps"][dep]["sha"])
+                    for dep, h in dep_heads.items() if h != pin["deps"][dep]["sha"]]
         missing = [b for b in pin["bins"] if not os.path.isfile(os.path.join(build, b))]
         cuobjdump = shutil.which("cuobjdump") or (os.path.join(os.path.dirname(a.nvcc), "cuobjdump")
                                                  if os.path.isfile(os.path.join(os.path.dirname(a.nvcc), "cuobjdump"))
@@ -237,6 +286,8 @@ def main(argv=None):
         want = "sm_%d" % a.arch
         if head != pin["sha"]:
             info["status"] = "failed: checked out %s, pinned %s" % (head, pin["sha"])
+        elif bad_deps:
+            info["status"] = "failed: dependency " + "; ".join(bad_deps)
         elif missing:
             info["status"] = "failed: missing binaries " + ", ".join(missing)
         elif cuobjdump and not any(want in v for v in archs.values()):
