@@ -6,9 +6,14 @@ name: engines-sm89
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths: [tools/engines/**, scripts/engines/**, .github/workflows/engines-sm89.yml]
   pull_request:
     paths: [tools/engines/**, scripts/engines/**, .github/workflows/engines-sm89.yml]
+# one 15-30 minute build matrix per PR or branch at a time: a newer push cancels the older run
+concurrency:
+  group: engines-sm89-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-24.04
