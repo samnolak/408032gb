@@ -1,0 +1,134 @@
+{
+ "system": "You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(path), run(command), apply_patch(diff). Think briefly, then act. Keep answers short and precise; never invent file contents or test results.",
+ "conversations": [
+  {
+   "name": "c00_en_cachesim_py",
+   "source": "tools/g0/cachesim.py",
+   "lang": "en",
+   "source_bytes": 20009,
+   "source_sha256": "8f76a70c0beae5e16e05df719b437a96e2655958d0f52cc7aa31b9060a3aad3f",
+   "chars_used": 7000
+  },
+  {
+   "name": "c01_en_roofline_py",
+   "source": "tools/roofline.py",
+   "lang": "en",
+   "source_bytes": 22754,
+   "source_sha256": "67ca3e9fcf6a9c1eb86b1f1c5fa6a97536940822a363371aa7a07fc26b088b62",
+   "chars_used": 7000
+  },
+  {
+   "name": "c02_en_gateway_py",
+   "source": "tools/gateway/gateway.py",
+   "lang": "en",
+   "source_bytes": 58551,
+   "source_sha256": "fe607938eef4d4da2c0838ae465bbd1dd2860c53fd81f4b4be893187748f114d",
+   "chars_used": 7000
+  },
+  {
+   "name": "c03_en_run_matrix_py",
+   "source": "tools/bench/run_matrix.py",
+   "lang": "en",
+   "source_bytes": 31488,
+   "source_sha256": "0efbccea1900e0d209981dea5e6313be42e8a7770a38ac38876370b5b84c753b",
+   "chars_used": 7000
+  },
+  {
+   "name": "c04_en_qwen4exp_py",
+   "source": "ref/qwen4exp.py",
+   "lang": "en",
+   "source_bytes": 42278,
+   "source_sha256": "e43f8337915fe3b32f45eaafe9ff8a48c9ab7e79e7fa6c2c5c381579cf34726f",
+   "chars_used": 7000
+  },
+  {
+   "name": "c05_en_dsa_py",
+   "source": "ref/dsa.py",
+   "lang": "en",
+   "source_bytes": 3451,
+   "source_sha256": "af1d409b9aa21aa07ae3c76a1a7a7ebba456dce1de739982d04fa2410437941d",
+   "chars_used": 3451
+  },
+  {
+   "name": "c06_en_expert_trace_cpp",
+   "source": "tools/g0/expert_trace.cpp",
+   "lang": "en",
+   "source_bytes": 11013,
+   "source_sha256": "211b0696b6a1e086a1b04f2f694c1d33060570d95039e189a507cdf8e25b6d08",
+   "chars_used": 7000
+  },
+  {
+   "name": "c07_en_slot_persist_py",
+   "source": "tools/kv/slot_persist.py",
+   "lang": "en",
+   "source_bytes": 5542,
+   "source_sha256": "25d9517a8ad2ae484eb4038a6f0343458234dde0b6fa3c58983a848c31eca7f8",
+   "chars_used": 5542
+  },
+  {
+   "name": "c08_en_run_eval_py",
+   "source": "tools/eval/run_eval.py",
+   "lang": "en",
+   "source_bytes": 27553,
+   "source_sha256": "ceaf9cf4c71915b901342896ac19ca9c041687b054a6b54b2b458b49c1918898",
+   "chars_used": 7000
+  },
+  {
+   "name": "c09_en_run_r1_py",
+   "source": "scripts/r1/run_r1.py",
+   "lang": "en",
+   "source_bytes": 81643,
+   "source_sha256": "5c7dbd769640ef9f584e624bb21d8e3f2748b5dbeca67aae84271336da72b907",
+   "chars_used": 7000
+  },
+  {
+   "name": "c10_en_pack_py",
+   "source": "tools/verify/pack.py",
+   "lang": "en",
+   "source_bytes": 89176,
+   "source_sha256": "5a6e5b20ae24b4a17d489e3f4899a49b01c07e163308df814ca8c9645f7f1e20",
+   "chars_used": 7000
+  },
+  {
+   "name": "c11_en_test_gateway_py",
+   "source": "tests/test_gateway.py",
+   "lang": "en",
+   "source_bytes": 36281,
+   "source_sha256": "02fb74d227c0790055bc48cc08e5611883ccaee1f5bc6b2b5380c3d456e54390",
+   "chars_used": 7000
+  },
+  {
+   "name": "c12_ru_ADR-012-reassessment_md",
+   "source": "docs/reassessment/ADR-012-reassessment.md",
+   "lang": "ru",
+   "source_bytes": 20402,
+   "source_sha256": "044272a1247e8b7b4b12b9dce6057dd574a4fd856e356ea4542c8d4bee1d8664",
+   "chars_used": 7000
+  },
+  {
+   "name": "c13_ru_ROADMAP_md",
+   "source": "docs/reassessment/ROADMAP.md",
+   "lang": "ru",
+   "source_bytes": 22184,
+   "source_sha256": "2090c611e23f8a8e56bd185eb3ee67f86767594874e958e16552c732f825ad9a",
+   "chars_used": 7000
+  },
+  {
+   "name": "c14_ru_kda_py",
+   "source": "ref/kda.py",
+   "lang": "ru",
+   "source_bytes": 3434,
+   "source_sha256": "a49af9c6e5187987c03c05af88a0ca9ac590e1903af21e3282ab457dcca066a2",
+   "chars_used": 3434
+  },
+  {
+   "name": "c15_ru_gguf_quant_audit_py",
+   "source": "tools/gguf_quant_audit.py",
+   "lang": "ru",
+   "source_bytes": 9793,
+   "source_sha256": "17212f31a81cd2e700b9fa85a5815624cc07e96b8b9b0ea24a12f10f72db75b2",
+   "chars_used": 7000
+  }
+ ],
+ "max_chars": 7000
+}

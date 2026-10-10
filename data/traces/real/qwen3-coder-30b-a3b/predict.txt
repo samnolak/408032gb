@@ -1,0 +1,15 @@
+{"router_logits_max_rel_err": 0.0002937946410384029, "selection_rule_match": 1.0, "gating": 1, "groups": [0, 0], "probe_equals_trace_rows": 1.0}
+pairs (token, layer l -> l+d) per row: see token_layer_pairs in the JSON; train traces: 12
+d   part   m    random  pregate      prev_token   popularity   transition   pregate+prev
+1   prompt 8    0.062   0.829        0.372        0.162        0.385        0.372       
+1   prompt 16   0.125   0.966        0.463        0.277        0.571        0.932       
+1   prompt 32   0.250   0.992        0.616        0.494        0.767        0.991       
+1   gen    8    0.062   0.858        0.471        0.194        0.440        0.471       
+1   gen    16   0.125   0.978        0.564        0.326        0.646        0.960       
+1   gen    32   0.250   0.994        0.698        0.540        0.835        0.994       
+2   prompt 8    0.062   0.763        0.376        0.163        -            0.376       
+2   prompt 16   0.125   0.927        0.467        0.279        -            0.890       
+2   prompt 32   0.250   0.978        0.621        0.497        -            0.978       
+2   gen    8    0.062   0.804        0.475        0.196        -            0.475       
+2   gen    16   0.125   0.953        0.568        0.328        -            0.934       
+2   gen    32   0.250   0.987        0.701        0.543        -            0.988       

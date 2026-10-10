@@ -1,0 +1,4 @@
+4.39.193.163 I c03_en_run_matrix_py.ids: 1946 prompt + 100 generated tokens, recorded 356 (from 1690), 48 MoE layers, k=8, n_embd=2048, n_expert=128
+8.08.315.363 I c07_en_slot_persist_py.ids: 1648 prompt + 128 generated tokens, recorded 384 (from 1392), 48 MoE layers, k=8, n_embd=2048, n_expert=128
+12.43.284.144 I c11_en_test_gateway_py.ids: 1845 prompt + 128 generated tokens, recorded 384 (from 1589), 48 MoE layers, k=8, n_embd=2048, n_expert=128
+20.01.064.859 I c15_ru_gguf_quant_audit_py.ids: 2609 prompt + 128 generated tokens, recorded 384 (from 2353), 48 MoE layers, k=8, n_embd=2048, n_expert=128
