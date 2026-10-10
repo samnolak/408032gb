@@ -7,7 +7,8 @@ EVERYTHING THESE TESTS PRODUCE IS MOCK / SYNTHETIC TEST DATA, NOT EVIDENCE about
 Covered: every config template plans with every variable substituted and the preregistered roofline prediction before
 the engine start; --plan runs nothing; a full mock run gives a complete run directory, journal and pack; failing steps
 are recorded and the rest still runs; the engine is always stopped (step failure, health timeout, early engine exit,
-exception, KeyboardInterrupt, real SIGINT/SIGTERM to the orchestrator process); SIGKILL after the stop timeout.
+exception, KeyboardInterrupt, real SIGINT/SIGTERM to the orchestrator process); SIGKILL after the stop timeout; a
+signal that arrives inside a shielded section (journal write, engine start/stop) is deferred, not lost.
 Run: python3 -m unittest tests.test_r1_orchestration -v   (from the repo root)
 """
 import contextlib
@@ -486,6 +487,26 @@ class FailurePaths(unittest.TestCase):
         with open(os.path.join(self.run_dir, "run.json")) as f:
             rj = json.load(f)
         self.assertEqual((rj["status"], rj["exit_code"], rj["interrupted_by"]), ("interrupted", 130, "SIGINT"))
+
+    def test_signal_in_a_shielded_section_is_deferred_not_lost(self):
+        orig = run_r1.Run.write_prereg
+
+        def signal_while_shielded(self_, it):
+            with self_.shielded():
+                os.kill(os.getpid(), signal.SIGTERM)      # arrives while the journal/engine would be in a shielded write
+            return orig(self_, it)
+        run_r1.Run.write_prereg = signal_while_shielded
+        try:
+            code, out, e = self.run_cfg(MOCK, "--set", "MOCK_MODEL_DIR=" + self.tmp,
+                                        "--only", "roofline_prediction,engine_start,health_wait")
+        finally:
+            run_r1.Run.write_prereg = orig
+        self.assertEqual(code, 128 + signal.SIGTERM, out)
+        # the deferred signal fires right after the next complete journal record (this item's "start")
+        self.assertEqual(e["roofline_prediction[record]"]["status"], "interrupted")
+        self.assertEqual(e["engine_start"]["status"], "skipped")              # and nothing after it starts
+        self.assertIn("interrupted by SIGTERM", e["engine_start"]["reason"])
+        self.assertNotIn("pid", e["engine_start"])
 
     def test_signal_to_the_orchestrator_process_stops_engine_and_tool(self):
         model = os.path.join(self.tmp, "model-SYNTHETIC")
