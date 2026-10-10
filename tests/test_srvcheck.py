@@ -119,6 +119,14 @@ class Harness(unittest.TestCase):
     def test_slot_crosstalk_is_caught(self):
         res = self.harness("crosstalk")
         self.assertEqual(self.failed(res), ["isolation_two_slots"])
+        self.assertEqual(res["isolation"]["max_busy_slots"], 2)
+
+    def test_serialized_server_is_no_isolation_evidence(self):
+        # one request at a time: answers are right, but nothing was decoded together; client-side overlap still > 0
+        res = self.harness("serial")
+        self.assertEqual(self.failed(res), ["isolation_two_slots"])
+        self.assertTrue(all(c["pass"] for c in res["isolation"]["cmp"]))
+        self.assertEqual(res["isolation"]["max_busy_slots"], 1)
         self.assertGreater(res["isolation"]["overlap_s"], 0)
 
     def test_nondeterministic_server_is_caught(self):

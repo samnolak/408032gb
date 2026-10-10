@@ -31,10 +31,12 @@ MUT = {
         '        restored = post(s2.url, "/slots/0?action=restore", {"filename": "n7-restart.bin"})',
         '        restored = None'),
     "M8 isolation runs the two requests one after the other": (
-        '        for t in ts:\n            t.start()\n        for t in ts:\n            t.join()',
-        '        for t in ts:\n            t.start()\n            t.join()'),
-    "M9 isolation does not require overlap": (
-        ' and out["overlap_s"] > 0 and', ' and'),
+        '        for t in ts:\n            t.start()\n        for t in ts:\n            t.join()\n        done.set()',
+        '        for t in ts:\n            t.start()\n            t.join()\n        done.set()'),
+    "M9 isolation does not require both slots busy at once": (
+        ' and out["max_busy_slots"] >= 2 and', ' and'),
+    "M15 isolation trusts client-side overlap instead of GET /slots": (
+        ' and out["max_busy_slots"] >= 2 and', ' and out["overlap_s"] > 0 and'),
     "M10 MTP pass without any draft": (
         '            and bool(out["on"].get("draft_n"))       # MTP actually drafted: otherwise nothing was tested',
         '            and True'),

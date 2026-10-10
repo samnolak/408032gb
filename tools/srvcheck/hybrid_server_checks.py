@@ -14,7 +14,9 @@ Risks for R1/R5 that a CPU run on a tiny random-weight model can settle (docs/re
   slot_persist   tools/kv/slot_persist.py run_once unchanged (save, erase, restore, same prompt again), plus a
                  restore into a freshly started server process (the K3 use: state on NVMe survives a restart);
   isolation      two slots (-np 2) decode two different prompts at the same time; each answer must equal the same
-                 prompt run alone on that server (multi-sequence isolation, GLM53-TZ.md section 4);
+                 prompt run alone on that server (multi-sequence isolation, GLM53-TZ.md section 4); the server itself
+                 must report both slots processing at once (GET /slots, is_processing), otherwise nothing proves that
+                 the two sequences were decoded together;
   mtp            the same prompt with and without the in-model MTP head (--spec-type draft-mtp): the server must
                  not crash (docs/evidence/2026-10-10-qwen4exp-decode-parity.md finding 12) and greedy output must
                  equal plain decoding; rejected drafts exercise the rollback of recurrent state in the server.
@@ -49,6 +51,11 @@ import slot_persist  # noqa: E402  (tools/kv/slot_persist.py, used unchanged)
 
 # reference precision contract of the CPU parity runs (f32 caches, no flash attention): N2/N6
 BASE_ARGS = ["-c", "1024", "-np", "1", "-t", "2", "-fa", "off", "-ctk", "f32", "-ctv", "f32", "--no-warmup"]
+
+
+def get(url, path, timeout=10):
+    with urllib.request.urlopen(url + path, timeout=timeout) as r:
+        return json.load(r)
 
 
 def free_port():
@@ -212,7 +219,7 @@ def check_isolation(binary, model, extra, prompts, gen, tol, workdir):
     if i is not None:
         del args[i:i + 2]
     srv = Server(binary, model, args + ["-np", "2"], os.path.join(workdir, "isolation.log"))
-    out = {"alone": [], "together": [None, None], "spans": [None, None]}
+    out = {"alone": [], "together": [None, None], "spans": [None, None], "max_busy_slots": 0, "slots_errors": []}
     try:
         for k, p in enumerate(prompts):
             erase(srv.url, 0)
@@ -230,19 +237,36 @@ def check_isolation(binary, model, extra, prompts, gen, tol, workdir):
                 errors.append(repr(e))
             out["spans"][k] = (t0, time.perf_counter())
 
+        done = threading.Event()
+
+        def poll():                              # what the server says, not what the client sees
+            while not done.is_set():
+                try:
+                    busy = sum(1 for s in get(srv.url, "/slots") if s.get("is_processing"))
+                    out["max_busy_slots"] = max(out["max_busy_slots"], busy)
+                except Exception as e:  # recorded; without /slots nothing proves concurrency
+                    if len(out["slots_errors"]) < 3:
+                        out["slots_errors"].append(repr(e))
+                time.sleep(0.005)
+
+        poller = threading.Thread(target=poll)
+        poller.start()
         ts = [threading.Thread(target=worker, args=(k,)) for k in range(2)]
         for t in ts:
             t.start()
         for t in ts:
             t.join()
+        done.set()
+        poller.join()
         out["errors"] = errors
     finally:
         out["exit"] = srv.stop()
     (a0, a1), (b0, b1) = out["spans"]
-    out["overlap_s"] = max(0.0, min(a1, b1) - max(a0, b0))   # > 0: the two requests really ran at the same time
+    out["overlap_s"] = max(0.0, min(a1, b1) - max(a0, b0))   # client side: both requests in flight (not proof)
     out["cmp"] = [compare(out["together"][k], out["alone"][k], tol) if out["together"][k] else {"pass": False}
                   for k in range(2)]
-    out["pass"] = not out["errors"] and out["exit"] == 0 and out["overlap_s"] > 0 and all(c["pass"] for c in out["cmp"])
+    out["pass"] = not out["errors"] and out["exit"] == 0 and out["max_busy_slots"] >= 2 and \
+        all(c["pass"] for c in out["cmp"])
     return out
 
 
@@ -403,7 +427,7 @@ def summary(res):
                         "reused_tokens": cr["reused_tokens"], "flag_disabled": cr["flag_disabled"],
                         "chunk_shifted": cr["chunk_shifted"], "forced_full_reprocess": cr["forced_full_reprocess"]}
     iso = res["isolation"]
-    s["isolation"] = {"pass": iso["pass"], "overlap_s": round(iso["overlap_s"], 3),
+    s["isolation"] = {"pass": iso["pass"], "overlap_s": round(iso["overlap_s"], 3), "max_busy_slots": iso["max_busy_slots"],
                       "same_tokens": [c.get("same_tokens") for c in iso["cmp"]],
                       "max_abs_dlogprob": [c.get("max_abs_dlogprob") for c in iso["cmp"]]}
     if "mtp" in res:

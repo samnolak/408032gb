@@ -19,7 +19,9 @@ Faults (env STUB_FAULT) imitate the bugs the checks must catch:
   shift_stale   a request with n_cache_reuse > 0 reuses its whole common prefix with a stale state (a KV shift
                 that the recurrent state did not follow)
   crosstalk     a completion that runs while another slot is busy is computed from a disturbed history
+  serial        completions are processed one at a time (a server that never decodes two slots together)
 Every slot (-np, default 1) has its own state; a completion takes 0.1 s, so two requests sent together overlap.
+GET /slots reports is_processing per slot, like llama-server.
 """
 import hashlib
 import json
@@ -46,6 +48,7 @@ SLOTS = [{"tokens": [], "state": [], "ckpt": []} for _ in range(int(arg("-np", "
 CALLS = {"n": 0}
 BUSY = set()
 LOCK = threading.Lock()
+SERIAL = threading.Lock()
 
 
 def scores(hist):
@@ -86,6 +89,9 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             return self.reply(200, {"status": "ok"})
+        if self.path == "/slots":
+            with LOCK:
+                return self.reply(200, [{"id": k, "is_processing": k in BUSY} for k in range(len(SLOTS))])
         return self.reply(404, {})
 
     def do_POST(self):
@@ -96,6 +102,8 @@ class H(BaseHTTPRequestHandler):
                 os._exit(139)
             k = body.get("id_slot", 0)
             STATE = SLOTS[k]
+            if FAULT == "serial":
+                SERIAL.acquire()
             with LOCK:
                 CALLS["n"] += 1
                 BUSY.add(k)
@@ -126,6 +134,8 @@ class H(BaseHTTPRequestHandler):
             STATE["ckpt"] = [len(p) - 4] if len(p) > 4 else []
             with LOCK:
                 BUSY.discard(k)
+            if FAULT == "serial":
+                SERIAL.release()
             timings = {"prompt_n": len(p) - reuse, "prompt_ms": 1.0, "predicted_n": len(toks), "predicted_ms": 1.0}
             if SPEC:
                 timings.update({"draft_n": 0 if FAULT == "mtp_nodraft" else len(toks),
