@@ -1,0 +1,18 @@
+{
+  "id": "SYNTHETIC-code_write-001",
+  "category": "code_write",
+  "synthetic": true,
+  "description": "SYNTHETIC: implement slugify(); the tests are hidden (copied in only at check time via check.overlay).",
+  "messages": [
+    {"role": "system", "content": "You are a careful software engineer working in a Python repository."},
+    {"role": "user", "content": "Implement slugify(text) in slug.py with exactly these rules:\n1. Remove diacritics from Latin letters (Unicode NFKD, then drop non-ASCII characters): 'Crème' -> 'Creme'.\n2. Lowercase.\n3. Every run of characters other than a-z and 0-9 becomes a single '-'.\n4. No leading or trailing '-'; a text with no letters or digits gives ''.\nExamples: 'Hello, World!' -> 'hello-world'; 'Release 2.0 notes' -> 'release-2-0-notes'.\nUse only the Python standard library.\n\nslug.py:\n```python\n{{file:slug.py}}```\n\n{{answer_protocol}}"}
+  ],
+  "fixture": "fixtures/slug",
+  "check": {
+    "type": "code_tests",
+    "command": ["{python}", "-m", "unittest", "-q"],
+    "timeout_s": 30,
+    "overlay": "hidden/slug"
+  },
+  "reference_answer": {"file": "reference/SYNTHETIC-code_write-001.md"}
+}

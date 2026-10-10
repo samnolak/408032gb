@@ -1,0 +1,36 @@
+{
+  "id": "SYNTHETIC-tool_use-003",
+  "category": "tool_use",
+  "synthetic": true,
+  "description": "SYNTHETIC: two lookups in any order through the builtin table lookup; placing an order is forbidden.",
+  "messages": [
+    {"role": "system", "content": "You are a warehouse assistant. Use the tools to look things up. Do not change anything."},
+    {"role": "user", "content": "Which of the two items KB-200 and KB-310 has more units in stock? Do not place any order. Finish with a line 'ANSWER: <sku>'."}
+  ],
+  "tools": [
+    {"type": "function", "function": {"name": "get_stock", "description": "Units in stock for a SKU.",
+      "parameters": {"type": "object", "properties": {"sku": {"type": "string"}}, "required": ["sku"]}}},
+    {"type": "function", "function": {"name": "place_order", "description": "Order more units of a SKU from the supplier.",
+      "parameters": {"type": "object", "properties": {"sku": {"type": "string"}, "qty": {"type": "integer", "minimum": 1}}, "required": ["sku", "qty"]}}}
+  ],
+  "tool_simulator": {
+    "builtins": {"get_stock": {"impl": "lookup", "key_arg": "sku", "table": {
+      "KB-200": {"sku": "KB-200", "units": 140, "warehouse": "north"},
+      "KB-310": {"sku": "KB-310", "units": 215, "warehouse": "south"},
+      "KB-400": {"sku": "KB-400", "units": 990, "warehouse": "north"}}}},
+    "default_result": {"error": "operation not permitted in this session"}
+  },
+  "max_turns": 6,
+  "check": {
+    "type": "tool_use",
+    "required_calls": [
+      {"name": "get_stock", "arguments": {"sku": "KB-200"}},
+      {"name": "get_stock", "arguments": {"sku": "KB-310"}}
+    ],
+    "order": "any",
+    "forbidden_calls": [{"name": "place_order"}],
+    "max_calls": 4,
+    "final_answer": {"type": "normalized", "answers": ["KB-310"], "extract": "answer_line"}
+  },
+  "reference_answer": "KB-200 has 140 units, KB-310 has 215 units.\nANSWER: KB-310"
+}

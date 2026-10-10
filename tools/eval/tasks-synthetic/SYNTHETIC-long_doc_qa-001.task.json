@@ -1,0 +1,12 @@
+{
+  "id": "SYNTHETIC-long_doc_qa-001",
+  "category": "long_doc_qa",
+  "synthetic": true,
+  "description": "SYNTHETIC: value in force vs an outdated value earlier in the document; numeric answer.",
+  "messages": [
+    {"role": "user", "content": "Read the specification below and answer the question.\n\n<document>\n{{document}}\n</document>\n\nQuestion: In the revision in force, after how many seconds is an idle pooled connection to an upstream closed by default? Finish with a line 'ANSWER: <number of seconds>'."}
+  ],
+  "document": {"file": "docs/kestrel-gateway-spec.txt"},
+  "check": {"type": "number", "value": 75, "extract": "answer_line"},
+  "reference_answer": "Section 7.3 gives the current default (section 2 quotes the legacy 30 s).\nANSWER: 75"
+}
