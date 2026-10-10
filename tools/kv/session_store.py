@@ -15,7 +15,8 @@ wrote a file, and its own write is not atomic. This store adds, around the docum
     generation-numbered name and only then commits the per-session manifest (write temp + fsync + rename + fsync dir);
     the previous generation is deleted after the commit. Any crash leaves either the old or the new generation
     restorable; recover() removes temporaries, orphans and dangling manifests;
-  * a disk budget with least-recently-used eviction (the session just saved is never evicted).
+  * a disk budget with least-recently-used eviction; a session whose save is in progress in this process (including
+    the one being saved) is never evicted.
 Layout: everything in the server's --slot-save-path directory (the server accepts plain file names only):
   <sid>.<gen>.slot  state files;  <sid>.manifest.json  manifests;  tmp-*.slot  in-flight saves;  quarantine/  rejects.
 Single writer per store directory (an fcntl lock file enforces it across processes); one lock per session in-process,
@@ -72,6 +73,7 @@ class SessionStore:
         self.timeout = timeout
         self.hooks = hooks or {}          # test-only crash points: name -> callable
         self._locks = {}
+        self._saving = set()              # sessions with a save in progress in this process: never evicted
         self.last_reason = None           # why the last restore returned None (observability)
         self._guard = threading.Lock()
         os.makedirs(os.path.join(self.dir, "quarantine"), exist_ok=True)
@@ -118,7 +120,8 @@ class SessionStore:
     def _quarantine(self, fname, why):
         src = os.path.join(self.dir, fname)
         if os.path.exists(src):
-            dst = os.path.join(self.dir, "quarantine", f"{int(time.time())}-{fname}")
+            # unique name: the same <sid>.<gen>.slot can be rejected more than once and must not overwrite a reject
+            dst = os.path.join(self.dir, "quarantine", f"{time.time_ns()}-{uuid.uuid4().hex[:8]}-{fname}")
             os.rename(src, dst)
             with open(dst + ".why", "w") as f:
                 f.write(why + "\n")
@@ -141,6 +144,15 @@ class SessionStore:
         previous generation, if any, stays restorable)."""
         if not SID.match(sid):
             raise StoreError(f"bad session id {sid!r}")
+        with self._guard:
+            self._saving.add(sid)
+        try:
+            return self._save(url, slot, sid)
+        finally:
+            with self._guard:
+                self._saving.discard(sid)
+
+    def _save(self, url, slot, sid):
         with self._lock(sid):
             tmp = f"tmp-{uuid.uuid4().hex}.slot"
             tmp_path = os.path.join(self.dir, tmp)
@@ -231,7 +243,9 @@ class SessionStore:
     def _evict(self, keep):
         if self.budget is None:
             return
-        ms = sorted((m for m in self.sessions() if m["sid"] != keep), key=lambda m: m["last_used"])
+        with self._guard:
+            busy = set(self._saving) | {keep}
+        ms = sorted((m for m in self.sessions() if m["sid"] not in busy), key=lambda m: m["last_used"])
         used = self.used_bytes()
         for m in ms:
             if used <= self.budget:

@@ -221,6 +221,54 @@ class Store(unittest.TestCase):
         st.recover(deep=True)
         self.assertLessEqual(len(st.sessions()), 2)
 
+    def test_repeated_rejects_of_the_same_file_name_are_all_kept(self):
+        # audit M11: quarantine names were <seconds>-<file>, so a second reject of <sid>.1.slot overwrote the first
+        srv = self.server()
+        st = self.store()
+        names = []
+        for _ in range(3):
+            hc.complete(srv.url, PROMPT, 3)
+            m = st.save(srv.url, 0, "s1")
+            names.append(m["file"])
+            with open(os.path.join(self.dir, m["file"]), "r+b") as f:
+                f.seek(10)
+                b = f.read(1)
+                f.seek(10)
+                f.write(bytes([b[0] ^ 0x40]))
+            self.assertIsNone(st.restore(srv.url, 0, "s1"))
+        self.assertEqual(set(names), {"s1.1.slot"})                     # the same name every time
+        q = [n for n in os.listdir(os.path.join(self.dir, "quarantine")) if n.endswith(".slot")]
+        self.assertEqual(len(q), 3, q)
+
+    def test_session_being_saved_by_another_thread_is_not_evicted(self):
+        # audit M12: eviction excluded only the caller's own session
+        import threading
+        srv_a, srv_b = self.server(), self.server()
+        for srv in (srv_a, srv_b):
+            hc.complete(srv.url, PROMPT, 3)
+        size = self.store().save(srv_a.url, 0, "warm")["size"]
+        self.stores[0].drop("warm")
+        entered, release = threading.Event(), threading.Event()
+
+        def pause():
+            if threading.current_thread().name == "saver-a":
+                entered.set()
+                release.wait(30)
+        st = self.stores[0]
+        st.hooks = {"after_manifest": pause}
+        st.budget = size                                      # room for one session
+        ta = threading.Thread(target=st.save, args=(srv_a.url, 0, "a"), name="saver-a", daemon=True)
+        ta.start()
+        self.assertTrue(entered.wait(30))                     # a's manifest is committed, its save still in progress
+        tb = threading.Thread(target=st.save, args=(srv_b.url, 0, "b"), daemon=True)
+        tb.start()
+        tb.join(15)                                           # fixed store: b's save does not touch a
+        release.set()
+        ta.join(30)
+        tb.join(30)                                           # old store: b waited for a's lock, then dropped a
+        self.assertFalse(ta.is_alive() or tb.is_alive())
+        self.assertIsNotNone(st.manifest("a"), "b's eviction removed a while a was being saved")
+
     def test_new_generation_replaces_the_old_file(self):
         srv, _, m1 = self.saved_session()
         hc.complete(srv.url, PROMPT + [91, 92], 3)

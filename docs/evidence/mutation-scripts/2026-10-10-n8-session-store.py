@@ -20,11 +20,12 @@ MUT = {
     "S5 recover keeps temporaries": ('if name.startswith("tmp-") and name.endswith(".slot") or', 'if False and'),
     "S6 transient error judges the file": ('except urllib.error.HTTPError as e:', 'except (urllib.error.URLError, OSError) as e:'),
     "S7 identity not checked": ('if m.get("identity") != self.identity:', 'if False:'),
-    "S8 eviction may evict the session just saved": ('self._evict(keep=sid)', 'self._evict(keep=None)'),
+    "S8 eviction may evict a session being saved": ('busy = set(self._saving) | {keep}', 'busy = set()'),
     "S9 slot not erased after a refused restore": (
         '                    _post(url, f"/slots/{slot}?action=erase", {}, self.timeout)   # never leave a half-loaded slot',
         '                    pass'),
     "S10 save size check skipped": ('if size <= 0 or size != resp.get("n_written"):', 'if size <= 0:'),
+    "S11 quarantine names not unique": ('f"{time.time_ns()}-{uuid.uuid4().hex[:8]}-{fname}"', 'f"{int(time.time())}-{fname}"'),
 }
 
 
