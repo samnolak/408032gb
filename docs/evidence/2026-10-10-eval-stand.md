@@ -790,3 +790,42 @@ E-c code task passes regardless of the test exit code -> CAUGHT
     Ran 34 tests in 6.408s
     FAILED (failures=3)
 ```
+
+## N6: стенд через шлюз `tools/gateway` (mock, 2026-10-10)
+`tests/test_eval_via_gateway.py` гоняет те же SYNTHETIC-задачи N3 через шлюз к mock-серверу (`tools/eval/mock_agent_server.py`)
+и сравнивает с прямым прогоном: статусы задач совпадают и все `pass`; тела запросов, дошедшие до бэкенда, совпадают как
+канонический JSON (идентификаторы tool calls mock-сервера содержат его глобальный счётчик запросов, поэтому они
+переименовываются по порядку появления внутри каждого запроса; связь `tool_call_id` с вызовом проверяется отдельно);
+TTFT записан для каждого запроса; признак mock-сервера виден через шлюз; каждый запрос есть в JSONL-журнале шлюза со
+статусом 200. Неверные ответы через шлюз остаются `fail`; запрос без ключа к шлюзу с `--api-key` не засчитывается ни как
+`pass`, ни как `fail` (ошибка запроса, а не ошибка модели). Это CONFIRMED только для mock; о реальном движке ничего не
+говорит (NOT RUN).
+```
+$ python3 -m unittest tests.test_eval_via_gateway
+Ran 3 tests in 2.200s
+
+OK
+```
+Мутационная проверка ведущим (скрипт вне репозитория, копия `tools/` и `tests/` во временном каталоге, одна правка
+`tools/gateway/gateway.py` за прогон, правка вставляется сразу после `apply_defaults` и переписывает пересылаемое тело):
+```
+baseline                 rc=0 ok       OK
+G1 drop tool_call_id     rc=1 caught   FAILED (failures=1)
+G2 drop tools            rc=1 caught   FAILED (failures=1)
+G3 force non-stream      rc=1 caught   FAILED (failures=3)
+G4 drop tool messages    rc=1 caught   FAILED (failures=1)
+G5 inject temperature    rc=1 caught   FAILED (failures=1)
+```
+Полный набор после добавления (два лишних пропуска против прошлого прогона — `test_shellcheck` и `test_compile_sm89`, в этом
+прогоне не заданы `SHELLCHECK`/`NVCC`; с ними оба зелёные, вывод ниже):
+```
+$ python3 -m unittest discover -s tests
+Ran 361 tests in 92.825s
+
+OK (skipped=40)
+$ SHELLCHECK=<S>/sc09/bin/shellcheck NVCC=<S>/venv/.../nvidia/cu13/bin/nvcc python3 -m unittest tests.test_diag_kit -v   (выборка)
+test_compile_sm89 (tests.test_diag_kit.CudaCompile.test_compile_sm89) ... ok
+test_shellcheck (tests.test_diag_kit.StaticSafety.test_shellcheck) ... ok
+Ran 33 tests in 43.835s
+OK
+```
