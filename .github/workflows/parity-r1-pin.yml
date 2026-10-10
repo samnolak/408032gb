@@ -1,17 +1,21 @@
 # Oracle parity at the llama.cpp commit R1 actually deploys (tools/engines/pins.json, engines.llama.cpp.sha), next to
 # ci.yml, which runs the same scripts at the reference-graph pin of AGENTS.md (ec7630a). Gap 1 of
-# docs/reassessment/CORRECTNESS.md: the oracles were only ever compared with ec7630a. The only expected difference is
-# the padding rows of indexer_pool_k_new, whose cell choice changed upstream (tests/test_qwen4exp_decode_parity.py).
+# docs/reassessment/CORRECTNESS.md: the oracles were only ever compared with ec7630a. Expected differences: the padding
+# rows of indexer_pool_k_new, whose cell choice changed upstream (tests/test_qwen4exp_decode_parity.py,
+# tests/test_glm5next_decode_parity.py); glm5-next has no small-ubatch gather path here and has an MTP graph
+# (tests/test_glm5next_decode_parity.py, tests/test_glm5next_mtp_parity.py).
 # CPU only, tiny random-weight models.
 name: parity-r1-pin
 on:
   workflow_dispatch:
   push:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
+            tests/test_glm5next_*.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/engines/pins.json,
             .github/workflows/parity-r1-pin.yml]
   pull_request:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
+            tests/test_glm5next_*.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/engines/pins.json,
             .github/workflows/parity-r1-pin.yml]
 concurrency:
@@ -40,3 +44,5 @@ jobs:
         run: tools/tinygen/run_parity_qwen4exp.sh ../llama.cpp ../build-tools
       - name: N6 qwen4exp ubatches, decode, rollback and MTP parity at the R1 pin (CPU)
         run: tools/tinygen/run_parity_qwen4exp_decode.sh ../llama.cpp ../build-tools
+      - name: N9 glm5-next ubatches, decode, rollback and MTP parity at the R1 pin (CPU)
+        run: tools/tinygen/run_parity_glm5next_decode.sh ../llama.cpp ../build-tools
