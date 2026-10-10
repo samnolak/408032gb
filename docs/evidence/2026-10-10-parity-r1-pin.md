@@ -27,12 +27,29 @@ In both versions the padded slots are never read (the test also checks that padd
 * `tests/test_qwen4exp_decode_parity.py`: the padding-row expectation depends on `PARITY_LLAMA_COMMIT` (default
   `ec7630a` → the unchanged shared-cell rule); any other commit → each padded row equals the pooled key of its own cell,
   the smallest cells not in {kp·j + kp − 1 : j < complete pools} (KV cell = position for this single sequence). No
-  other check changed.
+  other check changed. Off `ec7630a` the check also asserts that the expected padded cells are distinct and none is a
+  complete pool's rep (the property the upstream change protects: a padded write never lands on a slot that is read);
+  since each padded row must equal the key of its expected cell, a padding that re-pooled a rep or shared a cell fails
+  the value comparison (asked for by the PR #1 session, 2026-10-10).
 * `tools/tinygen/run_parity_qwen4exp_decode.sh` exports `PARITY_LLAMA_COMMIT=$(git -C <llama.cpp> rev-parse HEAD)`.
 * New workflow `.github/workflows/parity-r1-pin.yml`: G1, MiMo, N2, N6 at the `pins.json` llama.cpp commit (ci.yml keeps
   running them at `ec7630a`).
 
 ## Checks (CONFIRMED, literal)
+
+Before the change, N6 at `79e2e74` (the CORRECTNESS inventory's run, `$S/corr/pin79/qwen4exp_decode.log`, filtered with
+`grep -E "^(FAIL|AssertionError|Ran|OK|FAILED)"`):
+
+```
+FAIL: test_qsa_pool_cache_and_selection (tests.test_qwen4exp_decode_parity.Decode.test_qsa_pool_cache_and_selection)
+AssertionError: 1.3864799363845095 not less than 0.0001 : decode indexer_pool_k_new (padding rows) L3 graph 1: rel err 1.39e+00 (abs 3.06e+00)
+FAIL: test_qsa_pool_cache_and_selection (tests.test_qwen4exp_decode_parity.Rollback.test_qsa_pool_cache_and_selection)
+AssertionError: 1.3627376980950934 not less than 0.0001 : rollback indexer_pool_k_new (padding rows) L3 graph 2: rel err 1.36e+00 (abs 2.87e+00)
+Ran 54 tests in 3.231s
+FAILED (failures=2)
+```
+
+After the change:
 
 N6 runner at `79e2e74` with the final code (`$S/llama.cpp` = 79e2e74, build of `tools/g0` against it):
 

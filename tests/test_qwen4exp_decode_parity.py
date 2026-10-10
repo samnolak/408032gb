@@ -383,6 +383,11 @@ class _RunParity:
                     reps = {kp * j + kp - 1 for j in range(b1)}
                     cells = [c for c in range(p0 + n) if c not in reps][:n_pad]
                     self.assertEqual(len(cells), n_pad)
+                    # the property the upstream change protects: a padded write never lands on a slot that is read.
+                    # The expected cells are no rep by construction, and each padded row must equal the key of its
+                    # expected cell, so a padding that re-pooled a rep (or shared a cell) fails the value check below.
+                    self.assertFalse(set(cells) & reps, f"padded cells {cells} include a rep, g{g}")
+                    self.assertEqual(len(set(cells)), n_pad, f"padded cells {cells} not distinct, g{g}")
                     # KV cell = position: cells before the graph from (A), the graph's own cells from (B)
                     k_all = np.concatenate([np.asarray(Aa["k_raw"])[:p0], np.asarray(Ab["k_raw"])])
                     for r, c in zip(range(b1 - b0, new.shape[0]), cells):
