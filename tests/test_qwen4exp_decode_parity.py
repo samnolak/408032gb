@@ -49,6 +49,10 @@ from tests.test_qwen4exp_tiny_parity import read_hparams  # noqa: E402
 DUMP = os.environ.get("QWEN4EXP_DECODE_DUMP")
 GGUF = os.environ.get("QWEN4EXP_TINY_GGUF")
 GGUF_PY = os.environ.get("LLAMA_CPP_GGUF_PY")
+# llama.cpp commit the dumps come from (set by tools/tinygen/run_parity_qwen4exp_decode.sh); only the padding rows of
+# indexer_pool_k_new depend on it, see the check below
+LLAMA_COMMIT = os.environ.get("PARITY_LLAMA_COMMIT", "ec7630a640789c393694fb194f1bbbf0369fc62d")
+SHARED_PAD_CELL = LLAMA_COMMIT.startswith("ec7630a")
 TOL = 1e-4
 SKIP = ("set QWEN4EXP_DECODE_DUMP, QWEN4EXP_TINY_GGUF, LLAMA_CPP_GGUF_PY: "
         "run tools/tinygen/run_parity_qwen4exp_decode.sh")
@@ -362,13 +366,28 @@ class _RunParity:
                                    Aa["pooled"][b0:b1])
                     pooled_in_decode += n == 1
                     straddle += b0 * kp < p0
-                # padded rows re-pool a cell whose slot is never read: the first member of pool 0 if some pool is
-                # new, else the first token of the ubatch; rotated at position 0
+                # ec7630a: padded rows re-pool a cell whose slot is never read: the first member of pool 0 if some
+                # pool is new, else the first token of the ubatch; rotated at position 0
                 # (src/llama-memory-hybrid-idx.cpp:947-967; npos zero-filled at 898)
-                k_pad = Aa["k_raw"][0] if b1 > b0 else Ab["k_raw"][0]
-                pad = Q.rms_norm(k_pad, hp["eps"], w["indexer.k_norm.weight"])
-                for r in range(b1 - b0, new.shape[0]):
-                    self.close("indexer_pool_k_new (padding rows)", il, g, new[r], pad)
+                # At 79e2e74 every padded entry takes its own cell instead: the smallest cells that are no complete
+                # pool's rep ("entries sharing one would write it from several threads in the scatter",
+                # src/llama-memory-hybrid-idx.cpp:890-905 @79e2e74); a pool's rep is its last member's cell
+                # (:857-859), here kp*j + kp - 1 for the b1 complete pools; the padded slots are still never read.
+                n_pad = new.shape[0] - (b1 - b0)
+                if SHARED_PAD_CELL:
+                    k_pad = Aa["k_raw"][0] if b1 > b0 else Ab["k_raw"][0]
+                    pad = Q.rms_norm(k_pad, hp["eps"], w["indexer.k_norm.weight"])
+                    for r in range(b1 - b0, new.shape[0]):
+                        self.close("indexer_pool_k_new (padding rows)", il, g, new[r], pad)
+                else:
+                    reps = {kp * j + kp - 1 for j in range(b1)}
+                    cells = [c for c in range(p0 + n) if c not in reps][:n_pad]
+                    self.assertEqual(len(cells), n_pad)
+                    # KV cell = position: cells before the graph from (A), the graph's own cells from (B)
+                    k_all = np.concatenate([np.asarray(Aa["k_raw"])[:p0], np.asarray(Ab["k_raw"])])
+                    for r, c in zip(range(b1 - b0, new.shape[0]), cells):
+                        pad = Q.rms_norm(k_all[c], hp["eps"], w["indexer.k_norm.weight"])
+                        self.close("indexer_pool_k_new (padding rows, own non-rep cells)", il, g, new[r], pad)
                 got_k = R.dump(g, f"indexer_k-{il}")[0].reshape(-1, d)        # padded to 64 pools
                 self.assertGreaterEqual(got_k.shape[0], b1 + 1)
                 self.close("indexer_k (pool cache, all complete pools) [chunk]", il, g, got_k[:b1], Ab["pooled"])

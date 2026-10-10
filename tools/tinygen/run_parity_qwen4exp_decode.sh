@@ -47,6 +47,8 @@ run rollback "$M" "$TOK_RB" 512 "48,4,r2,$ONES14" 3        # 4-token draft, roll
 # MTP: target calls 48 (3 ubatches of 16) + 8 x 1, each mirrored by the MTP context, then 4 greedy draft steps
 EXTRA="DUMP_MTP=1 DUMP_MTP_DRAFT=4" run mtp "$WORK/qwen4exp_mtp.gguf" "$TOK56" 16 "48,$ONES8"
 echo "mtp (MTP context): $(python3 -c "import json,sys; m=json.load(open(sys.argv[1])); print(len(m['graphs']), 'graphs,', [(c['kind'], c['n']) for c in m['calls']])" "$WORK/n6/mtp/mtp/manifest.json")"
+# the commit decides one detail of the expected dumps (padding rows of indexer_pool_k_new, see the test)
+export PARITY_LLAMA_COMMIT; PARITY_LLAMA_COMMIT=$(git -C "$LLAMA" rev-parse HEAD)
 cd "$ROOT" && QWEN4EXP_DECODE_DUMP="$WORK/n6" QWEN4EXP_TINY_GGUF="$WORK/qwen4exp.gguf" \
   QWEN4EXP_MTP_GGUF="$WORK/qwen4exp_mtp.gguf" \
   python3 -m unittest tests.test_qwen4exp_decode_parity tests.test_qwen4exp_mtp_parity tests.test_qwen4exp_chunked_ref -v
