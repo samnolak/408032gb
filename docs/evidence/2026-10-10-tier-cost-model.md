@@ -151,6 +151,42 @@ What the model says (HYPOTHESIS, conditional on its parameters):
 * A pipeline is one of the architectures; tensor/expert parallel and their fixed costs are in
   `tools/ceilings/arch_ceilings.py` (R9). These numbers are not a forecast for R1.
 
+## 4b. Follow-up to R11 C24: does PCIe prefetch pay with skewed routing? (PROVISIONAL model output, literal)
+
+R11 C24: R8's "prefetch cannot pay" compared the link's ~0.7 experts per layer with 3.1 misses per layer, a uniform-routing
+value; with the held-out GLM hit ~0.75 there are ~2 misses per layer. In this model the answer does not hinge on the miss
+count but on **whether the CPU expert path is DRAM-bound or compute-bound**: a DMA copy reads the same expert bytes from
+DRAM that the CPU would read to compute it, so when DRAM is the CPU's limit a copy frees nothing and the best copy count is
+0. With the defaults (32 threads x 8 GB/s = 256 GB/s of kernel throughput > 143 GB/s usable DRAM) prediction gives nothing
+even at recall 0.95 / precision 0.9 / 3 layers of lead time, at hit 0.61 and 0.75.
+
+The per-core rate is the open input. The best anchor for our CPU class is ~3.6 GB/s per core for an AVX2 expert lane on an
+EPYC 7443P (Zen 3, 8 channels), with 136 GB/s DRAM read at 22 threads (R11 A8, REPORTED by glm-flash-lite
+`docs/reference.md:123-126`@6769b27). With that rate:
+
+```
+$ for n in 32 46; do for hv in 0.61 0.75; do for pf in "" "--set p_recall=0.85 --set pi_prec=0.5 --set W=0.44e-3" "--set p_recall=0.95 --set pi_prec=0.9 --set W=1.3e-3"; do ... python3 tools/ceilings/tier_cost.py --model glm --set b_core=3.6e9 --set n_cpu=$n --set h_v=$hv --set h_r=<1-h_v> $pf --json ...; done; done; done
+n_cpu=32  h_v=0.61 no prediction                                           30.4 tok/s copies 0.00
+n_cpu=32  h_v=0.61 --set p_recall=0.85 --set pi_prec=0.5 --set W=0.44e-3   32.3 tok/s copies 0.68
+n_cpu=32  h_v=0.61 --set p_recall=0.95 --set pi_prec=0.9 --set W=1.3e-3    33.6 tok/s copies 0.63
+n_cpu=32  h_v=0.75 no prediction                                           37.6 tok/s copies 0.00
+n_cpu=32  h_v=0.75 --set p_recall=0.85 --set pi_prec=0.5 --set W=0.44e-3   39.4 tok/s copies 0.44
+n_cpu=32  h_v=0.75 --set p_recall=0.95 --set pi_prec=0.9 --set W=1.3e-3    40.7 tok/s copies 0.40
+n_cpu=46  h_v=0.61 no prediction                                           34.0 tok/s copies 0.00
+n_cpu=46  h_v=0.61 --set p_recall=0.85 --set pi_prec=0.5 --set W=0.44e-3   34.0 tok/s copies 0.00
+n_cpu=46  h_v=0.61 --set p_recall=0.95 --set pi_prec=0.9 --set W=1.3e-3    34.0 tok/s copies 0.00
+n_cpu=46  h_v=0.75 no prediction                                           41.0 tok/s copies 0.00
+n_cpu=46  h_v=0.75 --set p_recall=0.85 --set pi_prec=0.5 --set W=0.44e-3   41.0 tok/s copies 0.00
+n_cpu=46  h_v=0.75 --set p_recall=0.95 --set pi_prec=0.9 --set W=1.3e-3    41.0 tok/s copies 0.00
+```
+
+Reading (HYPOTHESIS, conditional on the model): with 32 expert threads at 3.6 GB/s (115 GB/s < 143 GB/s DRAM) the CPU
+is compute-bound and predicted PCIe copies add 6–10% (30.4 -> 33.6 at hit 0.61, 37.6 -> 40.7 at 0.75); with 46 threads the
+CPU reaches the DRAM limit and prefetch adds nothing. PCIe prefetch is therefore a substitute for CPU cores, worth at most
+~10% here, not a lever on the ceiling; R8's recommendation (compute misses on the CPU in place, spend prediction on
+NVMe -> RAM warming and cache adaptation) stands, for this reason rather than the link-capacity one. The deciding
+measurements on the server: Q4_K expert throughput per Zen 3 core, the number of cores free for experts, DRAM channels.
+
 ## 5. Not done
 
 No measurement of any parameter (all are defaults with labels in the code); per-layer residency distributions
