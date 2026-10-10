@@ -29,4 +29,6 @@ target_compile_features(g0-expert-trace PRIVATE cxx_std_17)
 # Tensor dump tool for parity tests (tools/dump/dump_tensors.cpp); same pinned llama.cpp.
 add_executable(dump-tensors ../dump/dump_tensors.cpp)
 target_link_libraries(dump-tensors PRIVATE llama-common llama)
+# llama-ext.h (staging API used by the MTP mode: llama_set_embeddings_nextn) lives in llama.cpp's src/
+target_include_directories(dump-tensors PRIVATE ${LLAMA_CPP_DIR}/src)
 target_compile_features(dump-tensors PRIVATE cxx_std_17)

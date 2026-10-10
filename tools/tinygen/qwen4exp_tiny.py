@@ -11,7 +11,9 @@ so the numpy oracle ref/qwen4exp.py can be checked against tensor dumps without 
   * softmax-gated MoE (top-k, renormalised, no scale) with a sigmoid-gated shared expert;
   * one PLE layer: n-gram hash embedding (uint64 multiply/xor hash, EOS reset), gated value,
     grouped norms and a dilated causal depthwise conv.
-No MTP block (nextn_predict_layers = 0): the MTP graph is not exercised.
+No MTP block by default (nextn_predict_layers = 0). --mtp appends one (nextn_predict_layers = 1, block_count + 1):
+a full-attention QSA layer with blk.<L>.nextn.{eh_proj,enorm,hnorm,hc_head_*} (qwen4exp.cpp:290-302, the converter
+conversion/qwen4exp.py:28-36, 84-88); its weights are drawn after the trunk's, so the trunk equals the default model.
 
 Keys and tensor names: llama.cpp @ec7630a src/llama-arch.cpp; required keys: src/models/qwen4exp.cpp
 load_arch_hparams (lines 26-169) and llama_model_base::load_hparams (src/llama-model.cpp:1298); shapes:
@@ -49,7 +51,7 @@ def is_recurrent(i, c):
     return (i + 1) % c["full_attn_interval"] != 0          # qwen4exp.cpp:154 (default rule)
 
 
-def build(path, cfg=DEFAULT, seed=0):
+def build(path, cfg=DEFAULT, seed=0, mtp=False):
     c = dict(cfg)
     rng = np.random.default_rng(seed)
     w = GGUFWriter(path, ARCH)
@@ -58,6 +60,8 @@ def build(path, cfg=DEFAULT, seed=0):
     hc, lr = c["hc"], c["hc_low_rank"]
     hc_dim = hc * E
     recr = [is_recurrent(i, c) for i in range(L)]
+    n_all = L + int(mtp)                                      # block_count counts the MTP block
+    recr_all = recr + [False] * int(mtp)
     n_ple_heads = (c["ple_ngram"] - 1) * c["ple_heads_per_ngram"]
     ple_dim = E // n_ple_heads                                # ple_key is {n_embd, hc_dim}: n_heads*dim = n_embd
     assert ple_dim * n_ple_heads == E and len(c["ple_vocab_sizes"]) == n_ple_heads
@@ -65,7 +69,9 @@ def build(path, cfg=DEFAULT, seed=0):
 
     w.add_uint32(f"{p}.context_length", c["ctx"])
     w.add_uint32(f"{p}.embedding_length", E)
-    w.add_uint32(f"{p}.block_count", L)
+    w.add_uint32(f"{p}.block_count", n_all)
+    if mtp:
+        w.add_nextn_predict_layers(1)
     w.add_uint32(f"{p}.feed_forward_length", c["n_ff"])
     w.add_uint32(f"{p}.attention.head_count", H)
     w.add_uint32(f"{p}.attention.head_count_kv", c["n_head_kv"])
@@ -84,7 +90,7 @@ def build(path, cfg=DEFAULT, seed=0):
     w.add_uint32(f"{p}.ssm.group_count", c["ssm_groups"])
     w.add_uint32(f"{p}.ssm.time_step_rank", c["ssm_v_heads"])
     w.add_uint32(f"{p}.ssm.inner_size", c["ssm_state"] * c["ssm_v_heads"])
-    w.add_recurrent_layers(recr)                              # as conversion/qwen.py:386-388 writes it
+    w.add_recurrent_layers(recr_all)                          # as conversion/qwen.py:386-388 writes it
     w.add_full_attention_interval(c["full_attn_interval"])
     w.add_hyper_connection_count(hc)
     w.add_hyper_connection_low_rank(lr)
@@ -92,7 +98,8 @@ def build(path, cfg=DEFAULT, seed=0):
     w.add_uint32(f"{p}.attention.indexer.key_length", c["idx_dim"])
     w.add_uint32(f"{p}.attention.indexer.top_k", c["idx_top_k"])
     w.add_attention_compress_ratios(
-        [0 if recr[i] or i in c["dense_attn_layers"] else c["kpool"] for i in range(L)])
+        [0 if recr[i] or i in c["dense_attn_layers"] else c["kpool"] for i in range(L)]
+        + [c["kpool"]] * int(mtp))                            # the MTP block is QSA too (conversion/qwen4exp.py:84-88)
     w.add_ple_layers([c["ple_layer"]])
     w.add_ple_ngram_size(c["ple_ngram"])
     w.add_ple_heads_per_ngram(c["ple_heads_per_ngram"])
@@ -135,14 +142,14 @@ def build(path, cfg=DEFAULT, seed=0):
     Sk, Hk, Hv = c["ssm_state"], c["ssm_groups"], c["ssm_v_heads"]
     key_dim, value_dim = Sk * Hk, Sk * Hv
     X, F, Fs = c["n_expert"], c["n_ff_exp"], c["n_ff_shexp"]
-    for i in range(L):
+    for i in range(n_all):
         b = f"blk.{i}"
         for k in ("attn", "ffn"):
             t(f"{b}.hc_{k}_norm.weight", hc, E, ones=True)
             t(f"{b}.hc_{k}_down.weight", lr, hc_dim)
             t(f"{b}.hc_{k}_up.weight", hc_dim, lr)
             t(f"{b}.hc_{k}_inject.weight", hc, hc_dim)
-        if recr[i]:                                           # gated delta net
+        if recr_all[i]:                                       # gated delta net
             t(f"{b}.attn_qkv.weight", 2 * key_dim + value_dim, E)
             t(f"{b}.attn_gate.weight", value_dim, E)
             t(f"{b}.ssm_conv1d.weight", 2 * key_dim + value_dim, c["d_conv"], scale=0.5)
@@ -178,6 +185,13 @@ def build(path, cfg=DEFAULT, seed=0):
         t(f"{b}.ffn_gate_shexp.weight", Fs, E)
         t(f"{b}.ffn_up_shexp.weight", Fs, E)
         t(f"{b}.ffn_down_shexp.weight", E, Fs)
+        if i == L:                                            # MTP block (qwen4exp.cpp:290-302)
+            t(f"{b}.nextn.eh_proj.weight", E, 2 * E)            # ggml {2*n_embd, n_embd}: [e ; h_s] -> n_embd
+            t(f"{b}.nextn.enorm.weight", E, ones=True)
+            t(f"{b}.nextn.hnorm.weight", hc, E, ones=True)         # ggml {n_embd, hc}
+            t(f"{b}.nextn.hc_head_norm.weight", hc, E, ones=True)
+            t(f"{b}.nextn.hc_head_down.weight", lr, hc_dim)
+            t(f"{b}.nextn.hc_head_up.weight", hc_dim, lr)
     w.write_header_to_file()
     w.write_kv_data_to_file()
     w.write_tensors_to_file()
@@ -189,6 +203,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--mtp", action="store_true", help="append the MTP block (nextn_predict_layers = 1)")
     a = ap.parse_args()
-    build(a.out, seed=a.seed)
+    build(a.out, seed=a.seed, mtp=a.mtp)
     print("wrote", a.out)
