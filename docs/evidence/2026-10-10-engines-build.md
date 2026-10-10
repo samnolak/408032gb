@@ -157,4 +157,17 @@ T12 shim links the wrong file        rc=1 caught   FAILED (failures=1, skipped=1
 caught 12/12
 ```
 CI: `exllamav3` добавлен в матрицу `.github/workflows/engines-sm89.yml` (`16f39d6`; venv из `python.install` пина, nvcc из того
-же pip-тулкита, колесо — артефакт прогона на 30 дней). Результат CI — в следующем разделе после прогона (пока NOT RUN).
+же pip-тулкита, колесо — артефакт прогона на 30 дней). Первый прогон в CI — на голове PR `0dd3b51`, run 38068809785, job
+114261890658 (`build (exllamav3)`, 16:43:44 → 17:08:52 UTC, раннер ubuntu-24.04, 4 потока; CONFIRMED, хвост лога задания):
+```
+2026-10-10T16:48:41.0378436Z check torch 2.14.1 with CUDA 13.0        rc=0
+2026-10-10T16:48:41.0598574Z link shim for libcudart                  rc=0
+2026-10-10T17:08:45.1000403Z build wheel                              rc=0
+2026-10-10T17:08:45.6392603Z unpack exllamav3_ext                     rc=0
+2026-10-10T17:08:45.9507509Z {"engine": "exllamav3", "sha": "151539c77abc7ab7425d30da7a4e8e3c5c154e7b", "arch": 89, "status": "ok"}
+2026-10-10T17:08:45.9508014Z cubins ext/exllamav3_ext.so                     sm_89
+2026-10-10T17:08:45.9800875Z ##[notice]exllamav3 151539c77abc sm_89 ok Build cuda_13.0.r13.0/compiler.36424714_0
+2026-10-10T17:08:48.6565520Z Artifact build-exllamav3-sm89 has been successfully uploaded! Final size is 56966725 bytes. Artifact ID is 11676611383
+```
+Компиляция колеса в CI заняла ~20 мин (16:48:41 → 17:08:45). В том же прогоне llama.cpp, ik_llama.cpp и Strata снова собраны
+(`build (…)` success). Артефакт `build-exllamav3-sm89` (build-info.json, лог, колесо под CPython раннера) хранится 30 дней.
