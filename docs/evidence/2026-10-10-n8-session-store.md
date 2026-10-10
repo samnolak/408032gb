@@ -11,25 +11,33 @@ Nothing here ran on a GPU, on real weights or at long context. No timings are re
 
 | piece | file |
 |---|---|
-| store | tools/kv/session_store.py (stdlib only): sha256 + size + identity per state file, crash-consistent save (server writes a temporary, fsync, rename to `<sid>.<gen>.slot`, then manifest commit), quarantine on any verification failure, LRU disk budget, `recover()`, CLI |
+| store | tools/kv/session_store.py (stdlib only): sha256 + size + identity per state file, crash-consistent save (server writes a temporary, fsync, rename to `<sid>.<gen>.slot`, then manifest commit), quarantine on a failed size / sha256 / n_restored check or a server refusal (an identity mismatch keeps the file; an unreachable server raises and judges nothing), LRU disk budget, `recover()`, CLI |
 | probe | tools/kv/slot_corruption_probe.py: real llama-server, damaged files restored raw and through the store |
-| tests | tests/test_session_store.py (15, against the stand-in server); tests/test_srvcheck.py +1 (null log-prob) |
+| tests | tests/test_session_store.py (17, against the stand-in server); tests/test_srvcheck.py +1 (null log-prob) |
 | stand-in server | tests/fixtures/srvcheck/stub_llama_server.py: faults `save_short`, `restore_refuse`, `restore_partial` added |
-| harness fix | tools/srvcheck/hybrid_server_checks.py `compare()`: a null log-prob (llama-server sends null for NaN) counts as an infinite difference instead of crashing |
+| harness fix | tools/srvcheck/hybrid_server_checks.py `compare()`: a null log-prob (llama-server's JSON writer emits `null` for any non-finite value: NaN or ±inf, `vendor/nlohmann/json.hpp:19523-19525`) counts as an infinite difference instead of crashing |
 | CI | .github/workflows/server-cpu.yml: session-store tests + the probe on both tiny models after the N7 step |
-| mutation check | docs/evidence/mutation-scripts/2026-10-10-n8-session-store.py (S1–S10) |
+| mutation check | docs/evidence/mutation-scripts/2026-10-10-n8-session-store.py (S1–S11) |
 
 ## 1. What llama-server checks on restore (CONFIRMED, code @79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6)
 
-* `src/llama-context.cpp:3412-3460` `state_seq_load_file`: magic and version, token count against the file size and the
-  slot capacity, and that the state reader consumed no more than the file holds. There is no checksum: any bit flip
-  inside the state payload passes.
-* `tools/server/server-context.cpp:2944-3010` (`SERVER_TASK_TYPE_SLOT_RESTORE`): additionally only that the tokens fit
-  the slot context and are valid vocabulary ids (`restored.validate`).
-* `tools/server/server-context.cpp:2658-2700` `load_slot_checkpoints`: a damaged or truncated checkpoint appendix is
-  ignored with a warning (`truncated context checkpoint appendix in '...' - ignored`) and the restore still succeeds.
-* Save writes the final file name directly: `state_seq_save_file` opens it with `llama_file(filepath, "wb")`
-  (`src/llama-context.cpp:3466-3467`), then the server appends the checkpoint appendix (`server-context.cpp:2906-2926`);
+* There is **no checksum** anywhere on the restore path. What is checked is structure:
+  * `src/llama-context.cpp:3413-3465` `state_seq_load_file`: magic and version; the token count against the file size
+    and against the caller's buffer (the server sizes that buffer from the file's own count, `server-context.cpp:
+    2968-2971`); that the state reader consumed no more than the file holds.
+  * the memory readers: layer count, cell count, V transposition, key/value rotation, tensor types, row and element
+    sizes, GQA/state embedding sizes (`src/llama-kv-cache.cpp:2561-2683`, `src/llama-memory-recurrent.cpp:1122-1236`,
+    one `LLAMA_LOG_ERROR` per check);
+  * the server (`tools/server/server-context.cpp:2944-3010`, `SERVER_TASK_TYPE_SLOT_RESTORE`): the token-state format
+    and version (`server-common.cpp:639-656`), that the tokens fit the slot context and are valid vocabulary ids
+    (`restored.validate`, 2980-2986).
+  So a flip in a header or size field is refused, while a flip in the tensor data itself passes every check — which is
+  what all 26 damaged files of section 2 did (none hit a checked field).
+* `tools/server/server-context.cpp:2658-2714` `load_slot_checkpoints`: a damaged appendix magic returns 0 silently
+  (2669-2671); a bad version or a truncated appendix returns 0 with a warning (`truncated context checkpoint appendix in
+  '...' - ignored`, 2687); in every case the restore itself still succeeds.
+* Save writes the final file name directly: `state_seq_save_file` opens it with `llama_file file(filepath, "wb");`
+  (`src/llama-context.cpp:3468`), then the server appends the checkpoint appendix (`server-context.cpp:2906-2926`);
   no temporary + rename, no fsync. HYPOTHESIS from this code path: a crash during save can leave a torn file under the
   real name; a torn write was not simulated against the real server.
 
@@ -44,7 +52,7 @@ file, then the same prompt; `store`: `SessionStore.restore` with the same damage
 tokens the server processed (4 = restored up to the last checkpoint, 200 = full prefill).
 
 ```
-$ for M in qwen4exp glm5next; do python3 tools/kv/slot_corruption_probe.py --server $S/llama.cpp/build-cpu/bin/llama-server --model $S/n7/final2/$M.gguf --workdir $S/n8final/$M --out $S/n8final/$M.json; echo "exit=$?"; done
+$ for M in qwen4exp glm5next; do echo "== $M"; timeout 900 python3 tools/kv/slot_corruption_probe.py --server $S/llama.cpp/build-cpu/bin/llama-server --model $S/n7/final2/$M.gguf --workdir $S/n8final/$M --out $S/n8final/$M.json; echo "exit=$?"; done 2>&1 | tee $S/n8final/probe.log
 == qwen4exp
 intact           raw: accepted prompt_n   4 same_tokens True  max|d| 0         nulls 0   | store: restored                  prompt_n   4 same True
 bit6@0.1         raw: accepted prompt_n   4 same_tokens True  max|d| 4.77e-07  nulls 0   | store: refused  sha256 mismatch  prompt_n 200 same True
@@ -85,12 +93,15 @@ printed identical output (`diff $S/n8/probe.log $S/n8final/probe.log` empty, 32 
 Counted from the table (26 damaged files, 13 per model):
 
 * raw llama-server accepted **26/26**. **5** changed the generated tokens (qwen4exp exp@0.2, exp@0.3, exp@0.4; glm5next
-  exp@0.1, exp@0.6); in qwen4exp exp@0.2, 25 of the top-5 log-probs were null (NaN). **6** more kept the tokens but changed
-  log-probs (qwen4exp bit6@0.1–0.4 and exp@0.1, glm5next bit6@0.1; up to 0.0106). **15** had no visible effect, among
+  exp@0.1, exp@0.6); in qwen4exp exp@0.2, 25 of the 80 top-5 log-probs (16 steps x 5) were null, i.e. non-finite (NaN or
+  ±inf: the JSON writer does not distinguish). **6** more kept the tokens but changed
+  log-probs (qwen4exp bit6@0.1–0.4 and exp@0.1, glm5next bit6@0.1; up to 0.0106; four of them are <= 4.29e-06, below the
+  harness tolerance of 1e-3). **15** had no visible effect, among
   them both truncations: the server answered `"n_restored": 215` (success) and logged
   `W slot load_slot_ch: id  0 | task -1 | truncated context checkpoint appendix in '.../raw-truncated-1000.slot' - ignored`,
   then prefilled the whole prompt (prompt_n 200) — a silent loss of the restore, not a wrong answer.
-* the store refused **26/26** before the server saw the file (25 by sha256, the truncations by size), quarantined the file,
+* the store refused **26/26** before the server saw the file (24 by sha256, the 2 truncations by size; the server's log
+  shows one load of a store file per model, the intact one), quarantined the file,
   erased the slot, and the next request prefilled (prompt_n 200) and gave the reference tokens (`same True`) in all 26;
   the intact file was restored in both models (prompt_n 4, same tokens).
 
@@ -109,10 +120,12 @@ test_crash_at_every_save_step_leaves_a_restorable_store ... ok
 test_flipped_byte_is_refused_before_the_server_sees_it ... ok
 test_new_generation_replaces_the_old_file ... ok
 test_other_identity_is_refused_and_the_file_kept ... ok
+test_repeated_rejects_of_the_same_file_name_are_all_kept ... ok
 test_restore_count_mismatch_quarantines ... ok
 test_round_trip_across_a_restart ... ok
 test_second_writer_is_refused ... ok
 test_server_refusal_quarantines ... ok
+test_session_being_saved_by_another_thread_is_not_evicted ... ok
 test_session_just_saved_is_never_evicted ... ok
 test_short_write_keeps_the_previous_generation ... ok
 test_truncated_file_is_refused ... ok
@@ -136,14 +149,14 @@ test_serialized_server_is_no_isolation_evidence ... ok
 test_slot_crosstalk_is_caught ... ok
 test_stale_reuse_is_caught ... ok
 test_stale_state_after_kv_shift_is_caught ... ok
-test_attr_compares_against_the_first_run (tests.test_n7_report.Report.test_attr_compares_against_the_first_run) ... ok
-test_cli_usage (tests.test_n7_report.Report.test_cli_usage) ... ok
-test_lines_print_stored_values (tests.test_n7_report.Report.test_lines_print_stored_values) ... ok
-Ran 37 tests in 64.031s
+test_attr_compares_against_the_first_run ... ok
+test_cli_usage ... ok
+test_lines_print_stored_values ... ok
+Ran 39 tests in 66.910s
 OK
 ```
 
-(test ids shortened by `sed` for the first 34 lines; the crash test covers four crash points: after the server's write,
+(full log `$S/n8final/unittests-v.log`; test ids shortened by `sed` for the first 36 lines; the crash test covers four crash points: after the server's write,
 after the rename, after the manifest temporary is written, after the manifest commit; each followed by `recover(deep=True)`
 and a restore.)
 
@@ -168,6 +181,9 @@ S9 slot not erased after a refused restore               rc=1 caught   FAILED (f
 S10 save size check skipped                              rc=1 caught   FAILED (failures=1)
 ```
 
+(Mutant S5 removes only the temporaries branch of `recover`; `tmp-*.slot` files are still deleted by the orphan branch,
+so what survives is `.<sid>.manifest.*.tmp`, which the crash test then catches.)
+
 Tests added: the crash test asserts that no temporaries remain after `recover` (S5); `test_session_just_saved_is_never_evicted`
 (budget smaller than any state file, S8); `test_concurrent_saves_under_a_tight_budget_do_not_deadlock` (two servers, two
 sessions, every save evicts). The next mutation run stopped responding at S8 and was killed. Cause, in the unmutated code:
@@ -177,8 +193,10 @@ saves under a budget. Fix: `_evict()` runs after the session lock is released (s
 no session lock held"). The test threads are daemons with a 60 s join each, so the deadlock fails the test instead of
 hanging it.
 
-The pre-fix code (a copy in `$S/n8-old`: the only difference in `save` is the indentation of `self._evict(keep=sid)` /
-`return m`) with the final test file:
+The pre-fix code (`$S/n8-old`, a reconstruction: the committed tree with `self._evict(keep=sid)` / `return m` moved back
+inside the session lock and the comment above them removed; `diff -r` shows nothing else in tools/ or tests/) with the
+final test file. Abridged from `$S/n8final/deadlock-old.log` (separators, `Traceback` and caret lines dropped, path
+shortened; the log does not record the command, which was the one shown):
 
 ```
 $ timeout 200 python3 -m unittest tests.test_session_store.Store.test_concurrent_saves_under_a_tight_budget_do_not_deadlock
@@ -191,10 +209,12 @@ FAILED (failures=1)
 rc=1
 ```
 
-(two runs, 120.662 s and 120.666 s; with the earlier non-daemon threads the same test hung until `timeout 200` killed it
-in 3 of 3 runs.)
+One saved run (120.666 s: both 60 s joins expired). NOT SAVED as files, seen only in the session transcript: an earlier
+identical run (120.662 s), and, before the test threads were made daemons, 3 of 3 runs that hung until `timeout 200`
+killed them.
 
-Round 3, on the final code (the tree committed with this file):
+A complete run on the same code as round 3 also gave 10/10 (`$S/mut-n8c/round2.log`, not reproduced here). Round 3, on
+the code of commit c5f78ea:
 
 ```
 baseline                                                 rc=0 ok       OK
@@ -211,6 +231,66 @@ S10 save size check skipped                              rc=1 caught   FAILED (f
 exit=0
 ```
 
+## 4b. Audit of the first version and the fixes (CONFIRMED, literal)
+
+The evidence audit of commit 33cf4e8 (evidence-auditor, same session) found 3 FAILs in this report (fixed in the text
+above: the sha256/size split, "no checks" where only a checksum is missing, unsaved timings presented as literal) and two
+defects in the store:
+
+* **M11 — rejects overwrote each other in quarantine.** Destination names were `<seconds>-<file>`; the same
+  `<sid>.<gen>.slot` rejected twice within a second (the probe does this 13 times) kept only the last file — in the first
+  probe run 2 of 13 per model survived. Now `<time_ns>-<random>-<file>`.
+* **M12 — a concurrent save could evict a session another thread was still saving.** Eviction excluded only the
+  caller's own session. Now `save()` registers the session in an in-process "saving" set for its whole duration and
+  `_evict()` skips every session in it.
+
+New tests `test_repeated_rejects_of_the_same_file_name_are_all_kept` and
+`test_session_being_saved_by_another_thread_is_not_evicted` fail on the committed store of 33cf4e8 (copy in
+`$S/n8-pre-audit` = `git archive 33cf4e8 tools tests` + the new test file) and pass on the fixed one:
+
+```
+$ timeout 300 python3 -m unittest tests.test_session_store.Store.test_repeated_rejects_of_the_same_file_name_are_all_kept tests.test_session_store.Store.test_session_being_saved_by_another_thread_is_not_evicted   # in $S/n8-pre-audit
+FAIL: test_repeated_rejects_of_the_same_file_name_are_all_kept (tests.test_session_store.Store.test_repeated_rejects_of_the_same_file_name_are_all_kept)
+AssertionError: 2 != 3 : ['1791661748-s1.1.slot', '1791661749-s1.1.slot']
+FAIL: test_session_being_saved_by_another_thread_is_not_evicted (tests.test_session_store.Store.test_session_being_saved_by_another_thread_is_not_evicted)
+AssertionError: unexpectedly None : b's eviction removed a while a was being saved
+Ran 2 tests in 16.209s
+FAILED (failures=2)
+rc=1
+```
+(lines filtered with `grep -E "^(FAIL|ERROR|AssertionError|Ran|OK|FAILED|rc=)"` from `$S/n8final/pre-audit-new-tests.log`.)
+
+The mutation script now targets the new code: S8 removes the in-flight exclusion (`busy = set()`), S11 restores the
+old quarantine name. Round 4, on the code committed with this section:
+
+```
+baseline                                                 rc=0 ok       OK
+S1 no sha256 check                                       rc=1 caught   FAILED (errors=2)
+S2 no size check                                         rc=1 caught   FAILED (failures=1)
+S3 no n_restored check                                   rc=1 caught   FAILED (failures=1)
+S4 old generation deleted before the manifest commit     rc=1 caught   FAILED (errors=2)
+S5 recover keeps temporaries                             rc=1 caught   FAILED (failures=1)
+S6 transient error judges the file                       rc=1 caught   FAILED (failures=1)
+S7 identity not checked                                  rc=1 caught   FAILED (failures=1)
+S8 eviction may evict a session being saved              rc=1 caught   FAILED (failures=1, errors=1)
+S9 slot not erased after a refused restore               rc=1 caught   FAILED (failures=1)
+S10 save size check skipped                              rc=1 caught   FAILED (failures=1)
+S11 quarantine names not unique                          rc=1 caught   FAILED (failures=1)
+exit=0
+```
+
+The real-server probe of section 2 on the fixed store (`$S/n8final2/probe.log`): the 28 case lines are identical to
+section 2 (`diff` against `$S/n8final/probe.log` empty apart from the added counts), and every reject is kept:
+
+```
+quarantined .slot files: 13
+quarantined .slot files: 13
+```
+
+Not changed by the audit: the store holds an exclusive fcntl lock for any instance, readers included (one process per
+directory), and `recover()` deletes every unreferenced `*.slot` in the server's slot directory — point the store at a
+directory used by nothing else.
+
 ## 5. What this means for R1 (PROVISIONAL)
 
 * Never point R1 at `/slots/{id}?action=restore` directly for sessions that matter: llama-server @79e2e74 accepts damaged
@@ -218,12 +298,16 @@ exit=0
   in the gateway): verify, then restore; on any doubt, prefill.
 * The identity dict must name everything that changes the state layout or meaning: model sha256, engine commit, KV types
   (`-ctk/-ctv`), FA on/off, context size, MTP/draft settings (the checkpoint appendix holds draft state, N7 evidence).
-* Cost of the check: one sha256 pass over the file per restore. At 262K tokens a slot file is large (UNKNOWN for the target
-  models; K3 measures it on the server); sha256 on one Zen 3 core runs at roughly 1–2 GB/s (PROVISIONAL, not measured here),
-  so verification may cost about as much as reading the file from NVMe. If that matters, verify while reading (one pass)
-  or use a faster hash; measure in K3.
+* Cost of the check: one sha256 pass over the file per restore. The size of a 262K-token slot file of the target models
+  and the hash and NVMe read rates on the server are UNKNOWN; K3 measures them. If hashing turns out to cost as much as
+  the read, verify while reading (one pass) or use a faster hash.
 
-## 6. Not done
+## 6. CI and not done
+
+CI: workflow `server-cpu` (session-store tests + this probe on both tiny models) green on 33cf4e8, the commit before the
+audit fixes: runs 38080609883 (push) and 38080628252 (pull_request, PR #4). On the audit-fix commits: pending at the time
+of writing.
+
 
 GPU, real weights, 262K-token states, NVMe timing (K3), torn writes against the real server, concurrent restore + save of
 the same session from two processes (the store allows one writer process per directory by an fcntl lock): NOT RUN.
