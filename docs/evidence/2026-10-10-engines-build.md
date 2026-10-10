@@ -43,5 +43,28 @@ $ llama-server --help   (выдержка)
 --slot-save-path PATH                   path to save slot kv cache (default: disabled)
 ```
 
-## CI (GitHub Actions, engines-sm89): llama.cpp, ik_llama.cpp, Strata
-Результаты прогонов дописываются сюда после их завершения (раздел ниже). Пока не записано — NOT RUN для этого файла.
+## CI (GitHub Actions, engines-sm89): llama.cpp, ik_llama.cpp, Strata — все три собраны
+Первый полный прогон: run 38046973798 (push, `1448706`), раннер ubuntu-24.04 без GPU, apt-тулкит CUDA 13.0 с заглушкой драйвера
+(`cuda-driver-dev-13-0`), пиновые флаги без добавок (в том числе VMM-путь llama.cpp). Литеральные строки из логов джобов (GitHub API):
+```
+build (llama.cpp)      job 114198348004  11:03:46 -> 11:14:59
+{"engine": "llama.cpp", "sha": "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6", "arch": 89, "status": "ok"}
+cubins bin/libggml-cuda.so                      sm_89
+cubins bin/libggml-cuda.so.0                    sm_89
+cubins bin/libggml-cuda.so.0.26.0               sm_89
+##[notice]llama.cpp 79e2e74eb110 sm_89 ok Build cuda_13.0.r13.0/compiler.36424714_0
+
+build (ik_llama.cpp)   job 114198348056  11:03:48 -> 11:29:50
+{"engine": "ik_llama.cpp", "sha": "5194a9e1451b885e24dd5a065f650864e8807c59", "arch": 89, "status": "ok"}
+cubins ggml/src/libggml.so                      sm_89
+##[notice]ik_llama.cpp 5194a9e1451b sm_89 ok Build cuda_13.0.r13.0/compiler.36424714_0
+
+build (strata)         job 114198347901  11:04:17 -> 11:09:27
+{"engine": "strata", "sha": "fb58e0dbc8399662c0e47c76578c6e878b14f6cf", "arch": 89, "status": "ok"}
+cubins strata                                   sm_89
+##[notice]strata fb58e0dbc839 sm_89 ok Build cuda_13.0.r13.0/compiler.36424714_0
+```
+`build-info.json` и логи сборки сохранены как артефакты прогона (`build-llama.cpp-sm89`, `build-ik_llama.cpp-sm89`,
+`build-strata-sm89`). Вывод: на CUDA 13.0 все три движка R1 на пинах компилируются под sm_89 (CONFIRMED сборкой); работоспособность
+на RTX 4080 Super, скорость и корректность — NOT RUN до сервера. ExLlamaV3 (B5) сюда не входит: это расширение PyTorch, его сборка —
+отдельный шаг (NOT RUN).
