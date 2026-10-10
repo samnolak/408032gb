@@ -221,3 +221,25 @@ class GlmTinyDsaParity(_TinyBase):
         out = mla_attention(q_abs, lat, cells, self.w("attn_v_b.weight"), k_mla=q.shape[-1])
         self.assertClose(out, dump(f"kqv_out-{self.IL}__0"), 1e-4, "kqv_out")
         self.assertClose(out @ self.w("attn_output.weight").T, dump(f"attn_out-{self.IL}__0"), 1e-4, "attn_out")
+
+
+@unittest.skipUnless(DUMP and GGUF and GGUF_PY, "run tools/tinygen/run_parity.sh")
+class GlmTinyWholeModel(_TinyBase):
+    """The whole-model oracle ref/glm5next.py forward() (built from the op oracles above) end to end on the same
+    single-ubatch dump: every layer's output streams and the logits, normwise relative 1e-4 (N9; the incremental
+    path is tests/test_glm5next_decode_parity.py)."""
+
+    def test_forward_matches_dump(self):
+        from ref import glm5next as G
+        hp = G.hparams(self.kv)
+        emb = self.W["token_embd.weight"]
+        rows = dump("hc_init__0").reshape(self.T, hp["hc"], -1)[:, 0]
+        # run_parity.sh feeds the ids directly; hc_init holds their embedding rows exactly
+        tokens = [int(np.argmin(np.abs(emb - r).max(1))) for r in rows]
+        self.assertTrue(np.array_equal(emb[tokens], rows), "token ids not recoverable from hc_init")
+        out = G.forward(tokens, self.W, hp)
+        for il in range(self.N):
+            self.assertClose(out["layers"][il]["l_out"], dump(f"l_out-{il}__0").reshape(self.T, hp["hc"], -1), 1e-4,
+                             f"l_out L{il}")
+        logits = np.fromfile(pathlib.Path(DUMP, "logits.bin"), dtype=np.float32).astype(np.float64)
+        self.assertClose(out["logits"], logits.reshape(self.T, -1), 1e-4, "logits")
