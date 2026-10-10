@@ -21,7 +21,7 @@ the message of commit `7f96724` says "nine" - at that commit there were 10 fault
 `git show 7f96724:<file>`; history is not rewritten), tests/test_n7_report.py (3) |
 | stand-in server | tests/fixtures/srvcheck/stub_llama_server.py |
 | generator | tools/tinygen/glm5next_tiny.py `--mtp` (new, default output byte-identical); tools/tinygen/qwen4exp_tiny.py `--mtp` (N6) |
-| CI | .github/workflows/server-cpu.yml (job `n7`; new file, so no edit of ci.yml): runs on PR #2; result recorded in the PR, not here |
+| CI | .github/workflows/server-cpu.yml (job `n7`; new file, so no edit of ci.yml): green on `49de8e7`, section "CI" below |
 | mutation check | docs/evidence/mutation-scripts/2026-10-10-n7-srvcheck.py |
 
 ## Setup (CONFIRMED, literal)
@@ -320,6 +320,41 @@ Ran 447 tests in 160.847s
 OK (skipped=86)
 exit=0
 ```
+
+## CI (GitHub Actions, another machine)
+
+Workflow `server-cpu` on `49de8e7` (= code `0a20e20` + merge of PR #1 head): push run 38074581510, job `n7` 114278765438,
+conclusion success (CONFIRMED, GitHub API: job log and run list); the PR run 38074584505 succeeded too. Excerpt of the job
+log, literal (timestamps kept; the JSON summaries are cut to the lines that differ between machines or carry the verdict):
+```
+2026-10-10T18:09:27.8752981Z Ran 18 tests in 45.765s
+2026-10-10T18:09:27.8753453Z OK
+2026-10-10T18:09:31.8400716Z llama.cpp 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6 (pins.json)
+2026-10-10T18:12:26.0641471Z version: 0.6.0-dev (build 1, commit 79e2e74)
+2026-10-10T18:12:26.7555794Z == qwen4exp gate (-c 1024 -np 1 -t 2 -fa off -ctk f32 -ctv f32 --no-warmup)
+2026-10-10T18:12:29.1493883Z   "all_pass": true
+2026-10-10T18:12:29.1502196Z   "max_busy_slots": 2,
+2026-10-10T18:12:29.1583837Z == glm5next gate (-c 1024 -np 1 -t 2 -fa off -ctk f32 -ctv f32 --no-warmup)
+2026-10-10T18:12:31.9726872Z   "all_pass": true
+2026-10-10T18:12:31.9738051Z   "max_busy_slots": 2,
+2026-10-10T18:12:31.9739387Z    4.458427429199219e-05,
+2026-10-10T18:12:31.9739606Z    1.5735626220703125e-05
+2026-10-10T18:12:34.3663425Z == glm5next characterization (-c 1024 -np 1 -t 2 --no-warmup)
+2026-10-10T18:12:37.1405134Z   "all_pass": false
+2026-10-10T18:12:37.1406442Z   "max_abs_dlogprob": 0.026694536209106445,
+2026-10-10T18:12:37.1414533Z    0.001149892807006836,
+2026-10-10T18:12:37.1414700Z    0.0018963813781738281
+2026-10-10T18:12:37.1492385Z artifacts: /home/runner/work/_temp/n7-out
+2026-10-10T18:12:37.2990411Z With the provided path, there will be 32 files uploaded
+```
+Compared field by field by reading the job log returned by the GitHub API (the log download URL itself is refused by
+the sandbox proxy, `CONNECT tunnel failed, response 403`, so no script diff): every other value of the four summaries
+equals the sandbox run above (reuse 231/232 and 0/144, slot files 269 844 / 299 756 / 181 140 / 211 052 B, MTP 81/2 and
+87/0, the 0.026694536209106445 warm/cold difference of glm5-next with defaults, the qwen4exp two-slot |d|). Only
+timing-dependent values differ: the client-side `overlap_s` of all four runs, and the glm5-next two-slot |d| (gate
+4.46e-5 / 1.57e-5 here vs 4.39e-5 / 1.98e-5; defaults 1.15e-3 / 1.90e-3 vs 1.53e-3 / 2.23e-3) - which tokens share a
+batch depends on request timing (finding 8). Artifact `n7-server-cpu`
+(result JSONs and server logs) is attached to the run.
 
 ## Not covered (NOT RUN)
 
