@@ -46,3 +46,19 @@ Caveats (review 2026-10-09, item 18): `*.txt` is tokenized as plain text with no
 the conversation with the model's template first, or capture token ids from the serving engine (`/tokenize`) and pass `*.ids`.
 The `.txt` path has only been exercised on a tiny test model without a real tokenizer (NOT RUN on a real tokenizer). A prompt that
 does not fit `-c` together with `G0_GEN_TOKENS` is an error; `G0_TRUNCATE=1` cuts the tail of the prompt and logs it.
+
+## Expert prediction on real models (added 2026-10-10, research R8)
+
+`g0-expert-probe` (same build, target `g0-expert-probe`, needs `-b` equal to `-ub`) records, for the last `G0_PROBE_TAIL`
+prompt tokens and every generated token, each MoE layer's router input (`ffn_norm`, fp16), router logits and selected experts
+(`*.probe`). `predict_eval.py` checks that the GGUF's router weights reproduce the recorded logits, that its selection rule
+(softmax / sigmoid + bias / expert groups) reproduces the recorded experts, and (`--check-traces`) that the probe's experts equal
+the trace of the same conversation; then it scores predictors of layer l+d's experts available while layer l runs: cross-layer
+pre-gating (W_{l+d} x_l), previous token, popularity, co-occurrence transition, and pre-gating united with the previous token.
+```
+G0_TRACES_DIR=ids/ G0_OUT_DIR=probes/ G0_GEN_TOKENS=128 G0_PROBE_TAIL=256 build-g0/g0-expert-probe -m model.gguf -c 8192 -b 512 -ub 512
+PYTHONPATH=<llama.cpp>/gguf-py python3 tools/g0/predict_eval.py probes/ --gguf model.gguf --train-traces train/ --check-traces traces/
+```
+Real-model runs: `scripts/traces/run_real_traces.sh` (one model of `data/traces/real/REQUEST.json`; corpus
+`scripts/traces/build_agent_prompts.py`, chat-template rendering `scripts/traces/render_ids.py`), executed by the workflow
+`traces-real` (GitHub Actions can reach huggingface.co, the agent sandbox cannot); results land in `data/traces/real/<model>/`.

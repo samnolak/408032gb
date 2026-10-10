@@ -26,6 +26,11 @@ add_executable(g0-expert-trace expert_trace.cpp)
 target_link_libraries(g0-expert-trace PRIVATE llama-common llama)
 target_compile_features(g0-expert-trace PRIVATE cxx_std_17)
 
+# Expert-prediction probe (router input, router logits, selected experts) for tools/g0/predict_eval.py.
+add_executable(g0-expert-probe expert_probe.cpp)
+target_link_libraries(g0-expert-probe PRIVATE llama-common llama)
+target_compile_features(g0-expert-probe PRIVATE cxx_std_17)
+
 # Tensor dump tool for parity tests (tools/dump/dump_tensors.cpp); same pinned llama.cpp.
 add_executable(dump-tensors ../dump/dump_tensors.cpp)
 target_link_libraries(dump-tensors PRIVATE llama-common llama)
