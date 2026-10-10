@@ -983,3 +983,20 @@ Ran 422 tests in 94.176s
 
 OK (skipped=86)
 ```
+
+## Re-check by the lead after merging into `claude/relaxed-dijkstra-1d7i5o` (2026-10-10)
+Merge commit `ec342f7` (branch `claude/n6-qwen4exp-decode` at `26fcf97`). Fresh build directory, pinned llama.cpp checkout
+`ec7630a`, `<S>` = the session sandbox:
+```
+$ TMPDIR=<S>/lead-n6 tools/tinygen/run_parity_qwen4exp_decode.sh <S>/llama.cpp <S>/lead-n6/build   (tail)
+Ran 54 tests in 2.575s
+OK
+real	2m6.936s
+exit=0
+$ TMPDIR=<S>/lead-n6 tools/tinygen/run_parity_qwen4exp.sh <S>/llama.cpp <S>/lead-n6/build   (N2 driver, the new dump tool in its default mode)
+Ran 17 tests in 0.294s
+OK
+exit=0
+```
+Finding 10 above (N2's tie replay validates only the reference's selection) is reproduced and closed in
+N2's tests; see docs/evidence/2026-10-10-qwen4exp-tiny-parity.md, last section.

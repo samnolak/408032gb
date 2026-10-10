@@ -757,3 +757,19 @@ caught 13/13
 ```
 Первый запуск драйвера ведущим был с неверным путём к модели (`tiny.gguf`): базовый прогон тогда дал `FAILED (errors=1)`, и его
 «13/13» ничего не доказывал — поэтому он не считается; зачтён второй запуск с зелёным базовым прогоном.
+
+## N6: дыра в повторе ничьих QSA — воспроизведена и закрыта ведущим (2026-10-10)
+Находка parity-qa в N6 (`docs/evidence/2026-10-10-qwen4exp-decode-parity.md`): `_tie_variants` в
+`tests/test_qwen4exp_tiny_parity.py` проверял, что допустимой top-k-выборкой является только выборка llama.cpp, но не выборка
+оракула. Ошибка внутри `Q.qsa_select` (например, на один пул меньше) тогда «повторялась» как ничья и не ловилась тестами по
+дампам (её ловил только property-тест `test_selection_is_top_pools_plus_tail`). Проверка ведущим
+(`docs/evidence/mutation-scripts/2026-10-10-qwen4exp-n2-tie-hole.py`, код на `ec342f7`, дампы свежего прогона N2-драйвера):
+```
+baseline, no fix                         rc=0 OK
+qsa_select one pool fewer, no fix        rc=0 OK
+baseline, with fix                       rc=0 OK
+qsa_select one pool fewer, with fix      rc=1 FAILED (failures=2)
+```
+Исправление (одна проверка в `_tie_variants`: выборка оракула тоже обязана быть допустимой top-k) внесено; допуски не менялись.
+После него на тех же дампах: `Ran 17 tests in 0.274s` / `OK`. Мутационная таблица N2 выше (13/13) снята до исправления и
+остаётся как есть.

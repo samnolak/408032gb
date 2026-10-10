@@ -142,8 +142,10 @@ llama.cpp на master умеет GPU-кэш экспертов (LRU на уст�
      СДЕЛАНО, проверено на настоящей сборке llama.cpp `79e2e74` sm_89 (мутации 16/16);
    - ExLlamaV3 `151539c` (B5): расширение собрано под sm_89 локально (torch 2.14.1, CUDA 13.0.3 из pip; 167 cubin sm_89),
      в CI `engines-sm89` собрано тоже (run 38068809785); на GPU — NOT RUN;
-   - декод и несколько ubatch для `qwen4exp` (пробел N2), MTP — в работе у агента parity-qa (ветка `claude/n6-qwen4exp-decode`,
-     ещё не влита), NOT RUN.
+   - декод, несколько ubatch, откат и MTP для `qwen4exp` на CPU (пробелы N2) — СДЕЛАНО (parity-qa, влито `ec342f7`; 54 теста,
+     ошибка ≤ 5.4e-6, мутации 17/17; перепроверено ведущим). Риск для R1: llama.cpp `ec7630a` падает (SIGSEGV) на первом
+     MTP-графе, если планировщик не пере-резервирован (`docs/evidence/2026-10-10-qwen4exp-decode-parity.md`, находка 12);
+     затронут ли MTP-путь llama-server — UNKNOWN, проверить на сервере первым запуском MTP.
    Аудит доказательств N6 (evidence-auditor): все счётчики и мутации воспроизведены; 4 мелких замечания закрыты (`ca007cc`).
    Скрипты мутационных проверок — `docs/evidence/mutation-scripts/`.
 1. R0: диагностика на сервере → `HARDWARE_FACTS.md`, обновить hardware JSON измеренными bw/каналами/PCIe/P2P.

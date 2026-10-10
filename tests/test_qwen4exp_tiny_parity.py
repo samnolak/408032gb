@@ -279,6 +279,9 @@ class Qwen4expTinyParity(_Base):
             if s == mine[t]:
                 continue
             ok, why = Q.qsa_tie_variant(scores[t], s, t, self.hp["idx_top_k"], self.hp["kpool"])
+            # the oracle's own selection must be a valid top-k too, else a bug in Q.qsa_select is replayed away (N6)
+            own, why_own = Q.qsa_tie_variant(scores[t], mine[t], t, self.hp["idx_top_k"], self.hp["kpool"])
+            ok, why = ok and own, why or ("oracle selection: " + str(why_own))
             self.assertTrue(ok, f"QSA selection L{il} t={t}: {why}; reference {s}, oracle {mine[t]}")
             n += 1
         return n
