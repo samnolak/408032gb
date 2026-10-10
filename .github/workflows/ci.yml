@@ -27,6 +27,8 @@ jobs:
         run: tools/tinygen/run_parity.sh ../llama.cpp ../build-tools
       - name: MiMo G1 tiny-model parity against the real mimo2 graph (CPU)
         run: tools/tinygen/run_parity_mimo.sh ../llama.cpp ../build-tools
+      - name: N2 qwen4exp (candidate 1) tiny-model parity against the real qwen4exp graph (CPU)
+        run: tools/tinygen/run_parity_qwen4exp.sh ../llama.cpp ../build-tools
   ref-torch-cpu:
     # Oracles whose reference is torch code (vendored, pinned): DFlash2 primitives against vLLM (ADR-011).
     runs-on: ubuntu-24.04
