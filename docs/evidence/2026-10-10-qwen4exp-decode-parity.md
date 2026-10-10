@@ -17,7 +17,7 @@ line was printed from the pinned checkout before citing.
 | dump tool | tools/dump/dump_tensors.cpp: opt-in `DUMP_PER_GRAPH`, `DUMP_CALLS`, `DUMP_N_RS_SEQ`, `DUMP_MTP`, `DUMP_MTP_DRAFT`, `DUMP_MTP_NO_RESERVE`; default output byte-identical (below) |
 | generator | tools/tinygen/qwen4exp_tiny.py `--mtp` (default output byte-identical, below) |
 | mutation check | tools/tinygen/mutate_qwen4exp_decode.py (17 mutants on copies; the repository is never edited) |
-| CI | step appended to `cpu-parity` in .github/workflows/ci.yml: NOT RUN in GitHub Actions (branch not pushed) |
+| CI | step appended to `cpu-parity` in .github/workflows/ci.yml: green in GitHub Actions on `3f32a66` (run 38072395874, job 114272330454; log tail in the last section) |
 
 ## Runs
 
@@ -441,7 +441,7 @@ S9 QSA: incomplete tail taken relative to the ubatch
 | unfused graph branches (chunked / autoregressive delta net, unfused HC) during decode | NOT EXERCISED | the CPU takes the fused ops (N2 finding 1) |
 | quantized weights, f16 KV cache, flash attention, GPU backends | NOT COVERED / NOT RUN | as in N2: all f32, `-fa off`, no GPU in the sandbox |
 | equality of the llama.cpp graph with the original model code | UNKNOWN | oracle-versus-llama.cpp parity only, as in N2 |
-| the new CI step in GitHub Actions | NOT RUN | branch not pushed; the same command passes locally (below) |
+| the new CI step in GitHub Actions | CONFIRMED green on `3f32a66` | run 38072395874, job 114272330454 (last section); before the push this row read NOT RUN |
 
 ## Commands and literal output
 
@@ -1000,3 +1000,26 @@ exit=0
 ```
 Finding 10 above (N2's tie replay validates only the reference's selection) is reproduced and closed in
 N2's tests; see docs/evidence/2026-10-10-qwen4exp-tiny-parity.md, last section.
+
+## CI and the second evidence audit (2026-10-10)
+GitHub Actions, push run 38072395874 on `3f32a66`, job `cpu-parity` 114272330454 (CONFIRMED, job log via the GitHub API;
+the N6 step is the one before `run_trace_smoke.sh`):
+```
+2026-10-10T17:39:58.6317982Z Ran 54 tests in 2.094s
+2026-10-10T17:39:58.6318217Z OK
+2026-10-10T17:39:58.6661541Z artifacts: /tmp/tmp.6pZaIi0cN1
+2026-10-10T17:39:58.6701298Z ##[group]Run tools/g0/run_trace_smoke.sh ../llama.cpp ../build-tools
+```
+Evidence audit of `ec342f7` and `3f32a66` (evidence-auditor, read-only, on `git archive` exports with fresh builds): the
+decode driver (54 OK), every value of the worst-error tables (246 + 62 + 62 rows identical), the mutation run (17/17,
+output identical to the table above apart from timings), the default dump mode (1022 files byte-identical to the old tool),
+the N2 tie-hole script, and the exit 139 / exit 0 crash pair with gdb at ggml-alloc.c:987 (`out_ids`, `buffer_id = -1`)
+all reproduced. Its four minor findings and what was done:
+1. the CI rows above still said NOT RUN after the push — updated with the run above;
+2. a PROJECT_STATE line about the first N6 audit (`ca007cc`) read as if it covered this work — reworded, both audits named;
+3. `3f32a66` carries lead edits (ROADMAP, PROJECT_STATE, the lead re-check section) under the prefix `[parity-qa]` —
+   recorded here; published history is not rewritten;
+4. the numbers in the messages of `cc142b0`, `d07f6e9` and `3f32a66` carry no label — they are CONFIRMED by the
+   reproductions of this audit (sections above); later commit messages label their numbers.
+Its observation: the workaround comment in `tools/dump/dump_tensors.cpp` stated the gallocr mechanism as fact, while
+finding 12 labels it PROVISIONAL — the comment now says so.

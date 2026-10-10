@@ -146,7 +146,10 @@ llama.cpp на master умеет GPU-кэш экспертов (LRU на уст�
      ошибка ≤ 5.4e-6, мутации 17/17; перепроверено ведущим). Риск для R1: llama.cpp `ec7630a` падает (SIGSEGV) на первом
      MTP-графе, если планировщик не пере-резервирован (`docs/evidence/2026-10-10-qwen4exp-decode-parity.md`, находка 12);
      затронут ли MTP-путь llama-server — UNKNOWN, проверить на сервере первым запуском MTP.
-   Аудит доказательств N6 (evidence-auditor): все счётчики и мутации воспроизведены; 4 мелких замечания закрыты (`ca007cc`).
+   Аудиты доказательств N6 (evidence-auditor, только чтение): (1) шлюз и пины R1 (`9d37e28`, `c1a0336`) — всё воспроизведено,
+   4 мелких замечания закрыты в `ca007cc`; (2) декод/MTP `qwen4exp` (`ec342f7`, `3f32a66`) — всё воспроизведено, включая
+   падение llama.cpp (exit 139) под gdb; 4 мелких замечания закрыты (раздел «CI and the second evidence audit» в
+   `docs/evidence/2026-10-10-qwen4exp-decode-parity.md`). Шаг CI декода зелёный на `3f32a66` (run 38072395874).
    Скрипты мутационных проверок — `docs/evidence/mutation-scripts/`.
    N7 (без железа, 2026-10-10, отдельная сессия, ветка `claude/n7-server-hybrid-cpu`, Draft PR в эту ветку): настоящий
    llama-server пина R1 на CPU на крошечных qwen4exp/glm5-next (+MTP) — кэш префиксов, чекпойнты, `--cache-reuse`, слоты с
