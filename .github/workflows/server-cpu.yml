@@ -1,16 +1,17 @@
 # Track N7 (docs/reassessment/ROADMAP.md): the real llama-server of R1 (llama.cpp at the tools/engines/pins.json commit),
 # CPU build, on tiny hybrid-memory models (qwen4exp, glm5-next, each also with an MTP block): determinism, prefix
 # reuse, context-checkpoint fallback, --cache-reuse, slot save/restore incl. a restart, two-slot isolation, MTP vs
-# plain greedy decode. No GPU: nothing here says anything about speed or GPU kernels.
+# plain greedy decode; N8: corrupted slot files restored raw vs through tools/kv/session_store.py.
+# No GPU: nothing here says anything about speed or GPU kernels.
 name: server-cpu
 on:
   workflow_dispatch:
   push:
     paths: [tools/srvcheck/**, tools/kv/**, tools/tinygen/**, tools/engines/pins.json, tests/test_srvcheck.py, tests/test_n7_report.py,
-            tests/fixtures/srvcheck/**, .github/workflows/server-cpu.yml]
+            tests/test_session_store.py, tests/fixtures/srvcheck/**, .github/workflows/server-cpu.yml]
   pull_request:
     paths: [tools/srvcheck/**, tools/kv/**, tools/tinygen/**, tools/engines/pins.json, tests/test_srvcheck.py, tests/test_n7_report.py,
-            tests/fixtures/srvcheck/**, .github/workflows/server-cpu.yml]
+            tests/test_session_store.py, tests/fixtures/srvcheck/**, .github/workflows/server-cpu.yml]
 concurrency:
   group: server-cpu-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -23,7 +24,7 @@ jobs:
       - name: deps
         run: pip install numpy
       - name: harness tests against a stand-in server (fault injection)
-        run: python3 -m unittest tests.test_srvcheck tests.test_n7_report -v
+        run: python3 -m unittest tests.test_srvcheck tests.test_n7_report tests.test_session_store -v
       - name: llama.cpp at the pinned commit (tools/engines/pins.json)
         run: |
           SHA=$(python3 -c "import json; print(json.load(open('tools/engines/pins.json'))['engines']['llama.cpp']['sha'])")
@@ -32,6 +33,13 @@ jobs:
           git -C ../llama.cpp checkout -q FETCH_HEAD
       - name: N7 llama-server checks on tiny qwen4exp and glm5-next (CPU)
         run: tools/srvcheck/run_n7.sh ../llama.cpp ../build-n7 "${{ runner.temp }}/n7-out"
+      - name: N8 corrupted slot files - raw llama-server vs tools/kv/session_store.py (CPU)
+        run: |
+          for m in qwen4exp glm5next; do
+            python3 tools/kv/slot_corruption_probe.py --server ../build-n7/bin/llama-server \
+              --model "${{ runner.temp }}/n7-out/$m.gguf" --workdir "${{ runner.temp }}/n8-out/$m" \
+              --out "${{ runner.temp }}/n8-out/$m.json"
+          done
       - name: keep results and server logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -40,3 +48,4 @@ jobs:
           path: |
             ${{ runner.temp }}/n7-out/*.json
             ${{ runner.temp }}/n7-out/*/*.log
+            ${{ runner.temp }}/n8-out/*.json
