@@ -542,6 +542,8 @@ class FailurePaths(unittest.TestCase):
                     self.assertEqual(proc.returncode, want, out)
                     e = ends(run_dir)
                     self.assertEqual(e["matrix[smoke-1k]"]["status"], "interrupted")
+                    # the tool got SIGINT from the orchestrator and exited (run_matrix: 130; uncaught: -SIGINT)
+                    self.assertIn(e["matrix[smoke-1k]"]["exit_code"], (130, -signal.SIGINT))
                     self.assertEqual(e["matrix[filled-4k]"]["status"], "skipped")
                     self.assertFalse(alive(e["engine_start"]["pid"]), "the engine survived %s" % sig.name)
                     self.assertEqual(e["engine_stop"]["status"], "ok")
