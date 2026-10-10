@@ -71,7 +71,10 @@ def pids_with(text):
 def run_main(args):
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = run_r1.main(args)
+        try:
+            code = run_r1.main(args)
+        except KeyboardInterrupt as e:            # would abort the whole unittest run instead of failing this test
+            raise AssertionError("KeyboardInterrupt escaped run_r1.main: %r" % (e,)) from None
     return code, out.getvalue() + err.getvalue()
 
 
