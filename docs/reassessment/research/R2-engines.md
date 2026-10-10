@@ -190,7 +190,7 @@ huggingface/mistral.rs        fatal: could not read Username for 'https://github
 - **Не изменилось (VERIFIED):**
   - Q4_K/Q5_K/Q6_K-эксперты не исполняются. Источник K-quant только перепаковывается в Q2_K/Q3_K (`model.hpp:308-312`).
   - Повторного использования префикса нет; парсинга tool calls нет (README_GLM53_FLASH.md: «GLM tool-call parsing is not implemented»).
-  - Тензоры IQ4_XS исполняются (5 форматов, `docs/GLM53_FLASH.md:126-127`). Поэтому **UD-IQ4_XS может пойти без новых ядер**, если все его экспертные тензоры — IQ4_XS (UNKNOWN: состав файла не инспектирован).
+  - Тензоры IQ4_XS исполняются (5 форматов, `docs/GLM53_FLASH.md:126-127`). Поэтому **UD-IQ4_XS может пойти без новых ядер**, если все его экспертные тензоры — IQ4_XS (UNKNOWN: состав файла не инспектирован). **[DISPROVED как путь к ≥ 4 бит, 2026-10-09: у GLM UD-IQ4_XS средний bpw экспертов ≤ 3.99, у Qwen — IQ3_S; `../EVIDENCE_MATRIX.md` E18b, E18c, E57]**
 - **Поправка к ADR-009** («Multi-GPU is not mentioned anywhere»): теперь до 2 GPU в коде (VERIFIED) и замер на 2×V100 (REPORTED). До 4 GPU не доходит.
 
 ### 3.4 Grigory-Rylov/strata-glm-3090: `b115f38` → HEAD `794cd69` (2026-10-03 18:51)
@@ -312,7 +312,7 @@ PROBLEMS.md утверждает: «ik_llama знает только `glm5next` 
 | # | эксперимент | команда, метрика | что решает |
 |---|---|---|---|
 | E0 | Железо (G0 из PLAN.md) | `dmidecode -t memory`, STREAM triad; `nvidia-smi -q` (Gen/ширина под нагрузкой); `nvidia-smi topo -p2p r` и `p2pBandwidthLatencyTest` **внутри VM**; `numactl -H` (NPS); `fio` 4K/16K QD32 | 4 или 8 каналов (CPU-доля ×2); возможны ли P2P и TP в VM Proxmox. Патч драйвера aikitoria/tinygrad (RTX 30/40/50, нужны ReBAR и `iommu=pt` [29]) в VM — HYPOTHESIS: сложно |
-| E1 | Матрица A: GLM-5.3-Flash UD-IQ4_XS и UD-Q4_K_XL (`glm5next`, ik_llama) / `glm5-next` Q4_K (llama.cpp) | `llama-bench` pp512/tg128 и `llama-server` с агентным трассом при ctx 8K / 64K / 200K–262K; `-sm layer`, `-ncmoe N`, `--moe-cache-mib`, MTP вкл./выкл.; 3 повтора, медиана | Уровень A. Порог: ≥35 tok/s на 128K → A + доводка; ≤20 → нужна D |
+| E1 | Матрица A: GLM-5.3-Flash ~~UD-IQ4_XS~~ (исключён 2026-10-09: эксперты < 4 бит, E18c) и UD-Q4_K_XL (`glm5next`, ik_llama) / `glm5-next` Q4_K (llama.cpp) | `llama-bench` pp512/tg128 и `llama-server` с агентным трассом при ctx 8K / 64K / 200K–262K; `-sm layer`, `-ncmoe N`, `--moe-cache-mib`, MTP вкл./выкл.; 3 повтора, медиана | Уровень A. Порог: ≥35 tok/s на 128K → A + доводка; ≤20 → нужна D |
 | E2 | Локальность маршрутизации на реальном агентном трафике | `tools/g0` (гистограммы по слоям, кривая попаданий для 4×26 GiB), повтор эксперта t→t+1 | Есть ли перекос, на котором кэш и D дадут больше ×1.3. «Плоская» маршрутизация (24.6% повтора, строка 7; «extremely flat», [24]) ограничивает все кэши |
 | E3 | Микробенч CPU-ядер экспертов на 7H43 | эффективные GB/s GEMV Q4_K/IQ4_XS: ggml AVX2 против `iq_avx2` Strata против AVX2-пути FreeToken/KT, 1…48 потоков, NPS1/NPS4 | Реальная цена CPU-яруса; сравнение «считать на CPU» против «везти по PCIe» (q*) |
 | E4 | Спекуляция при выгрузке | llama.cpp: `--spec-type` MTP n=1..3 и DFlash с драфтером `canada-quant/GLM-5.3-Flash-DFlash2-G` (ADR-011); принятие и чистые tok/s | Даёт ли спекуляция ×1.2+ при выгрузке (ADR-011, п. «риски») |
