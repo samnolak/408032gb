@@ -371,7 +371,7 @@ class _RunParity:
                 # (src/llama-memory-hybrid-idx.cpp:947-967; npos zero-filled at 898)
                 # At 79e2e74 every padded entry takes its own cell instead: the smallest cells that are no complete
                 # pool's rep ("entries sharing one would write it from several threads in the scatter",
-                # src/llama-memory-hybrid-idx.cpp:890-905 @79e2e74); a pool's rep is its last member's cell
+                # src/llama-memory-hybrid-idx.cpp:888-905 @79e2e74); a pool's rep is its last member's cell
                 # (:857-859), here kp*j + kp - 1 for the b1 complete pools; the padded slots are still never read.
                 n_pad = new.shape[0] - (b1 - b0)
                 if SHARED_PAD_CELL:

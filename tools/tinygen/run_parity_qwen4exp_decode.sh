@@ -3,7 +3,7 @@
 # token-by-token decode, and with a rollback, dumped graph by graph -> tests/test_qwen4exp_decode_parity.py
 # (oracle: ref/qwen4exp.py forward and its incremental path forward_chunk); and the same model with an MTP block,
 # driven like common/speculative.cpp -> tests/test_qwen4exp_mtp_parity.py (oracle: mtp_forward_chunk). Usage:
-#   tools/tinygen/run_parity_qwen4exp_decode.sh <llama.cpp checkout @ec7630a> [build dir]
+#   tools/tinygen/run_parity_qwen4exp_decode.sh <llama.cpp checkout @ec7630a, or the R1 pin of tools/engines/pins.json> [build dir]
 set -euo pipefail
 LLAMA=$(cd "${1:?llama.cpp checkout}" && pwd); BUILD=${2:-build-tools}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); WORK=$(mktemp -d)
