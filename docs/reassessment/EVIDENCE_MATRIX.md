@@ -1,7 +1,8 @@
 # Evidence Matrix — утверждения, на которых держится ADR-012 (2026-10-09, редакция 2 после ревью)
 
 Шкала: **VERIFIED/CONFIRMED** — видели в первичном источнике (файл:строка@SHA, литеральный вывод, URL); **REPORTED** — заявление
-автора/вендора/сообщества; **HYPOTHESIS/PROVISIONAL** — вывод или расчёт; **DISPROVED**; **UNKNOWN**. «Ведущий» — проверено ведущим
+автора/вендора/сообщества; **UNVERIFIED** — заявление заказчика о его железе, не проверенное замером (по AGENTS.md это UNKNOWN до
+замера); **HYPOTHESIS/PROVISIONAL** — вывод или расчёт; **DISPROVED**; **UNKNOWN**. «Ведущий» — проверено ведущим
 лично в этой сессии; иначе — субагентом (файл research/…). Колонка «закроет» — эксперимент из `EXPERIMENTS.md`/`ROADMAP.md`.
 Редакция 2: правки по `REVIEW-adversarial.md` (п. 1, 3, 10, 11, 13, 14) — условия чужих замеров, база A, состав IQ4_XS-файлов,
 метки «CONFIRMED формулой/арифметикой» понижены до PROVISIONAL (арифметика над PROVISIONAL-входами остаётся PROVISIONAL).
@@ -60,7 +61,7 @@
 | # | утверждение | метка | источник | закроет |
 |---|---|---|---|---|
 | E40 | конвейер по слоям при batch=1 ≈ полоса одной карты | PROVISIONAL (модель) + REPORTED (Strata MULTI_GPU: «декод на уровне более быстрой карты») | `ROOFLINE.md`, R3 §2.1 | B1, P1 |
-| E41 | GLM UD-Q4_K_XL (4.89/8.04 bpw): граница конвейера ≤ ~41 tok/s при любом попадании, со спекуляцией (hit 0.9, принятие 0.7) ≤ ~50; при TP латент MLA реплицируется, TP@auto ≈ 41 | PROVISIONAL | `tools/roofline.py`, `ROOFLINE.md` §2–3 (ред. 2) | B1 |
+| E41 | GLM UD-Q4_K_XL (4.89/8.04 bpw): граница конвейера без спекуляции ≤ ~42 tok/s при любом попадании; со спекуляцией (принятие 0.7) — огибающая 50.6–52.9 при попадании ≥ ~0.8 и только с перекрытием CPU/GPU, без перекрытия ≤ ~47; при TP латент MLA реплицируется, TP@auto ≈ 41 | PROVISIONAL | `tools/roofline.py` (поле `envelope`), `ROOFLINE.md` §2–3 (ред. 3) | B1, M1 |
 | E42 | промахи выгоднее считать на CPU, чем копировать по PCIe (batch=1) | PROVISIONAL (следует из полос 25 против ~140 ГБ/с; тест `test_cpu_compute_beats_pcie_copy_for_batch_one` проверяет **код формулы, не физику** — при rbw > pbw он истинен по построению). Отдельно: порог `GGML_OP_OFFLOAD_MIN_BATCH=32` в llama.cpp — VERIFIED как код (R3) | `tests/test_roofline.py`; R3 | M4 |
 | E43 | калибровка: ik_llama 15.0 tok/s против границы 15.2 (4 канала × КПД 0.9) или 16.5 (8 каналов × КПД 0.5) при `--overlap no` — **каналы и КПД по одному числу не разделимы**; переносить на «всё в VRAM» и делать порогом приёмки нельзя | PROVISIONAL | `ROOFLINE.md` §1 (ред. 2); `docs/evidence/2026-10-09-roofline-calibration-and-mutations.md` | R0 membw + B1 |
 | E44 | MiMo при 262K читает ≈ 5.6 GiB KV на токен (f16) | PROVISIONAL (геометрия частично PROVISIONAL) | `models/specs/mimo-v2.6-flash.json` | K4 |
@@ -68,7 +69,7 @@
 | E46 | маршрутизация зависит от формы батча (на случайных весах: 0% в слоях 1–4, до 5.7% токенов в самом глубоком слое) | CONFIRMED на крошечной модели; для реальной UNKNOWN | там же | M1 |
 | E47 | таблица типов `tools/gguf_quant_audit.py` = gguf-py @ec7630a | CONFIRMED (тест) | `tests/test_gguf_quant_audit.py` | — |
 | E48 | GLM в llama.cpp хранит на токен индексера `key`, `gate`, `pooled` = 3×128 в 12 слоях (с MTP): ~8.05 GB при 262K против 3.75 GiB в roofline — на 2–4 GiB меньше места под эксперты | VERIFIED как код (ревьюер: `src/llama-memory-hybrid-idx.cpp:56-58`@79e2e74) / PROVISIONAL (размер) | `REVIEW-adversarial.md` п. 14; R1 §3 | R1.5 замер VRAM |
-| E49 | граница TTFT при 262K — десятки секунд (GLM ~50 с, MiMo ~98 с) при FP16/FP32-акк. тензорных 104.5 TFLOPS × 0.5 | HYPOTHESIS (TFLOPS выведены из whitepaper 4090, R4 §3.2) / PROVISIONAL (граница) | `ROOFLINE.md` §4 п. 6 | R1 замер TTFT |
+| E49 | граница TTFT при 262K — десятки секунд (GLM ~50 с, MiMo ~98 с) при FP16/FP32-акк. тензорных 104.5 TFLOPS × 0.5; для движков с INT8-префиллом (llama.cpp MMQ) — не нижняя граница | HYPOTHESIS (TFLOPS выведены из whitepaper 4090, R4 §3.2) / PROVISIONAL (граница) | `ROOFLINE.md` §4 п. 6 | R1 замер TTFT |
 
 ## Исторические утверждения, изменившие статус
 | # | было | стало | источник |
