@@ -507,3 +507,38 @@ $ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_r1_orchestration   # 
 - Длительность полной ячейки на 262K, время загрузки весов и остановки реального движка — UNKNOWN до сервера.
 - Тест SIGINT/SIGTERM проверяет пересылку сигнала инструменту `run_matrix`; поведение других инструментов при SIGINT в момент
   ожидания HTTP-ответа на 262K не проверялось.
+
+## Перепроверка ведущим (2026-10-10, после слияния в `claude/relaxed-dijkstra-1d7i5o`)
+Полный прогон на mock-конфиге (сначала `make_mock_model.py`, как в `scripts/r1/README.md`):
+```
+$ python3 scripts/r1/make_mock_model.py <S>/r1runs/mock-model
+$ python3 scripts/r1/run_r1.py --config scripts/r1/configs/mock.json --out <S>/r1runs        (exit=0; выдержка)
+[r1] steps: weights_verify=ok, quant_audit=ok, roofline_prediction=ok, nvidia_smi_before=skipped, engine_version=ok, engine_start=ok, health_wait=ok, matrix=ok, probes=ok, slot_persist=skipped, logprob_compare=skipped, vs_roofline...
+[r1] verification pack: NOT RUN (mandatory criteria NOT RUN: single_configuration, openai_api, context_probes_full_length, ...) -> pack/VERDICT.md
+```
+(Первый запуск ведущего без `make_mock_model.py` дал `weights_verify=failed, quant_audit=failed`, exit 1 и тот же вердикт NOT RUN —
+ожидаемо: модели не было, и отказ записан, а не скрыт.)
+
+Выборочные мутации ведущего (`<S>/scripts/r1_mut.py`, копия ветки через `git archive`). Первый круг — на тестах агента:
+```
+baseline: Ran 15 tests in 10.126s / OK
+R-a roofline prediction moved after the engine start -> CAUGHT
+    FAIL: test_signal_in_a_shielded_section_is_deferred_not_lost (tests.test_r1_orchestration.FailurePaths.test_signal_in_a_shielded_section_is_deferred_not_lost)
+    FAIL: test_prediction_is_written_before_the_engine_starts (tests.test_r1_orchestration.FullMockRun.test_prediction_is_written_before_the_engine_starts)
+    Ran 15 tests in 9.833s
+    FAILED (failures=7)
+R-b emergency kill does nothing to the engine -> SURVIVED
+    Ran 15 tests in 10.039s
+    OK
+restored identical: True
+```
+
+R-b (аварийное убийство движка отключено) **выжила**: штатная остановка в шаге `engine_stop` всегда успевала раньше. Добавлен тест
+`test_engine_is_killed_even_when_the_regular_stop_fails` (штатная остановка падает → движок всё равно убит); второй круг:
+```
+baseline: Ran 16 tests in 10.096s / OK
+R-a roofline prediction moved after the engine start -> CAUGHT
+R-b emergency kill does nothing to the engine -> CAUGHT
+    FAIL: test_engine_is_killed_even_when_the_regular_stop_fails (tests.test_r1_orchestration.FailurePaths.test_engine_is_killed_even_when_the_regular_stop_fails)
+restored identical: True
+```
