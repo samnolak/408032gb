@@ -1,0 +1,76 @@
+{
+  "_doc": "Engines measured in R1 (docs/reassessment/ROADMAP.md R1.4, track N1). Built by scripts/engines/build_engine.sh, in CI (.github/workflows/engines-sm89.yml, compile only, no GPU) and on the server. ${ARCH}, ${NVCC}, ${CUDA_ROOT}, ${DEP_GGML} are substituted by the script. Pins are full commit SHAs; move a pin only in its own commit with the reason.",
+  "engines": {
+    "llama.cpp": {
+      "repo": "https://github.com/ggml-org/llama.cpp",
+      "sha": "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6",
+      "why": "master 2026-10-09; contains d6cf9acb2 (--moe-cache-mib) and c811cb8f0 (multi-GPU expert cache); code read for research/R2 at this commit",
+      "cmake": [
+        "-DGGML_CUDA=ON",
+        "-DCMAKE_CUDA_ARCHITECTURES=${ARCH}",
+        "-DCMAKE_CUDA_COMPILER=${NVCC}",
+        "-DCUDAToolkit_ROOT=${CUDA_ROOT}",
+        "-DGGML_NATIVE=OFF",
+        "-DLLAMA_CURL=OFF",
+        "-DCMAKE_BUILD_TYPE=Release"
+      ],
+      "targets": [
+        "llama-server",
+        "llama-bench"
+      ],
+      "bins": [
+        "bin/llama-server",
+        "bin/llama-bench"
+      ]
+    },
+    "ik_llama.cpp": {
+      "repo": "https://github.com/ikawrakow/ik_llama.cpp",
+      "sha": "5194a9e1451b885e24dd5a065f650864e8807c59",
+      "why": "main 2026-10-09; glm5-next alias (research/R2 §3.5), -muge / -ncmoe expert offload measured on the 3090 host",
+      "cmake": [
+        "-DGGML_CUDA=ON",
+        "-DCMAKE_CUDA_ARCHITECTURES=${ARCH}",
+        "-DCMAKE_CUDA_COMPILER=${NVCC}",
+        "-DCUDAToolkit_ROOT=${CUDA_ROOT}",
+        "-DGGML_NATIVE=OFF",
+        "-DLLAMA_CURL=OFF",
+        "-DCMAKE_BUILD_TYPE=Release"
+      ],
+      "targets": [
+        "llama-server",
+        "llama-bench"
+      ],
+      "bins": [
+        "bin/llama-server",
+        "bin/llama-bench"
+      ]
+    },
+    "strata": {
+      "repo": "https://github.com/Niko1221/Strata",
+      "sha": "fb58e0dbc8399662c0e47c76578c6e878b14f6cf",
+      "why": "upstream HEAD read 2026-10-08 for the reassessment (Qwen3.8-Flash-Next engine, candidate #1, BRINGUP-qwen38fn.md); flags as its setup.py / Dockerfile build the engine",
+      "deps": {
+        "ggml": {
+          "repo": "https://github.com/ggml-org/llama.cpp",
+          "sha": "3cf03257f219afbe7334045ff7c6a06ac68c627d",
+          "why": "LLAMA_CPP_COMMIT in Strata setup.py@fb58e0d:166"
+        }
+      },
+      "cmake": [
+        "-DSTRATA_ENABLE_CUDA=ON",
+        "-DSTRATA_BUILD_TESTS=OFF",
+        "-DCMAKE_CUDA_ARCHITECTURES=${ARCH}",
+        "-DCMAKE_CUDA_COMPILER=${NVCC}",
+        "-DCUDAToolkit_ROOT=${CUDA_ROOT}",
+        "-DSTRATA_GGML_DIR=${DEP_GGML}",
+        "-DCMAKE_BUILD_TYPE=Release"
+      ],
+      "targets": [
+        "strata"
+      ],
+      "bins": [
+        "strata"
+      ]
+    }
+  }
+}
