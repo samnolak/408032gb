@@ -50,7 +50,8 @@ DUMP = os.environ.get("QWEN4EXP_DECODE_DUMP")
 GGUF = os.environ.get("QWEN4EXP_TINY_GGUF")
 GGUF_PY = os.environ.get("LLAMA_CPP_GGUF_PY")
 TOL = 1e-4
-SKIP = "set QWEN4EXP_DECODE_DUMP, QWEN4EXP_TINY_GGUF, LLAMA_CPP_GGUF_PY: run tools/tinygen/run_parity_qwen4exp_decode.sh"
+SKIP = ("set QWEN4EXP_DECODE_DUMP, QWEN4EXP_TINY_GGUF, LLAMA_CPP_GGUF_PY: "
+        "run tools/tinygen/run_parity_qwen4exp_decode.sh")
 
 _MODEL = {}
 TABLE = []        # (run, component, layer, graph, max abs, rel, argmax)
@@ -351,7 +352,7 @@ class _RunParity:
                 self.assertEqual((b0, b1), (p0 // kp, (p0 + n) // kp))
                 new, ne = R.dump(g, f"indexer_pool_k_new-{il}")
                 new = new.reshape(-1, d)
-                # n_new_g = max(n_new, 1, min(n_tokens/kpool + 1, ...)) (src/llama-memory-hybrid-idx.cpp:766-770)
+                # n_new_g = max(n_new, 1, min(n_tokens/kpool + 1, ...)) (src/llama-memory-hybrid-idx.cpp:769-770)
                 self.assertEqual(new.shape[0], max(b1 - b0, 1, n // kp + 1))
                 if b1 > b0:
                     self.close("indexer_pool_k_new (pools completed here) [chunk]", il, g, new[:b1 - b0],
@@ -362,8 +363,8 @@ class _RunParity:
                     pooled_in_decode += n == 1
                     straddle += b0 * kp < p0
                 # padded rows re-pool a cell whose slot is never read: the first member of pool 0 if some pool is
-                # new, else the first token of the ubatch; rotated at position 0 (src/llama-memory-hybrid-idx.cpp:
-                # 937-975, npos zero-filled)
+                # new, else the first token of the ubatch; rotated at position 0
+                # (src/llama-memory-hybrid-idx.cpp:947-967; npos zero-filled at 898)
                 k_pad = Aa["k_raw"][0] if b1 > b0 else Ab["k_raw"][0]
                 pad = Q.rms_norm(k_pad, hp["eps"], w["indexer.k_norm.weight"])
                 for r in range(b1 - b0, new.shape[0]):

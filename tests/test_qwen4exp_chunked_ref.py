@@ -68,7 +68,8 @@ def random_model(seed=0):
         if il in hp["ple_layers"]:
             W.update({b + "ple_key.weight": t(hc * E, E), b + "ple_value.weight": t(E, E),
                       b + "ple_norm_key.weight": t(hc, E, ones=True), b + "ple_norm_query.weight": t(hc, E, ones=True),
-                      b + "ple_norm_conv.weight": t(hc, E, ones=True), b + "ple_conv1d.weight": t(hc * E, 3, scale=0.5)})
+                      b + "ple_norm_conv.weight": t(hc, E, ones=True),
+                      b + "ple_conv1d.weight": t(hc * E, 3, scale=0.5)})
         W.update({b + "ffn_gate_inp.weight": t(X, E), b + "ffn_gate_exps.weight": t(X, F, E),
                   b + "ffn_up_exps.weight": t(X, F, E), b + "ffn_down_exps.weight": t(X, E, F),
                   b + "ffn_gate_inp_shexp.weight": t(E), b + "ffn_gate_shexp.weight": t(Fs, E),
@@ -148,13 +149,15 @@ class ChunkedEqualsFull(unittest.TestCase):
                         self.assertRows(o["layers"][il]["gdn"]["state"], s, f"L{il} returned state after {i}")
                     elif hp["compress"][il]:
                         k_raw = full["layers"][il]["attn"]["k_raw"]
-                        self.assertRows(cache["idx"][il]["pooled"], full["layers"][il]["attn"]["pooled"][:i // hp["kpool"]],
+                        n_pool = i // hp["kpool"]
+                        self.assertRows(cache["idx"][il]["pooled"], full["layers"][il]["attn"]["pooled"][:n_pool],
                                         f"L{il} pooled keys after {i}")
                         self.assertRows(cache["idx"][il]["k_raw"], k_raw[:i], f"L{il} raw keys after {i}")
                 for il in hp["ple_layers"]:
                     P = full["layers"][il]["ple"]
                     w = Q.layer_weights(self.W, il)
-                    normed = Q.grouped_rms_norm(P["gated"], w["ple_norm_conv.weight"], hp["eps"]).reshape(len(self.toks), -1)
+                    normed = Q.grouped_rms_norm(P["gated"], w["ple_norm_conv.weight"], hp["eps"])
+                    normed = normed.reshape(len(self.toks), -1)
                     Kh = cache["ple"][il]["hist"].shape[0]
                     want = np.vstack([np.zeros((Kh, normed.shape[1])), normed[:i]])[-Kh:]
                     self.assertRows(cache["ple"][il]["hist"], want, f"L{il} PLE history after {i}")
