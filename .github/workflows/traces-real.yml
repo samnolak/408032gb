@@ -1,0 +1,72 @@
+# Real-model routing traces for the expert-cache and expert-prediction experiments (docs/reassessment/research/R8,
+# data/traces/real/REQUEST.json). The agent sandbox cannot reach huggingface.co; this runner can. CPU only: proxy models
+# of the target families (small enough for a runner), constructed agent-style conversations from this repository.
+# Downloads each GGUF at a recorded revision (sha256 checked against the Hub's LFS hash), renders the corpus with the
+# model's chat template, writes routing traces (all conversations) and probes (held-out ones), evaluates predictors and
+# cache policies, and commits data/traces/real/<model>/ back to the same claude/* branch. Weights are never committed.
+name: traces-real
+on:
+  workflow_dispatch:
+  push:
+    branches: ['claude/**']
+    paths: [data/traces/real/REQUEST.json]
+permissions:
+  contents: write
+concurrency:
+  group: traces-real-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  traces:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: free disk for one ~19 GB model at a time
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h / | tail -1
+      - name: deps
+        run: pip install numpy huggingface_hub
+      - name: llama.cpp at the REQUEST.json pin
+        run: |
+          SHA=$(python3 -c "import json; print(json.load(open('data/traces/real/REQUEST.json'))['llama_cpp'])")
+          git init -q ../llama.cpp
+          git -C ../llama.cpp fetch -q --depth 1 https://github.com/ggml-org/llama.cpp "$SHA"
+          git -C ../llama.cpp checkout -q FETCH_HEAD
+      - name: build tools/g0 (trace, probe) and llama-server for this CPU
+        run: |
+          cmake -S tools/g0 -B ../build-g0 -DLLAMA_CPP_DIR="$PWD/../llama.cpp" -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=ON -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF > /dev/null
+          cmake --build ../build-g0 -j"$(nproc)" --target g0-expert-trace g0-expert-probe > /dev/null
+          cmake -S ../llama.cpp -B ../build-srv -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON -DLLAMA_CURL=OFF \
+            -DLLAMA_OPENSSL=OFF -DLLAMA_BUILD_TESTS=OFF > /dev/null
+          cmake --build ../build-srv -j"$(nproc)" --target llama-server > /dev/null
+          ../build-srv/bin/llama-server --version 2>&1 | head -n 1
+      - name: traces, probes, predictors and cache policies per model
+        run: |
+          ok=0
+          for m in $(python3 -c "import json; print(' '.join(x['name'] for x in json.load(open('data/traces/real/REQUEST.json'))['models']))"); do
+            if scripts/traces/run_real_traces.sh "$m" ../llama.cpp ../build-g0 ../build-srv/bin/llama-server "../work-$m"; then
+              ok=$((ok + 1))
+            else
+              echo "::warning::model $m failed (see the log above); continuing with the others"
+            fi
+            rm -rf "../work-$m"
+          done
+          [ "$ok" -gt 0 ]
+      - name: commit and push the results to this branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/traces/real
+          if git diff --cached --quiet; then echo "::notice::nothing to commit"; exit 0; fi
+          git commit -q -m "[perf-bench] data: real-model routing traces and expert-prediction results (workflow traces-real, run ${{ github.run_id }})"
+          for i in 1 2 3; do
+            if git pull -q --rebase origin "${{ github.ref_name }}" && git push origin HEAD:"${{ github.ref_name }}"; then
+              echo "::notice::results commit $(git rev-parse HEAD)"; exit 0
+            fi
+            sleep 15
+          done
+          exit 1
