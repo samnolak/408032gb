@@ -146,6 +146,9 @@ llama.cpp на master умеет GPU-кэш экспертов (LRU на уст�
      ошибка ≤ 5.4e-6, мутации 17/17; перепроверено ведущим). Риск для R1: llama.cpp `ec7630a` падает (SIGSEGV) на первом
      MTP-графе, если планировщик не пере-резервирован (`docs/evidence/2026-10-10-qwen4exp-decode-parity.md`, находка 12);
      затронут ли MTP-путь llama-server — UNKNOWN, проверить на сервере первым запуском MTP.
+   - офлайн-набор движков (`scripts/offline/engines.py`, `build_engine.py --offline-kit`): исходники на пинах — git-бандлы по
+     одному коммиту, колёса ExLlamaV3 — для Python сервера; набор собран и проверен в песочнице, выборка без сети даёт ровно
+     пины, ExLlamaV3 собран только из набора без сети (`docs/evidence/2026-10-10-offline-engine-kit.md`); Python и glibc сервера — UNKNOWN до R0 (набор: cp312, glibc ≥ 2.28).
    Аудиты доказательств N6 (evidence-auditor, только чтение): (1) шлюз и пины R1 (`9d37e28`, `c1a0336`) — всё воспроизведено,
    4 мелких замечания закрыты в `ca007cc`; (2) декод/MTP `qwen4exp` (`ec342f7`, `3f32a66`) — всё воспроизведено, включая
    падение llama.cpp (exit 139) под gdb; 4 мелких замечания закрыты (раздел «CI and the second evidence audit» в
