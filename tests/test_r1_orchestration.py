@@ -141,7 +141,9 @@ class Plans(unittest.TestCase):
         return json.loads(out)
 
     def test_every_template_substitutes_every_variable_and_preregisters_first(self):
-        self.assertIn(MOCK, TEMPLATES)
+        names = {os.path.basename(t) for t in TEMPLATES}
+        self.assertTrue({"mock.json", "llamacpp-server.json", "llamacpp-server-moecache.json", "ik-llamacpp-server.json",
+                         "strata-serve-qwen38fn.json"} <= names, names)
         for path in TEMPLATES:
             with self.subTest(config=os.path.basename(path)):
                 with open(path, encoding="utf-8") as f:

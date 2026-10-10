@@ -1,0 +1,93 @@
+{
+  "_label": "PROVISIONAL template, NOT RUN on the 4x4080 server. ik_llama.cpp llama-server, GLM-5.3-Flash UD-Q4_K_XL (architecture string glm5next, which ik_llama loads: docs/reassessment/research/R2-engines.md:137). Flags are those of the command that ran on the 3x3090 host (scripts/run-glm-3090-1gpu.sh:29-34; PROBLEMS.md:105, pp 166.8 / tg 15.0 tok/s on 1x3090 there, REPORTED), changed for 4 GPUs: -sm layer and -ts instead of -sm none, -t/--threads-batch for the 48-core EPYC 7H43, KV f16 (ADR-012 D5) instead of q8_0. ik_llama's -sm graph does not support glm5next (R2-engines.md:116). Check every flag against `llama-server --help` of the ik_llama build on the server (artifacts/engine/flags_check.json); whether /tokenize, ignore_eos/n_predict and /slots match mainline is UNKNOWN (BENCH_PROTOCOL.md section 6).",
+  "_notes": {
+    "experiment": "B1 row 'ik_llama.cpp, the same GGUF' (docs/reassessment/EXPERIMENTS.md); ik_llama pin 5194a9e (R2-engines.md:66), record the build SHA with --set ENGINE_COMMIT=<sha>",
+    "WEIGHTS_DIR": "the UD-Q4_K_XL files: 6 shards, 185.983 GiB on the 3090 host (AGENTS.md); the choice of weights for the 4x4080 server is open (ADR-005/ADR-009), the HF revision and manifest are UNKNOWN here, so weights_verify is skipped until model.weights_manifest is set",
+    "NCMOE": "PROVISIONAL: 17 of 42 MoE layers on the CPU, from the uniform-routing placement of tools/roofline.py (UD-Q4_K_XL, experts 4.89 bpw: resident 60.7% at 262144 tokens); tune on the server (the 3090 host used 39 of 42 with one 24 GB card)",
+    "HIT": "PROVISIONAL: (42 - NCMOE) / 42 = 0.595 with uniform routing; keep it equal to the placement when NCMOE changes",
+    "bpw": "experts 4.89 / dense 8.04 (PROVISIONAL, docs/reassessment/ROOFLINE.md table 2 for GLM UD-Q4_K_XL); replace with this run's quant_audit.json",
+    "mode": "overlap no (as llama.cpp: tools/roofline.py decode() docstring), miss cpu (-ncmoe: the CPU computes its layers' experts)",
+    "THREADS": "PROVISIONAL: 48 physical cores of the EPYC 7H43 (AGENTS.md); the 3090 host used -t 96 --threads-batch 90 on its own CPU",
+    "supports_slots": "false: ik_llama's /slots save/restore API is UNKNOWN (R2-engines.md:116 lists slot checkpoints flushed to disk); set true after checking --help and the API"
+  },
+  "name": "ik-llamacpp-glm53f",
+  "vars": {
+    "IK_BIN": "/srv/llm/engines/current-ik_llama/bin",
+    "ENGINE_COMMIT": "UNKNOWN (set --set ENGINE_COMMIT=<build sha>; artifacts/engine/version.txt has --version)",
+    "WEIGHTS_DIR": "/srv/llm/models/glm-5.3-flash/REVISION-UNKNOWN",
+    "CTX": "262144",
+    "TENSOR_SPLIT": "1,1,1,1",
+    "KV_TYPE": "f16",
+    "NCMOE": "17",
+    "THREADS": "48",
+    "THREADS_BATCH": "48",
+    "HEALTH_TIMEOUT_S": "3600",
+    "EXPERT_BPW": "4.89",
+    "DENSE_BPW": "8.04",
+    "HIT": "0.595",
+    "EXTRA_BODY": "{}",
+    "REFERENCE_URL": "",
+    "CORPUS": ""
+  },
+  "engine": {
+    "name": "ik_llama.cpp llama-server",
+    "commit": "${ENGINE_COMMIT}",
+    "argv": ["${IK_BIN}/llama-server", "-m", "${MODEL}", "--host", "${HOST}", "--port", "${PORT}",
+             "--ctx-size", "${CTX}", "--parallel", "1", "--jinja", "-ngl", "999", "-sm", "layer", "-ts", "${TENSOR_SPLIT}",
+             "-ncmoe", "${NCMOE}", "-fa", "on", "--dsa", "-ctk", "${KV_TYPE}", "-ctv", "${KV_TYPE}",
+             "-t", "${THREADS}", "--threads-batch", "${THREADS_BATCH}", "-b", "2048", "-ub", "1024", "-muge"],
+    "version_argv": ["${IK_BIN}/llama-server", "--version"],
+    "help_argv": ["${IK_BIN}/llama-server", "--help"],
+    "env": {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
+    "health": {"url": "http://${HOST}:${PORT}/health", "timeout_s": "${HEALTH_TIMEOUT_S}", "interval_s": 5,
+               "expect_status": 200},
+    "after_ready": [["free", "-g"], ["${NVIDIA_SMI}", "--query-gpu=index,memory.used,memory.total", "--format=csv"]],
+    "stop": {"timeout_s": 60},
+    "supports_slots": false
+  },
+  "model": {
+    "desc": "GLM-5.3-Flash UD-Q4_K_XL (Unsloth GGUF, 6 shards, architecture glm5next; HF revision UNKNOWN)",
+    "files": ["${WEIGHTS_DIR}/UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00001-of-00006.gguf"],
+    "weights_manifest": null,
+    "weights_dest": "${WEIGHTS_DIR}"
+  },
+  "roofline": {
+    "spec": "models/specs/glm-5.3-flash.json",
+    "hw": "hardware/target-4x4080-32g.unverified.json",
+    "expert_bpw": "${EXPERT_BPW}",
+    "dense_bpw": "${DENSE_BPW}",
+    "kv_bytes": 2.0
+  },
+  "mode": {"overlap": "no", "strategy": "pp", "miss": "cpu", "hit": "${HIT}", "spec_k": 0, "spec_accept": 0.0},
+  "reference": {"url": "${REFERENCE_URL}"},
+  "steps": {
+    "matrix": {"runs": [
+      {"name": "smoke-2k",
+       "args": ["--inputs", "2048", "--outputs", "128", "--states", "cold,warm", "--concurrency", "1", "--repeats", "1",
+                "--scenarios", "matrix", "--seed", "0", "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-2k",
+       "args": ["--inputs", "2048", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-32k",
+       "args": ["--inputs", "32768", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-128k",
+       "args": ["--inputs", "131072", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "filled-262k",
+       "args": ["--inputs", "262144", "--length-mode", "total", "--outputs", "512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix,agent", "--agent-target-tokens",
+                "131072", "--seed", "0", "--extra-body", "${EXTRA_BODY}"]}
+    ]},
+    "probes": {"runs": [
+      {"name": "32k-128k-262k",
+       "args": ["--contexts", "32768,131072,262144", "--length-mode", "total", "--answer-tokens", "1024", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]}
+    ]},
+    "slot_persist": {"prompt_tokens": 131072, "args": ["--gen", "64", "--repeats", "3"]},
+    "logprob_compare": {"corpus": ["${CORPUS}"], "args": ["--prefixes", "200", "--top-k", "20"]}
+  }
+}
