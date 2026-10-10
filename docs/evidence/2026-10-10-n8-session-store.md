@@ -261,7 +261,7 @@ rc=1
 (lines filtered with `grep -E "^(FAIL|ERROR|AssertionError|Ran|OK|FAILED|rc=)"` from `$S/n8final/pre-audit-new-tests.log`.)
 
 The mutation script now targets the new code: S8 removes the in-flight exclusion (`busy = set()`), S11 restores the
-old quarantine name. Round 4, on the code committed with this section:
+old quarantine name. Round 4, on the code of commit 25c61f3:
 
 ```
 baseline                                                 rc=0 ok       OK
@@ -305,8 +305,8 @@ directory used by nothing else.
 ## 6. CI and not done
 
 CI: workflow `server-cpu` (session-store tests + this probe on both tiny models) green on 33cf4e8, the commit before the
-audit fixes: runs 38080609883 (push) and 38080628252 (pull_request, PR #4). On the audit-fix commits: pending at the time
-of writing.
+audit fixes: runs 38080609883 (push) and 38080628252 (pull_request, PR #4); and green on ebecad4, the head with the audit
+fixes: runs 38081791575 (push) and 38081793624 (pull_request).
 
 
 GPU, real weights, 262K-token states, NVMe timing (K3), torn writes against the real server, concurrent restore + save of
