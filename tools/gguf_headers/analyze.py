@@ -324,6 +324,9 @@ def section_groups(m, srcs):
 def section_template(m, rel):
     t = m.v("tokenizer.chat_template")
     out = {"vendored": rel, "embedded_present": t is not None}
+    if t is not None:
+        emb = t.encode("utf-8", errors="surrogateescape")
+        out.update(embedded_bytes=len(emb), embedded_sha256=hashlib.sha256(emb).hexdigest())
     if rel is None or t is None:
         return out
     path = os.path.join(ROOT, rel)
@@ -803,6 +806,8 @@ def render(results, srcs):
         t = r["chat_template"]
         w(f"\n(c) chat template vs {t['vendored']}: " + (
             "no embedded tokenizer.chat_template" if not t["embedded_present"] else
+            f"no vendored template named in the request; embedded {t['embedded_bytes']} B sha256 "
+            f"{t['embedded_sha256']}" if t["vendored"] is None else
             "BYTE-EQUAL" if t.get("byte_equal") else
             f"DIFFERENT (embedded {t.get('embedded_bytes')} B sha256 {t.get('embedded_sha256')}, vendored "
             f"{t.get('vendored_bytes')} B sha256 {t.get('vendored_sha256')}, first difference at byte "

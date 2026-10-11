@@ -1091,6 +1091,11 @@ class N18Analyzer(HubCase):
             self.assertEqual(res["MiMoB"]["required_keys"][pin]["missing"], ["mimo2.attention.sliding_window"])
         self.assertIn("keys read without a default", out)
         self.assertIn('{"ffn_down_exps": {"MXFP4": 3}', out)
+        self.assertIn("(c) chat template vs None: no embedded tokenizer.chat_template", out)
+        tm = A.Model([G.summarize(G.parse(h), h) for h in [make_gguf(
+            mimo2_kv(extra=[("tokenizer.chat_template", G.T_STRING, "{{ x }}")]), t)[0]]])
+        self.assertEqual(A.section_template(tm, None), {"vendored": None, "embedded_present": True, "embedded_bytes": 7,
+                                                        "embedded_sha256": hashlib.sha256(b"{{ x }}").hexdigest()})
         # the other side of the labels: NextN layer 5 without fused qkv and without ffn_gate, no value scale
         b, off = make_gguf(mimo2_kv(drop=("mimo2.attention.value_scale",)),
                            [x for x in t if x[0] not in ("blk.5.attn_qkv.weight", "blk.5.ffn_gate.weight")])
