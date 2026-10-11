@@ -32,11 +32,13 @@ jobs:
           git -C ../llama.cpp fetch -q --depth 1 https://github.com/ggml-org/llama.cpp ec7630a640789c393694fb194f1bbbf0369fc62d
           git -C ../llama.cpp checkout -q FETCH_HEAD
           pip install -q numpy pyyaml
-      - name: self-test of the fetcher against a local Range server (no network; fails on any skip)
+      - name: self-test of the fetcher against a local Range server (no network; fails on any skip but llama-tokenize's)
+        # the one allowed skip needs a llama.cpp build (LLAMA_TOKENIZE_BIN), which this job does not make
         shell: bash
         run: |
           LLAMA_CPP_GGUF_PY=../llama.cpp/gguf-py python3 -m unittest tests.test_gguf_headers -v 2>&1 | tee t.log
-          if grep -q 'skipped' t.log; then echo "::error::self-test skipped tests"; exit 1; fi
+          skips=$(grep -E ' \.\.\. skipped ' t.log | grep -v '^test_llama_tokenize_runs_on_the_vocab_only_file ' || true)
+          if [ -n "$skips" ]; then echo "::error::self-test skipped tests: $skips"; exit 1; fi
           rm -f t.log
       - name: check the pending requests against the byte caps (fetches nothing; fails on a cap violation)
         run: python3 scripts/gguf_headers_fetch.py --plan
