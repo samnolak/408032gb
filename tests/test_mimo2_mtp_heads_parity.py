@@ -63,6 +63,9 @@ class _Heads:
     PREC = None                 # ref/fattn.py precision of the run (None: f32 caches, flash attention off)
     TOL = D.TOL
     TABLE = TABLE
+    ROOT = None                 # dump root (None: MIMO2_N17_DUMP); N21 runs (tests/test_mimo2_mtp_fix_parity.py) set it
+    MODEL = "n17.gguf"
+    FIXED = False               # N21: the run's process calls follow the patched order (DUMP_MTP_FIX, slot replay)
 
     @classmethod
     def prec_full(cls, pos_modes):
@@ -70,15 +73,17 @@ class _Heads:
 
     @classmethod
     def setUpClass(cls):
-        if not (DUMP and GGUF_PY):
+        root = cls.ROOT or DUMP
+        if not (root and GGUF_PY):
             raise unittest.SkipTest(SKIP)
-        if not pathlib.Path(DUMP, cls.RUN, "mtp", "manifest.json").exists():
-            raise unittest.SkipTest(f"no run {cls.RUN} (with an MTP context) under {DUMP}")
-        cls.W, cls.hp = D.model(pathlib.Path(DUMP, "n17.gguf"))
+        if not pathlib.Path(root, cls.RUN, "mtp", "manifest.json").exists():
+            raise unittest.SkipTest(f"no run {cls.RUN} (with an MTP context) under {root}")
+        cls.W, cls.hp = D.model(pathlib.Path(root, cls.MODEL))
         W, hp = cls.W, cls.hp
         cls.H = hp["n_nextn"]
-        cls.T = Run(cls.RUN, DUMP)
-        cls.dir, cls.man = load_mtp_run(DUMP, cls.RUN)
+        cls.T = Run(cls.RUN, root)
+        cls.dir, cls.man = load_mtp_run(root, cls.RUN)
+        assert bool(cls.man.get("slot_replay")) == cls.FIXED, (cls.RUN, cls.man.get("slot_replay"))
         n_embd, ub = hp["n_embd"], cls.T.man["n_ubatch"]
         prec = cls.PREC
         # ---- target: (A) and (B), the h rows per call and per position
@@ -122,7 +127,39 @@ class _Heads:
         while i < len(mc):
             call = mc[i]
             kind, p0 = call["kind"], call["pos0"]
-            if kind == "process":
+            if kind == "process" and cls.FIXED and cls.H > 1:
+                # N21 order: per chunk of ub tokens, heads 0 .. H-1, one record (one graph) each
+                tc = tq[ti]
+                ti += 1
+                tcall = cls.T.calls[tc]
+                n = tcall["n"]
+                assert tcall["pos0"] == p0, (cls.RUN, i, tcall, call)
+                n_chunks = -(-n // ub)
+                recs = mc[i:i + cls.H * n_chunks]
+                want = [("process", p0 + c * ub, h, min(ub, n - c * ub)) for c in range(n_chunks) for h in range(cls.H)]
+                assert [(r["kind"], r["pos0"], r["head"], r["n"]) for r in recs] == want, (cls.RUN, i, recs)
+                assert len(mcache["tokens"]) == p0, (cls.RUN, i, len(mcache["tokens"]), p0)
+                toks = [t for r in recs if r["head"] == 0 for t in r["tokens"]]
+                rows = np.vstack([pending[None]] + ([call_rows[tc][:n - 1]] if n > 1 else []))
+                res = M.mtp_process(toks, rows, W, hp, mcache, ub, prec=prec, snap=True, fixed=True)
+                for k, rec in enumerate(recs):
+                    c, head = divmod(k, cls.H)
+                    g0, g1 = rec["graphs"]
+                    assert g1 - g0 == 1, (cls.RUN, rec)
+                    m = rec["n"]
+                    pos = list(range(p0 + c * ub, p0 + c * ub + m))
+                    for p in pos:
+                        mmodes[p] = cls.mode_of(m)
+                    cls.B[g0] = out = res[head][c]
+                    cls.stored[g0] = out["snap"]
+                    cls.graphs.append(dict(g=g0, rec=rec, kind="process", head=head, p0=pos[0], n=m, pos=pos,
+                                           toks=rec["tokens"], row0=rec["tok0"], h=rows[c * ub:c * ub + m],
+                                           kept=list(call_kept[tc][c * ub:c * ub + m]),
+                                           out_rows=[rec["out0"] + r for r in range(m)], out_idx=list(range(m)),
+                                           call_p0=p0, call_n=n))
+                pending = call_rows[tc][-1]
+                i += len(recs)
+            elif kind == "process":
                 tc = tq[ti]
                 ti += 1
                 tcall = cls.T.calls[tc]
@@ -150,7 +187,7 @@ class _Heads:
                                                h=rows[j * ub:j * ub + m],
                                                kept=list(call_kept[tc][j * ub:j * ub + m]),
                                                out_rows=[rec["out0"] + j * ub + r for r in range(m)],
-                                               out_idx=list(range(m))))
+                                               out_idx=list(range(m)), call_p0=p0, call_n=n))
                 pending = call_rows[tc][-1]
                 i += len(heads)
             elif kind in ("rollback", "seq_rm"):
@@ -232,7 +269,8 @@ class _Heads:
         lo = np.fromfile(self.dir / "logits.bin", dtype=np.float32).reshape(-1, n_vocab)
         hn = np.fromfile(self.dir / "h_nextn.bin", dtype=np.float32).reshape(-1, n_embd)
         h_in = np.fromfile(self.dir / "h_in.bin", dtype=np.float32).reshape(-1, n_embd)
-        h_tgt = np.fromfile(pathlib.Path(DUMP, self.RUN, "h_nextn.bin"), dtype=np.float32).reshape(-1, n_embd)
+        h_tgt = np.fromfile(pathlib.Path(self.ROOT or DUMP, self.RUN, "h_nextn.bin"), dtype=np.float32).reshape(-1,
+                                                                                                         n_embd)
         return lo, hn, h_in, h_tgt
 
     # ---- tests ----
@@ -272,6 +310,7 @@ class _Heads:
                 row += c["n"]
         pend = np.zeros(hp["n_embd"], dtype=np.float32)
         tgt_at, n_grp, chain_rows, chain_toks = {}, -1, None, None
+        done = None                     # rows of the current target call the process records have covered (head 0)
         for i, rec in enumerate(self.man["calls"]):
             kind = rec["kind"]
             if kind == "rollback":
@@ -281,17 +320,22 @@ class _Heads:
                 continue
             rows = h_in[rec["tok0"]:rec["tok0"] + rec["n"]]
             if kind == "process":
-                if rec["head"] == 0:
+                if rec["head"] == 0 and (done is None or done == len(dec[n_grp][1])):
                     n_grp += 1
+                    done = 0
                 p0, tgt = dec[n_grp]
-                self.assertEqual(p0, rec["pos0"], f"process call {i}")
-                want = np.vstack([pend[None]] + ([tgt[:-1]] if rec["n"] > 1 else []))
+                off = rec["pos0"] - p0          # 0, or the chunk's offset in the N21 order
+                self.assertEqual(off, done if self.FIXED else 0, f"process call {i}")
+                full = np.vstack([pend[None]] + ([tgt[:-1]] if len(tgt) > 1 else []))
+                want = full[off:off + rec["n"]]
                 self.assertTrue(np.array_equal(rows, want), f"process call {i} head {rec['head']}: h rows")
                 n_exact += rows.size
                 if rec["head"] == self.H - 1:
-                    for k in range(rec["n"]):
-                        tgt_at[p0 + k] = tgt[k]
-                    pend = tgt[-1]
+                    done += rec["n"] if self.FIXED else len(tgt)
+                    if done == len(tgt):
+                        for k in range(len(tgt)):
+                            tgt_at[p0 + k] = tgt[k]
+                        pend = tgt[-1]
             elif kind == "draft":
                 if rec["head"] == 0:
                     chain_rows, chain_toks = [pend], [rec["tokens"][0]]
@@ -328,7 +372,8 @@ class _Heads:
             self.both("mtp_Kcur (RoPE)", gr, D_(f"mtp_Kcur-{il}"), a_att["k"], b_att["k"])
             self.both("mtp_Vcur", gr, D_(f"mtp_Vcur-{il}"), a_att["v"], b_att["v"])
             tol_att = self.tol_after_attention()
-            cl = ~np.asarray(b_att["foreign"])                          # rows whose attention read only own K/V
+            # rows whose attention read only own K/V, with every position of their window held by a cell (N21)
+            cl = ~(np.asarray(b_att["foreign"]) | np.asarray(b_att["missing"]))
             self.both("kqv_out", gr, D_(f"kqv_out-{il}"), a_att["kqv"], b_att["kqv"], tol_att, cl)
             self.both("mtp_attn_out", gr, D_(f"mtp_attn_out-{il}"), a_att["attn_out"], b_att["attn_out"], tol_att, cl)
             self.both("mtp_attn_out_scaled", gr, D_(f"mtp_attn_out_scaled-{il}"), a_att["out"], b_att["out"], tol_att,
@@ -429,7 +474,7 @@ class _Heads:
 
     def test_draft_tokens(self):
         """Every draft step's greedy token: llama.cpp's (argmax of its logits) equals the oracle's own argmax."""
-        self.assertGreaterEqual(len(self.drafts), 5)
+        self.assertGreaterEqual(len(self.drafts), getattr(self, "MIN_DRAFTS", 5))
         for d in self.drafts:
             self.assertEqual(len(d["own"]), self.H, d)
             self.assertEqual(d["llama"], d["own"], f"draft at {d['pos0']}: llama.cpp {d['llama']} vs oracle {d['own']}")
