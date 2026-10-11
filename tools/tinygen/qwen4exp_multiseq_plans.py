@@ -15,6 +15,9 @@ PLE predecessors cross EOS in every run); a wrong token is wrong(id) (shifted by
 receives a seq_cp continues with its own base tokens after the copied prefix. The generator applies a rollback to its
 histories when ok_ec is true, so the same DUMP_TOKENS serve both pins (at a pin that refuses it, the following tokens
 simply continue the unshortened sequence; the tests rebuild every sequence from what llama.cpp reported).
+N20 (llama.cpp with patches/llama.cpp/<pin>/0001-recurrent-rollback-guard.patch, QWEN4EXP_RS_GUARD=1 in the tests):
+a run's "guard_ok" lists the seq_rm results of its "r" steps in order (default: ok_r1 of each), its
+diverge["guard"] the divergences (default: none), "guard_log" how many refusals the patch's plane rule logs (default 0).
 
 Usage: qwen4exp_multiseq_plans.py <run>   prints four lines: DUMP_CALLS, DUMP_TOKENS, then "np kvu n_rs_seq ubatch",
 then the run's one-line description; qwen4exp_multiseq_plans.py --list prints the run names.
@@ -109,7 +112,8 @@ RUNS = {
         ("r", 1, 1, True, True),                          # one token after a one-token call: stale delta-rule plane
         *_rep(("d", [(1, 1)]), 3),
     ], doc="rollbacks deeper than the last call's last ubatch (accepted, silently read stale snapshot planes)",
-        diverge={"ec": {0: 4, 1: 10}, "r1": {0: 4, 1: 10}}),
+        diverge={"ec": {0: 4, 1: 10}, "r1": {0: 4, 1: 10}, "guard": {}},
+        guard_ok=[False, False], guard_log=2),            # N20: plane 2 / plane 1 not written by a one-token call
     "cp_pending": dict(np=2, kvu=1, rs=3, ub=512, steps=[
         ("d", [(0, 20)]),
         ("d", [(0, 4, 2)]),
@@ -117,21 +121,22 @@ RUNS = {
         ("c", 0, 1),                                      # copy while sequence 0's rollback is pending
         *_rep(("d", [(0, 1), (1, 1)]), 4),
     ], doc="seq_cp while a rollback is pending: the copy reads the state before the rollback",
-        diverge={"ec": {1: 4}, "r1": {1: 4}}),
+        diverge={"ec": {1: 4}, "r1": {1: 4}, "guard": {}}),   # N20: the copy inherits the pending rollback
     "cp_shared_rb": dict(np=2, kvu=1, rs=3, ub=512, steps=[
         ("d", [(0, 20)]),
         ("d", [(0, 4, 2)]),
         ("c", 0, 1),
         ("r", 0, 2, True, False),                         # one recurrent cell for both: ec accepts, R1 refuses
+                                                          # (and ec with the N20 patch)
         *_rep(("d", [(0, 1), (1, 1)]), 3),
         ("d", [(1, 1), (0, 1)]),
     ], doc="a rollback of one of two sequences that share a recurrent cell after seq_cp"),
 }
 
 
-def plan(name):
-    """(DUMP_CALLS, DUMP_TOKENS) of a run."""
-    r = RUNS[name]
+def plan(name, runs=None):
+    """(DUMP_CALLS, DUMP_TOKENS) of a run of `runs` (default RUNS)."""
+    r = (runs or RUNS)[name]
     base = {s: base_tokens(s) for s in range(r["np"])}
     hist = {s: [] for s in range(r["np"])}
     calls, toks = [], []
@@ -166,15 +171,16 @@ def plan(name):
     return ",".join(calls), ",".join(map(str, toks))
 
 
-def main(argv):
+def main(argv, runs=None, doc=None):
+    runs = runs or RUNS
     if len(argv) != 2:
-        print(__doc__, file=sys.stderr)
+        print(doc or __doc__, file=sys.stderr)
         return 2
     if argv[1] == "--list":
-        print(" ".join(RUNS))
+        print(" ".join(runs))
         return 0
-    r = RUNS[argv[1]]
-    calls, toks = plan(argv[1])
+    r = runs[argv[1]]
+    calls, toks = plan(argv[1], runs)
     print(calls)
     print(toks)
     print(r["np"], r["kvu"], r["rs"], r["ub"])

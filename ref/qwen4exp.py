@@ -1038,16 +1038,22 @@ class RecurrentCells:
     """The cell bookkeeping of llama_memory_recurrent (RC), size = max(1, n_seq_max) cells (src/llama-model.cpp:2745-2760
     for qwen4exp). cells[i]: pos, src, src0, the sequences it holds; tail[s] = the cell holding sequence s
     (RC keeps it as cells[s].tail); rs_idx[s] = a pending rollback of s (RC:211, read once by s_copy, RC:1364-1381).
-    refuse_shared: the R1 pin refuses a partial rollback of a cell that several sequences hold (RC:202-205@79e2e74)."""
+    refuse_shared: the R1 pin refuses a partial rollback of a cell that several sequences hold (RC:202-205@79e2e74).
+    guard: the N20 patch (patches/llama.cpp/<pin>/0001-recurrent-rollback-guard.patch, both pins): rs_n[c] = the
+    snapshot planes of row c hold (set by find_slot: a used cell's rows are row c outside find_slot), a rollback onto a
+    plane >= rs_n is refused, seq_cp hands the source's pending rollback to the destination; the ec7630a patch also
+    refuses a rollback of a shared cell (refuse_shared must be set with guard)."""
 
-    def __init__(self, size, n_rs_seq, refuse_shared):
-        self.size, self.n_rs_seq, self.refuse_shared = size, n_rs_seq, refuse_shared
+    def __init__(self, size, n_rs_seq, refuse_shared, guard=False):
+        assert refuse_shared or not guard, "the guard patch refuses a rollback of a shared cell at both pins"
+        self.size, self.n_rs_seq, self.refuse_shared, self.guard = size, n_rs_seq, refuse_shared, guard
         self.pos = [-1] * size
         self.src = [-1] * size
         self.src0 = [-1] * size
         self.seqs = [set() for _ in range(size)]
         self.tail = [-1] * size
         self.rs_idx = [0] * size
+        self.rs_n = [0] * size
         self.head, self.n, self.rs_z = 0, 0, -1
 
     def used(self):
@@ -1073,6 +1079,8 @@ class RecurrentCells:
                 if self.refuse_shared and len(self.seqs[t]) > 1:          # RC:202-205@79e2e74
                     return False
                 rollback = self.pos[t] - (p0 - 1)
+                if self.guard and rollback >= self.rs_n[t]:                 # N20 patch: plane not written
+                    return False
                 if self.rs_idx[seq] == 0 and 1 <= rollback <= self.n_rs_seq:
                     self.rs_idx[seq] = rollback
                     self.pos[t] = p0 - 1
@@ -1107,12 +1115,16 @@ class RecurrentCells:
         if self.tail[src] >= 0:
             self.seqs[self.tail[src]].add(dst)
             self.tail[dst] = self.tail[src]
+        if self.guard:                                                    # N20 patch: dst inherits src's state
+            self.rs_idx[dst] = self.rs_idx[src] if self.tail[src] >= 0 else 0
 
-    def find_slot(self, seqs, last_pos):
+    def find_slot(self, seqs, last_pos, n_seq_tokens=1):
         """RC:517-726 for a ubatch whose sequence sets are the single sequences `seqs` (ubatch order), the last
         position of each in last_pos. Moves a sequence that shares its cell to an empty one (copy on write, src
         kept), gathers the ubatch's cells to head = min .. (swapping cell metadata, src moves along), stages src0
-        (the row each cell is read from; rs_z, the zeroed row, for a new sequence) and sets head, n, rs_z."""
+        (the row each cell is read from; rs_z, the zeroed row, for a new sequence) and sets head, n, rs_z.
+        rs_n (read by the guard only): min(n_seq_tokens, 1 + n_rs_seq) for the ubatch's cells; an extra cell keeps
+        its rs_n only if it reads its own row with no pending rollback, else 1 (build_rs writes its plane 0 only)."""
         n_seqs = len(seqs)
         if self.head > self.used() + 2 * n_seqs:                          # RC:521-525
             self.head = 0
@@ -1173,6 +1185,12 @@ class RecurrentCells:
                 self.src0[i] = self.rs_z
             else:
                 self.src0[i] = self.src[i]
+            if i - mn < n_seqs:
+                self.rs_n[i] = min(n_seq_tokens, 1 + self.n_rs_seq)
+            else:
+                pend = self.rs_idx[min(self.seqs[i])] if self.n_rs_seq > 0 and self.seqs[i] else 0
+                if self.src0[i] != i or pend != 0:
+                    self.rs_n[i] = 1
             self.src[i] = i
         self.head, self.n = mn, mx - mn + 1
         return mn
@@ -1321,14 +1339,16 @@ class MultiSeqContext:
     decode(parts) returns one dict per graph: rows [(seq, pos, token)], the ubatch's batch indices, per-sequence
     results (forward_chunk dicts with the states read), the KV cell of every row and a snapshot of the cells, n_kv,
     the k-pool layout (pools, new pools, n_new_g, cache_safe, padding cells), the recurrent rows read, and which
-    sequences read a state of another prefix ("diverged")."""
+    sequences read a state of another prefix ("diverged").
 
-    def __init__(self, W, hp, n_seq_max, n_ctx_seq, unified, n_rs_seq, pin, n_ubatch):
+    guard: llama.cpp with the N20 patch (RecurrentCells guard); it changes the recurrent bookkeeping only."""
+
+    def __init__(self, W, hp, n_seq_max, n_ctx_seq, unified, n_rs_seq, pin, n_ubatch, guard=False):
         assert pin in ("ec", "r1")
         self.W, self.hp, self.pin, self.n_ubatch = W, hp, pin, n_ubatch
         self.n_seq_max, self.unified, self.n_rs_seq = n_seq_max, unified, n_rs_seq
         self.kv = KVCells(1 if unified else n_seq_max, n_ctx_seq)
-        self.rc = RecurrentCells(max(1, n_seq_max), n_rs_seq, refuse_shared=(pin == "r1"))
+        self.rc = RecurrentCells(max(1, n_seq_max), n_rs_seq, refuse_shared=(pin == "r1" or guard), guard=guard)
         self.lay = KPoolLayout(hp["kpool"], pin, n_seq_max)
         self.stale = [POS_CLEAN] * LLAMA_MAX_SEQ
         self.caches = {s: new_cache() for s in range(n_seq_max)}
@@ -1414,7 +1434,7 @@ class MultiSeqContext:
             nst = len(rows) // n_seqs
             seqs = [rows[k * nst][0] for k in range(n_seqs)]
             # recurrent cells (RC apply -> find_slot) and the rows each graph reads
-            head = self.rc.find_slot(seqs, [rows[k * nst + nst - 1][1] for k in range(n_seqs)])
+            head = self.rc.find_slot(seqs, [rows[k * nst + nst - 1][1] for k in range(n_seqs)], nst)
             copies = self.rc.s_copy()
             n_rs = self.rc.n
             # KV cells (prepare + apply), the indexer takes the same slots
