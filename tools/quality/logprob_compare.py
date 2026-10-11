@@ -19,8 +19,9 @@ Response layouts read (choices[0].logprobs of a non-streamed /v1/completions ans
                           "logprob"}, ...]}]}  (tools/server/server-task.cpp:256-293, 365-372 @79e2e74)
 A token is identified by its raw bytes: llama-server prints a piece that is not valid UTF-8 by itself (a byte-fallback or
 partial multi-byte token) as the replacement character, so different tokens can share one "token" text; "bytes" tells them
-apart. Key = the text when the bytes are valid UTF-8 (both layouts then agree), else "bytes:<hex>". Entries of one top-K
-list with the same key are one outcome: their probabilities are added (counted in the row as ref_merged / cand_merged).
+apart. Key = the text when the bytes are valid UTF-8 (both layouts then agree), else "bytes:<hex>"; a token with an empty
+piece (llama-server prints control tokens such as EOS that way) is keyed "id:<n>" when the answer gives its id. Entries
+of one top-K list with the same key are one outcome: their probabilities are added (counted as ref_merged / cand_merged).
 
 Usage:
   python3 tools/quality/logprob_compare.py --ref http://127.0.0.1:8081 --cand http://127.0.0.1:8080 \
@@ -52,11 +53,14 @@ def complete_top(url, prompt, top_k, model=None, timeout=600, api_key=None):
     return {"token": text, "top": top, "seconds": dt, "dialect": dialect, "merged": merged}
 
 
-def token_key(text, raw=None):
-    """Identity of a token across engines and layouts (module docstring): valid UTF-8 -> the text, else bytes:<hex>."""
+def token_key(text, raw=None, tid=None):
+    """Identity of a token across engines and layouts (module docstring): valid UTF-8 -> the text, else bytes:<hex>;
+    an empty piece with an id -> id:<n>."""
     if raw is None:
         return str(text)
     b = bytes(raw)
+    if not b and isinstance(tid, int):
+        return "id:%d" % tid
     try:
         return b.decode("utf-8")
     except UnicodeDecodeError:
@@ -82,8 +86,8 @@ def parse_top(resp, url=""):
     if isinstance(content, list) and content and isinstance(content[0], dict) and "top_logprobs" in content[0]:
         first = content[0]
         for e in first.get("top_logprobs") or []:
-            merged += _add(top, token_key(e.get("token"), e.get("bytes")), float(e["logprob"]))
-        text, dialect = token_key(first.get("token"), first.get("bytes")), "llamacpp"
+            merged += _add(top, token_key(e.get("token"), e.get("bytes"), e.get("id")), float(e["logprob"]))
+        text, dialect = token_key(first.get("token"), first.get("bytes"), first.get("id")), "llamacpp"
     else:
         tops = lp.get("top_logprobs")
         if tops and isinstance(tops, list) and isinstance(tops[0], dict):
@@ -91,11 +95,12 @@ def parse_top(resp, url=""):
                 merged += _add(top, token_key(k), float(v))
         text, dialect = (lp.get("tokens") or [ch.get("text", "")])[0], "openai"
     if not top:
-        if lp == {} and ch.get("text") and ((resp.get("usage") or {}).get("completion_tokens") or 0) >= 1:
-            raise ValueError(f"{url}: a token was generated ({ch.get('text')!r}) but the answer has no logprobs; "
-                             "llama-server leaves out the probabilities of a token whose text ends in an incomplete "
-                             "UTF-8 sequence (tools/server/server-context.cpp:1977-2009 @79e2e74)")
-        raise ValueError(f"{url}: response has no top_logprobs (engine does not support logprobs on /v1/completions?)")
+        hint = "engine does not support logprobs on /v1/completions?"
+        if ((resp.get("usage") or {}).get("completion_tokens") or 0) >= 1:
+            hint = ("a token was generated (%r) but no logprobs came back: the engine ignores logprobs, or it is "
+                    "llama-server, which leaves out the probabilities of a token whose text ends in an incomplete UTF-8 "
+                    "sequence, tools/server/server-context.cpp:1977-2009 @79e2e74" % ch.get("text"))
+        raise ValueError(f"{url}: response has no top_logprobs ({hint})")
     return top, text, dialect, merged
 
 
