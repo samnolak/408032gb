@@ -97,12 +97,18 @@ jobs:
         shell: bash
         run: |
           set +e
-          TOKCHECK_LLAMA_TOKENIZE=../build-tok/bin/llama-tokenize TOKCHECK_VOCAB_GLM=../vocab-glm.gguf \
-            TOKCHECK_VOCAB_QWEN=../vocab-qwen.gguf python3 -m unittest -v tests.test_token_level \
+          # absolute paths (the tool runs llama-tokenize from its own work directory)
+          TOKCHECK_LLAMA_TOKENIZE=$(realpath ../build-tok/bin/llama-tokenize) TOKCHECK_VOCAB_GLM=$(realpath ../vocab-glm.gguf) \
+            TOKCHECK_VOCAB_QWEN=$(realpath ../vocab-qwen.gguf) python3 -m unittest -v tests.test_token_level \
             tests.test_glm_template_n23.TransformersRender tests.test_glm_template_n23.JinjaEquality > t.log 2>&1
           rc=$?
           echo "::notice::$(grep -E '^Ran |^OK|^FAILED' t.log | tr '\n' ' ')"
-          grep -nE '^(FAIL|ERROR):|Error|assert' t.log | head -12 | while IFS= read -r l; do echo "::error::${l:0:900}"; done
+          # every test's result line, as notices (the sandbox reads annotations only: artifacts and job logs are
+          # redirected to blob storage it cannot reach); 40 lines per notice, newlines encoded
+          grep -E ' \.\.\. ' t.log | sed -E 's/ \(tests\.[a-z_0-9]+\.([A-Za-z0-9]+)\.[a-z_0-9]+\)/ (\1)/' > results.txt
+          split -l 40 results.txt res.
+          for c in res.*; do echo "::notice::$(sed 's/%/%25/g' "$c" | awk '{printf "%s%%0A", $0}')"; done
+          grep -nE '^(FAIL|ERROR):|Error|assert' t.log | head -8 | while IFS= read -r l; do echo "::error::${l:0:900}"; done
           if grep -E ' \.\.\. skipped ' t.log; then echo "::error::token-level tests were skipped"; rc=1; fi
           exit $rc
       - name: summary (annotations) and token-prefix.json
@@ -111,8 +117,10 @@ jobs:
         run: |
           G=$(python3 -c "import sys; sys.path.insert(0, 'scripts'); import hf_lfs_fetch as h; print(h.path_for('third_party/hf/glm-5.3-flash-tokenizer/PIN.json', 'tokenizer.json'))")
           Q=$(python3 -c "import sys; sys.path.insert(0, 'scripts'); import hf_lfs_fetch as h; print(h.path_for('third_party/hf/qwen3.8-flash-next-tokenizer/PIN.json', 'tokenizer.json'))")
-          python3 tools/chattmpl/token_prefix.py --hf-glm "$G" --hf-qwen "$Q" --llama-tokenize ../build-tok/bin/llama-tokenize \
-            --vocab-glm ../vocab-glm.gguf --vocab-qwen ../vocab-qwen.gguf --out tok-out > summary.txt 2>&1 || true
+          python3 tools/chattmpl/token_prefix.py --hf-glm "$G" --hf-qwen "$Q" --llama-tokenize "$(realpath ../build-tok/bin/llama-tokenize)" \
+            --vocab-glm "$(realpath ../vocab-glm.gguf)" --vocab-qwen "$(realpath ../vocab-qwen.gguf)" --out tok-out > summary.txt 2>&1 \
+            || echo "::error::token_prefix.py failed: $(tail -c 600 summary.txt | tr '\n' ' ')"
+          echo "::notice::tokenizer.json sha256: $(sha256sum "$G" "$Q" | tr '\n' ' ')"
           # at most 10 notices per step: chunks of 40 lines, newlines encoded
           split -l 40 summary.txt chunk.
           for c in chunk.*; do echo "::notice::$(sed 's/%/%25/g' "$c" | awk '{printf "%s%%0A", $0}')"; done

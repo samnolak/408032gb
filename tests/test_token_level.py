@@ -81,6 +81,16 @@ class PinRecords(unittest.TestCase):
             self.assertFalse((pin_path.parent / "tokenizer.json").exists())   # pinned, never committed
 
 
+class LlamaTokPaths(unittest.TestCase):
+    def test_relative_paths_are_made_absolute(self):
+        import tempfile
+        import token_prefix as T
+        with tempfile.TemporaryDirectory() as d:
+            t = T.LlamaTok("../build-tok/bin/llama-tokenize", "../vocab-glm.gguf", d)
+            self.assertEqual(t.binary, os.path.abspath("../build-tok/bin/llama-tokenize"))
+            self.assertEqual(t.model, os.path.abspath("../vocab-glm.gguf"))
+
+
 class Expectations:
     """Shared assertions for one tokenizer kind (self.tok(model) -> callable text -> ids)."""
 

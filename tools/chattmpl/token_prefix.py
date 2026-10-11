@@ -82,7 +82,10 @@ class LlamaTok:
     kind = "llama"
 
     def __init__(self, binary, model, workdir):
-        self.binary, self.model, self.workdir, self.cache = binary, model, workdir, {}
+        # absolute: the subprocess runs in workdir, a relative path would resolve there (N23 round 2: the first CI
+        # run passed ../build-tok/bin/llama-tokenize and every llama call failed with FileNotFoundError)
+        self.binary, self.model = os.path.abspath(binary), os.path.abspath(model)
+        self.workdir, self.cache = workdir, {}
         os.makedirs(workdir, exist_ok=True)
 
     def __call__(self, text):
