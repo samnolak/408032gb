@@ -14,7 +14,7 @@
 | C | Memory & Offload Research | СДЕЛАНО: R7 (KV/длинный контекст), R8 (ярусы, предсказание), модель затрат слоя с анализом чувствительности, перепроверка R11, N8 (персистентность сессий) | `research/R7…R8`, `tools/ceilings/tier_cost.py`, `docs/evidence/2026-10-10-tier-cost-model.md`, PR #4 |
 | D | Architecture Alternatives | СДЕЛАНО: шесть архитектур A–F, потолки с калибровкой по трём чужим замерам, go/no-go; два аудита (4 FAIL + 7 MINOR исправлены, повторная проверка — все исправлены) | `ARCHITECTURE-ALTERNATIVES.md` |
 | E | Engineering Experiments | СДЕЛАНО на CPU (ниже, раздел 2), включая трассы маршрутизации двух реальных прокси-моделей (`traces-real`) | evidence 2026-10-10-* |
-| F | Correctness Infrastructure | СДЕЛАНО: уровни 1–3 — 12 + 9 + 6 проверок, уровни 4–6 — NOT RUN; 37 проверок, ждущих GPU/сервер (B1–B37); закрыты на CPU пробелы 1 (паритет на пине R1), 4 (декод, откат, MTP для GLM — N9, PR #5), 3 (f16 KV + flash attention) и 2 (веса Q8_0/Q4_K_M) — N10, PR #6; 7 (инструменты замеров против настоящего сервера) — N11, PR #7; 5 (диалект `glm5next` и ik_llama.cpp) — N12, PR #8; 11 (а) (шаги паритета в CI зелёные при пропуске тестов) — N13, PR #9; 6 (настоящие чат-шаблоны, на уровне байтов) — N14, PR #10; 9 (настоящие заголовки GGUF) — N15, PR #12; 12 (MiMo: декод, откат, MTP, MXFP4) — N16, PR #11 | `CORRECTNESS.md`, `docs/evidence/2026-10-10-parity-r1-pin.md` |
+| F | Correctness Infrastructure | СДЕЛАНО: уровни 1–3 — 12 + 9 + 6 проверок, уровни 4–6 — NOT RUN; 37 проверок, ждущих GPU/сервер (B1–B37); закрыты на CPU пробелы 1 (паритет на пине R1), 4 (декод, откат, MTP для GLM — N9, PR #5), 3 (f16 KV + flash attention) и 2 (веса Q8_0/Q4_K_M) — N10, PR #6; 7 (инструменты замеров против настоящего сервера) — N11, PR #7; 5 (диалект `glm5next` и ik_llama.cpp) — N12, PR #8; 11 (а) (шаги паритета в CI зелёные при пропуске тестов) — N13, PR #9; 6 (настоящие чат-шаблоны, на уровне байтов) — N14, PR #10; 9 (настоящие заголовки GGUF) — N15, PR #12; 12 (MiMo: декод, откат, MTP, MXFP4) — N16, PR #11, и N17, PR #14; 10 (qwen4exp: несколько последовательностей, откаты) — N19, PR #15; N18 (PR #13) — заголовки MTP-файлов и MiMo | `CORRECTNESS.md`, `docs/evidence/2026-10-10-parity-r1-pin.md` |
 | G | Offline Deployment Readiness | ведёт сессия PR #1: офлайн-набор движков, сборки ExLlamaV3 sm_89 из набора без сети, резервные бандлы | `docs/evidence/2026-10-10-offline-engine-kit.md`, `…-backup-bundle.md` (PR #1) |
 | H | Updated Project State | этот файл + абзацы N7/N8 в `PROJECT_STATE.md` (ветки N7/N8) | — |
 | I | Published GitHub State | раздел 6 | — |
@@ -108,6 +108,19 @@
   Заодно: запросы вендоринга агенты теперь пишут в `data/hf-requests/` (хук `guard-upstream.sh` закрывает `third_party/`;
   запросы N14 были записаны туда shell-командой в обход хука). Аудит: FAIL нет, 4 MINOR исправлены.
   `docs/evidence/2026-10-11-n16-mimo-decode-parity.md` (ветка N16).
+* **N17** (PR #14): MiMo — три MTP-головы и точность R1 по умолчанию (f16 KV + flash attention с синками, головы
+  K192/V128): 70/70 на обоих пинах, мутации 19/19. Находка: llama.cpp заново размещает один батч на каждую голову
+  после `seq_rm`; при пересечении конца SWA-кольца голова 0 читает K/V чужих позиций (kqv_out до 2.05, логиты до 0.40);
+  влияние на принятие черновиков на настоящих весах — UNKNOWN. `docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md`.
+* **N18** (PR #13): заголовки по HTTP Range. Отдельные MTP-файлы Qwen: `-shared-` не загрузятся ни на одном пине; у всех
+  шести коэффициент сжатия QSA MTP-слоя 0 (плотное внимание вместо QSA; PROVISIONAL). GLM от ggml-org — транк без MTP,
+  MTP GLM на `ec7630a` не запускается вовсе. MiMo-V2.6 (ggml-org, QuantaPlanta, kernelpool): параметры совпадают с
+  конфигом, эксперты MXFP4; у kernelpool риск неверной раскладки qkv — UNKNOWN. Загрузка — NOT RUN.
+  `docs/evidence/2026-10-11-n18-gguf-headers-mtp-mimo.md`.
+* **N19** (PR #15, влит N17): qwen4exp — 2–3 последовательности, `seq_cp`, откаты: 72/72 на обоих пинах, утечек нет.
+  Молча неверно на обоих пинах: откат глубже последнего ubatch последовательности (логиты до 1.17) и `seq_cp` при
+  незавершённом откате (до 1.14); правило для MTP/n-gram — откат на r точен, только если последний вызов дал ≥ r+1
+  токенов (PROVISIONAL). `docs/evidence/2026-10-11-n19-qwen4exp-multiseq.md`.
 * **Трассы маршрутизации на реальных моделях:** инструменты не писали трассу для графов, где последний слой оставляет
   только выходные строки (qwen3moe, deepseek2); исправлено, проверено на крошечной qwen3moe и в CI.
   `docs/evidence/2026-10-10-traces-real-fix.md`.
@@ -168,8 +181,7 @@
   агентных промптах 32K–128K (хост 3090 или сервер); сохранять файлы `.probe` в следующем прогоне CI, чтобы измерить
   recall предсказателей именно на промахах кэша (сейчас UNKNOWN); генерации длиннее 128 токенов.
 * Пробелы корректности на CPU (CORRECTNESS §3): 1–7, 9, 11 (а) и 12 закрыты (N9–N16; 6 — на уровне байтов, 9 — по
-  заголовкам, без загрузки). В работе: N17 — MiMo: MTP-головы 2–3 (у настоящей модели их три) и точность R1 по умолчанию
-  (f16 KV + flash attention с синками). Остаются нефьюзные ветви (8), несколько последовательностей qwen4exp (10), части
+  заголовкам, без загрузки). Закрыты также 10 (N19) и продолжение 12 (N17). Остаются нефьюзные ветви (8), несколько последовательностей qwen4exp (10), части
   (б)–(г) пробела 11, DeepSeek-V4.1 (13), таблица ошибок по слоям для старых тестов (14); на GPU — всё уровня 4–6.
 * Решение владельца из N12: с каким вариантом clamp SwiGLU обучена GLM-5.3-Flash (ik и llama.cpp считают по-разному)
   — проверять на сервере по качеству на настоящем файле, а не предполагать.
@@ -197,6 +209,9 @@
 | #10 | `claude/n14-chat-templates` | PR #9 | N14: настоящие чат-шаблоны в llama-server — стабильность префикса, tool calls, ошибка Jinja-движка |
 | #11 | `claude/n16-mimo-decode-parity` | PR #10 | N16: паритет MiMo — декод, откат за пределы SWA-кэша, MTP, MXFP4 |
 | #12 | `claude/n15-gguf-headers` | PR #10 | N15: настоящие заголовки GGUF (по HTTP Range, без весов) |
+| #13 | `claude/n18-gguf-headers-mtp-mimo` | PR #12 | N18: заголовки MTP-файлов Qwen, GLM ggml-org, MiMo-V2.6 |
+| #14 | `claude/n17-mimo-mtp-heads-fa` | PR #11 | N17: MiMo — три MTP-головы, f16 KV + FA с синками |
+| #15 | `claude/n19-qwen4exp-multiseq` | PR #14 | N19: qwen4exp — несколько последовательностей и откаты |
 
 Головы в `origin` перед последним изменением этого файла (CONFIRMED, литеральный вывод; голова
 `claude/research-landscape` после коммита — в описании PR #3):
@@ -210,16 +225,19 @@ $ git ls-remote origin 'refs/heads/claude/*' 'refs/heads/main'
 b2096c1a897c5ceee257b891582b4c5d97413edb	refs/heads/claude/n14-chat-templates
 67bd5baceafe63e70e1b78010181225ecebbefa4	refs/heads/claude/n15-gguf-headers
 0b0eace7748a413ed19232a6a5a7e590937a671e	refs/heads/claude/n16-mimo-decode-parity
+3ce229374809392eccf09c2dfa81d01f004c587c	refs/heads/claude/n17-mimo-mtp-heads-fa
+35ba5ba4a7d957ffc53d5fbb2354ea6f8a1e3eb8	refs/heads/claude/n18-gguf-headers-mtp-mimo
+e71b241011575ccaf4a7d309f15ed54d339d614d	refs/heads/claude/n19-qwen4exp-multiseq
 c2f6c912c00bec0c83ce301784ab2068dd36f1c2	refs/heads/claude/n7-server-hybrid-cpu
 c4c9015dbc278ec6be980be44f1864761a4f4edf	refs/heads/claude/n8-session-store
 af4db13f43f7027f20effb5401affcd0ca365a93	refs/heads/claude/n9-glm-decode-parity
 37415fedcfb754941c45effda1d6c80e735ef3a9	refs/heads/claude/relaxed-dijkstra-1d7i5o
-9d1b119e21515b40c895af780fad179dfc61df94	refs/heads/claude/research-landscape
+9a9be121b043e1e26838d690927e4608cfff6420	refs/heads/claude/research-landscape
 eb59224c835581740a715ddcaa9abe101f90aa2f	refs/heads/main
 ```
 
 CI на этих головах (GitHub Actions): PR #2 `c2f6c91` — 14/14 зелёные; PR #3 `9d1b119` — зелёный; PR #4 `c4c9015` —
 14/14 зелёные; PR #5 `af4db13` — зелёный; PR #6 `0d4d582` — зелёный; PR #7 `6680448` — 14/14 зелёные; PR #8 `5730cc4` —
 16/16 зелёные; PR #9 `6dd6b28` — 16/16 зелёные; PR #10 `b2096c1` — зелёный; PR #11 `0b0eace` — зелёный (шаг
-`n16-mimo2-decode` в GitHub: Ran 92, без пропусков, на обоих пинах); PR #12 `67bd5ba` — 12/12 зелёные. PR #1 ведёт
+`n16-mimo2-decode` в GitHub: Ran 92, без пропусков, на обоих пинах); PR #12 `67bd5ba` — 12/12 зелёные; PR #13 `35ba5ba`, PR #14 `3ce2293`, PR #15 `e71b241` — зелёные. PR #1 ведёт
 другая сессия (голова `37415fe`; ветки PR #2 и #3 сливаются с ней без конфликтов: `git merge-tree` — rc=0).
