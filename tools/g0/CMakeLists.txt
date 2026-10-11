@@ -37,3 +37,7 @@ target_link_libraries(dump-tensors PRIVATE llama-common llama)
 # llama-ext.h (staging API used by the MTP mode: llama_set_embeddings_nextn) lives in llama.cpp's src/
 target_include_directories(dump-tensors PRIVATE ${LLAMA_CPP_DIR}/src)
 target_compile_features(dump-tensors PRIVATE cxx_std_17)
+
+# llama-quantize of the same pinned checkout, for the quantized tiny models of tools/tinygen/run_parity_quant.sh
+# (N10, gap 2). Built only on request (--target llama-quantize); output: <build>/quantize/llama-quantize.
+add_subdirectory(${LLAMA_CPP_DIR}/tools/quantize quantize EXCLUDE_FROM_ALL)

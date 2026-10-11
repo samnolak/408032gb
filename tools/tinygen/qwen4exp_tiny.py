@@ -14,6 +14,11 @@ so the numpy oracle ref/qwen4exp.py can be checked against tensor dumps without 
 No MTP block by default (nextn_predict_layers = 0). --mtp appends one (nextn_predict_layers = 1, block_count + 1):
 a full-attention QSA layer with blk.<L>.nextn.{eh_proj,enorm,hnorm,hc_head_*} (qwen4exp.cpp:290-302, the converter
 conversion/qwen4exp.py:28-36, 84-88); its weights are drawn after the trunk's, so the trunk equals the default model.
+--quant-dims (N10, gap 2 of docs/reassessment/CORRECTNESS.md) writes the same architecture with the input width of
+every quantizable matrix a multiple of QK_K = 256, so that llama-quantize can give it k-quants (it falls back to a
+32-block type or F16 for rows not divisible by the block size, src/llama-quant.cpp tensor_type_fallback): n_embd 256,
+head_dim 64 (n_head * head_dim = 256), ssm_state 64 (ssm inner size 4 * 64 = 256), expert and shared-expert widths
+256. The hyper-connection rank stays 8, so hc_*_up (input width 8) stays F16 under every quantization type.
 
 Keys and tensor names: llama.cpp @ec7630a src/llama-arch.cpp; required keys: src/models/qwen4exp.cpp
 load_arch_hparams (lines 26-169) and llama_model_base::load_hparams (src/llama-model.cpp:1298); shapes:
@@ -45,6 +50,11 @@ DEFAULT = dict(
     # token ids < 2^18 stay below 2^63, so uint64 (llama.cpp) and int64 (reference) arithmetic agree
     ple_multipliers=[0x1A2B3C4D5E1, 0x0F1E2D3C4B5, 0x13579BDF023],
 )
+
+
+# --quant-dims: every quantizable matrix has an input width divisible by 256 except hc_*_up (rank 8 -> F16) and the PLE
+# table (row width n_embd / 4 = 64 -> a 32-block type); see the module docstring
+QUANT = dict(DEFAULT, n_embd=256, head_dim=64, ssm_state=64, n_ff_exp=256, n_ff_shexp=256, n_ff=256)
 
 
 def is_recurrent(i, c):
@@ -204,6 +214,8 @@ if __name__ == "__main__":
     ap.add_argument("out")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--mtp", action="store_true", help="append the MTP block (nextn_predict_layers = 1)")
+    ap.add_argument("--quant-dims", action="store_true",
+                    help="input widths divisible by QK_K = 256 so that llama-quantize gives k-quants (QUANT)")
     a = ap.parse_args()
-    build(a.out, seed=a.seed, mtp=a.mtp)
+    build(a.out, cfg=QUANT if a.quant_dims else DEFAULT, seed=a.seed, mtp=a.mtp)
     print("wrote", a.out)
