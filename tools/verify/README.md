@@ -55,6 +55,14 @@ scripts/verify_pack.sh --check docs/evidence/verification-pack-<YYYY-MM-DD>     
 `--check` проверяет только целостность. Защита от подмены самого манифеста — коммит пакета в git (sha256 манифеста
 печатается при `--check`).
 
+**Синтетический прогон (N24).** `"synthetic_run": true` в файле `--criteria` объявляет прогон на синтетической
+(случайной) модели. Если в `model_desc` каждого прогона `run_matrix`/`probes` есть слово SYNTHETIC, критерии из
+`synthetic_not_applicable` (допустимы только оценивающие ответы модели: `agent_api_probes`, `context_probes_full_length`,
+`manual_quality_eval`) из PASS или FAIL по порогу становятся NOT RUN с причиной `not_applicable_synthetic`; исходный
+вердикт сохраняется (`details.synthetic_raw`) и перечисляется в `verdict.json` (`synthetic_run.not_applicable`) и
+плашкой в `VERDICT.md`. Ошибка запроса пробы остаётся FAIL. Итог такого прогона никогда не PASS. Если хотя бы один
+прогон не помечен SYNTHETIC, объявление записывается, но не применяется.
+
 Если критерии отличаются от `criteria.default.json`, в `VERDICT.md` стоит плашка «вердикт НЕ относится к требованиям
 заказчика в их исходном виде», а в `verdict.json` — `criteria_is_default: false` и список отличий. Если в путях или в
 `--engine-desc`/`--model-desc` есть слово SYNTHETIC — плашка «тестовые данные, а не доказательство».
@@ -98,7 +106,7 @@ scripts/verify_pack.sh --check docs/evidence/verification-pack-<YYYY-MM-DD>     
 | `agent_loop` | V5 | да | `run_matrix.py --scenarios agent` | ни одного отказа и достигнуто ≥ 100 000 токенов промпта |
 | `quant_min_bpw` | V1 | да | `gguf_quant_audit.py --json` | ни одного типа < 4 bpw в гистограммах классов (независимая проверка по таблице типов), нет находок FAIL/WARN, нет неизвестных типов; аудит запущен с порогами ≥ 4.0 |
 | `weights_integrity` | V2 | да | `weights.py verify` + манифест | ни одной строки `MISSING`/`SIZE`/`SHA256`, `verify: N/N`, каждый файл манифеста с sha256 проверен с тем же sha256 и размером, ревизия — 40-hex коммит |
-| `exact_routing_logprobs` | V6 | да | `logprob_compare.py` | ≥ 200 префиксов без ошибок, `ref` ≠ `cand`, top-1 ≥ 0.97 (порог PROVISIONAL, обоснование в `_notes`) |
+| `exact_routing_logprobs` | V6 | да | `logprob_compare.py` | ≥ 200 префиксов без ошибок, `ref` ≠ `cand`, top-1 ≥ 0.97 (порог PROVISIONAL, обоснование в `_notes`); расхождение top-1 считается совпадением, только если оба жадных токена есть в обоих top-K и `ref_gap + cand_gap` ≤ `logprob_tie_tolerance_nats` (0.025, PROVISIONAL, N24; 0 — строго); файлы без этих полей (до N24) — строго |
 | `kv_slot_persist` | V7 | да | `slot_persist.py` | ≥ 3 повтора без ошибок, продолжение после восстановления совпадает, `n_written` > 0, холодный промпт ≥ 100K токенов, повторно обработано ≤ 1% промпта, восстановление + тёплый префилл ≤ 25% холодного префилла |
 | `decode_vs_roofline` | V9 | да | `vs_roofline.py --json` + матрица | для каждой ячейки заполненного контекста есть строка, её число совпадает с `summary.json`, measured/bound ≤ 1. Отношение > 1 — NOT RUN (`invalid`: входы границы неверны, `vs_roofline.py` предписывает исправить входы), а не FAIL: по V9 само отношение информационное, обязателен действительный файл |
 | `hardware_facts` | V8 | да | `summarize.py --json` | `synthetic` = false; измерены (не UNKNOWN) число GPU, ширина PCIe, AVX2/AVX-512, каналы памяти, полоса RAM, P2P, H2D, fio; число GPU = 4. Красные флаги и сравнение hostname диагностики с hostname клиента стенда перечисляются в `details`, но не оцениваются |
