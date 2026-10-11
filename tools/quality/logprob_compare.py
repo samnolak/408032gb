@@ -60,7 +60,19 @@ def compare(ref, cand):
     kl = sum((p[t] / zp) * math.log((p[t] / zp) / (q[t] / zq)) for t in union)
     r1 = max(ref, key=ref.get)
     c1 = max(cand, key=cand.get)
-    return {"top1_agree": r1 == c1, "kl_topk": max(0.0, kl), "ref_in_cand": r1 in cand, "ref_top1": r1, "cand_top1": c1}
+    # Near-tie data for the V6 tie tolerance (tools/verify/pack.py, criteria logprob_tie_tolerance_nats):
+    #   ref_gap  = lp_ref(r1) - lp_ref(c1)   how far the candidate's choice is behind in the reference (>= 0)
+    #   cand_gap = lp_cand(c1) - lp_cand(r1) how far the reference's choice is behind in the candidate (>= 0)
+    # None when the other token is not in that side's top-K (the gap is then unknown, at least the top-K span).
+    # ref_gap + cand_gap is the change of the logit difference l(r1) - l(c1) between the engines: a flip caused by
+    # numerical noise alone has ref_gap + cand_gap <= 2 * max_t |lp_ref(t) - lp_cand(t)|.
+    # max_abs_dlogprob = max |lp_ref(t) - lp_cand(t)| over the tokens in both top-K lists (the measured noise).
+    common = set(ref) & set(cand)
+    return {"top1_agree": r1 == c1, "kl_topk": max(0.0, kl), "ref_in_cand": r1 in cand, "ref_top1": r1, "cand_top1": c1,
+            "ref_gap": (ref[r1] - ref[c1]) if c1 in ref else None,
+            "cand_gap": (cand[c1] - cand[r1]) if r1 in cand else None,
+            "max_abs_dlogprob": max(abs(ref[t] - cand[t]) for t in common) if common else None,
+            "n_common": len(common)}
 
 
 def make_prefixes(texts, n, seed=1, min_chars=200, max_chars=20000):
@@ -81,10 +93,17 @@ def summarize(rows):
 
     def pct(v, q):
         return v[min(len(v) - 1, int(q * len(v)))]
-    return {"n": len(rows), "top1_agree": sum(r["top1_agree"] for r in rows) / len(rows),
-            "ref_in_cand_topk": sum(r["ref_in_cand"] for r in rows) / len(rows),
-            "kl_topk_mean": statistics.fmean(kls), "kl_topk_median": statistics.median(kls),
-            "kl_topk_p95": pct(kls, 0.95), "kl_topk_max": kls[-1]}
+    out = {"n": len(rows), "top1_agree": sum(r["top1_agree"] for r in rows) / len(rows),
+           "ref_in_cand_topk": sum(r["ref_in_cand"] for r in rows) / len(rows),
+           "kl_topk_mean": statistics.fmean(kls), "kl_topk_median": statistics.median(kls),
+           "kl_topk_p95": pct(kls, 0.95), "kl_topk_max": kls[-1]}
+    # the measured noise between the two engines (V6 tie tolerance calibration); absent in files written before N24
+    d = sorted(r["max_abs_dlogprob"] for r in rows if r.get("max_abs_dlogprob") is not None)
+    if d:
+        out.update({"max_abs_dlogprob_n": len(d), "max_abs_dlogprob_median": statistics.median(d),
+                    "max_abs_dlogprob_p95": pct(d, 0.95), "max_abs_dlogprob_p99": pct(d, 0.99),
+                    "max_abs_dlogprob_max": d[-1]})
+    return out
 
 
 def main(argv=None):
