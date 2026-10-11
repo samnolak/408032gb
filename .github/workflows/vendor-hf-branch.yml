@@ -1,13 +1,15 @@
 # Fetches small text files (chat templates, tokenizer configs - never weights) of Hugging Face repos for the
-# third_party/hf/*/REQUEST.json files that have no PIN.json yet, and commits them byte-exact back to the claude/*
-# branch that triggered the run. vendor-hf.yml does the same for main and pushes to main; this one never touches main
-# (AGENTS.md "Git and sync": agents publish only claude/* branches). The agent sandbox cannot reach huggingface.co.
+# data/hf-requests/*/REQUEST.json files (written by agents: scripts/hooks/guard-upstream.sh keeps third_party/ read-only
+# for them) and the older third_party/hf/*/REQUEST.json ones that have no PIN.json yet, and commits them byte-exact to
+# third_party/hf/<name>/ on the claude/* branch that triggered the run (scripts/vendor_hf_new.py). vendor-hf.yml does
+# the same for main and pushes to main; this one never touches main (AGENTS.md "Git and sync": agents publish only
+# claude/* branches). The agent sandbox cannot reach huggingface.co.
 name: vendor-hf-branch
 on:
   workflow_dispatch:
   push:
     branches: ['claude/**']
-    paths: ['third_party/hf/*/REQUEST.json']
+    paths: ['data/hf-requests/*/REQUEST.json', 'third_party/hf/*/REQUEST.json']
 permissions:
   contents: write
 concurrency:

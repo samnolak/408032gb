@@ -46,5 +46,55 @@ class Pending(unittest.TestCase):
         self.assertIn("::error::RuntimeError: blob mismatch", out.getvalue())
 
 
+class DataRequests(unittest.TestCase):
+    """data/hf-requests/<name>/REQUEST.json (agents cannot write under third_party/, scripts/hooks/guard-upstream.sh)
+    is vendored into third_party/hf/<name>/, where the copied request, the files and PIN.json land."""
+
+    def setUp(self):
+        self.d = tempfile.TemporaryDirectory()
+        self.root = os.path.realpath(self.d.name)
+        self.req = os.path.join(self.root, "data", "hf-requests", "m", "REQUEST.json")
+        os.makedirs(os.path.dirname(self.req))
+        json.dump({"repo": "x/m", "files": ["config.json"]}, open(self.req, "w"))
+        self.dest = os.path.join(self.root, "third_party", "hf", "m")
+
+    def tearDown(self):
+        self.d.cleanup()
+
+    def test_destination_is_third_party_hf(self):
+        self.assertEqual(vendor_hf_new.dest_of(self.req), self.dest)
+        other = os.path.join(self.root, "third_party", "hf", "n", "REQUEST.json")
+        self.assertEqual(vendor_hf_new.dest_of(other), os.path.dirname(other))
+
+    def test_request_is_copied_and_fetched_from_the_destination(self):
+        with mock.patch.object(vendor_hf_new.vendor_hf_files, "one") as one:
+            self.assertEqual(vendor_hf_new.main([self.req]), 0)
+        staged = os.path.join(self.dest, "REQUEST.json")
+        self.assertEqual([c.args[0] for c in one.call_args_list], [staged])
+        self.assertEqual(open(staged).read(), open(self.req).read())
+
+    def test_pinned_destination_is_not_fetched_again(self):
+        os.makedirs(self.dest)
+        open(os.path.join(self.dest, "PIN.json"), "w").write("{}")
+        with mock.patch.object(vendor_hf_new.vendor_hf_files, "one") as one, redirect_stdout(io.StringIO()):
+            self.assertEqual(vendor_hf_new.main([self.req]), 0)
+        one.assert_not_called()
+
+    def test_default_globs_find_both_places(self):
+        t = os.path.join(self.root, "third_party", "hf", "t")
+        os.makedirs(t)
+        json.dump({"repo": "x/t", "files": []}, open(os.path.join(t, "REQUEST.json"), "w"))
+        cwd = os.getcwd()
+        os.chdir(self.root)
+        try:
+            with mock.patch.object(vendor_hf_new.vendor_hf_files, "one") as one:
+                self.assertEqual(vendor_hf_new.main([]), 0)
+        finally:
+            os.chdir(cwd)
+        got = sorted(os.path.relpath(os.path.join(self.root, c.args[0]), self.root) for c in one.call_args_list)
+        self.assertEqual(got, [os.path.join("third_party", "hf", "m", "REQUEST.json"),
+                               os.path.join("third_party", "hf", "t", "REQUEST.json")])
+
+
 if __name__ == "__main__":
     unittest.main()
