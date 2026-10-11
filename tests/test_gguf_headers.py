@@ -1142,7 +1142,7 @@ class N18Analyzer(HubCase):
         ok = f["mtp-ok.gguf"]
         self.assertEqual((ok["layout"], ok["n_layer"], ok["layers_present"]), ("MTP-only file", 3, [3]))
         self.assertEqual(ok["reference"], {"3": {"missing": [], "missing_optional": ["nextn.shared_head_norm.weight"],
-                                                 "extra": []}})                          # JSON: layer keys are strings
+                                                 "extra": [], "alternatives": []}})      # JSON: layer keys are strings
         self.assertEqual(ok["trunk"]["keys_differ"], [["block_count", 3, 4], ["nextn_predict_layers", "(absent)", 1]])
         self.assertTrue(ok["trunk"]["tokens_equal"])
         lo = {n: {pin: v for pin, v in x["loader"].items()} for n, x in f.items()}
@@ -1167,6 +1167,19 @@ class N18Analyzer(HubCase):
         self.assertTrue(all(x["at"] != "not found" for x in r["attach"]["79e2e74"] if x["expected"]))
         self.assertIn("loader [79e2e74]: loadable as a separate MTP model", out)
         self.assertIn("how llama.cpp attaches a separate MTP file:", out)
+
+    def test_reference_diff_takes_fused_and_split_forms_as_equal(self):
+        ref = {"attn_q.weight", "attn_k.weight", "attn_v.weight", "ffn_gate_up_exps.weight", "nextn.enorm.weight",
+               "nextn.shared_head_norm.weight"}
+        have = {"attn_qkv.weight", "ffn_gate_exps.weight", "ffn_up_exps.weight", "nextn.hnorm.weight"}
+        d = A.ref_diff(ref, have, {"nextn.shared_head_norm.weight"})
+        self.assertEqual((d["missing"], d["missing_optional"], d["extra"]),
+                         (["nextn.enorm.weight"], ["nextn.shared_head_norm.weight"], ["nextn.hnorm.weight"]))
+        self.assertEqual(len(d["alternatives"]), 2)
+        d = A.ref_diff(ref, {"attn_q.weight"}, set())                              # a partial split form: missing
+        self.assertEqual([x for x in d["missing"] if x.startswith("attn_")], ["attn_k.weight", "attn_v.weight"])
+        d = A.ref_diff(ref, {"attn_qkv.weight", "attn_q.weight"}, set())          # fused + a stray split one: extra
+        self.assertEqual(d["extra"], ["attn_q.weight"])
 
     def test_listing_renders_named_repos(self):
         self.hub.add("org/M-GGUF", {"Q/m-00001-of-00002.gguf": b"GGUF1", "Q/m-00002-of-00002.gguf": b"GGUF22"},

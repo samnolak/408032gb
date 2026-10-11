@@ -640,6 +640,26 @@ def mtp_verdict(m, root, ref):
     return {"verdict": verdict, "layout": layout, "hard": hard, "check": check, "anchors": anchors}
 
 
+# loader helpers that accept either form (src/llama-model.cpp create_tensor_qkv / create_tensor_gate_up_exps: the fused
+# tensor first, the split ones otherwise): a fused/split difference against the reference is neither missing nor extra
+ALTERNATIVES = [({"attn_qkv.weight"}, {"attn_q.weight", "attn_k.weight", "attn_v.weight"}),
+                ({"ffn_gate_up_exps.weight"}, {"ffn_gate_exps.weight", "ffn_up_exps.weight"})]
+
+
+def ref_diff(ref, have, optional):
+    """NextN layer tensor names of this file (have) against the reference: missing (not optional), missing optional,
+    extra, and the fused/split alternatives that differ"""
+    ref, have = set(ref), set(have)
+    alt = []
+    for a, b in ALTERNATIVES:
+        for x, y in ((a, b), (b, a)):
+            if x <= have and y <= ref and not (x <= ref):
+                alt.append(f"{sorted(x)} here, {sorted(y)} in the reference")
+                have, ref = have - x, ref - y
+    return {"missing": sorted(ref - have - optional), "missing_optional": sorted((ref - have) & optional),
+            "extra": sorted(have - ref), "alternatives": alt}
+
+
 def section_mtp_file(m, srcs, ref_names, trunk):
     rules = branches.MTP_LOAD.get(m.arch) or {}
     tok = m.kv.get("tokenizer.ggml.tokens", {})
@@ -653,10 +673,7 @@ def section_mtp_file(m, srcs, ref_names, trunk):
            "layers_present": sorted({int(n.split(".")[1]) for n in m.names if n.startswith("blk.")}),
            "mtp_layers": {i: sorted(branches._suffixes(m, i)) for i in branches._mtp_layers(m)}}
     if ref_names is not None:
-        opt = rules.get("optional", set())
-        res["reference"] = {i: {"missing": sorted(ref_names - set(have) - opt),
-                                "missing_optional": sorted((ref_names - set(have)) & opt),
-                                "extra": sorted(set(have) - ref_names)}
+        res["reference"] = {i: ref_diff(ref_names, have, rules.get("optional", set()))
                             for i, have in res["mtp_layers"].items()}
     if trunk is not None:
         tk, mk = trunk.arch_keys(), m.arch_keys()
@@ -863,7 +880,8 @@ def render_mtp(r, w):
             w(f"  blk.{i}: {len(names)} tensors: {names}")
         for i, d in (x.get("reference") or {}).items():
             w(f"  vs the reference NextN layer: blk.{i} missing {d['missing']}, missing optional "
-              f"{d['missing_optional']}, extra {d['extra']}")
+              f"{d['missing_optional']}, extra {d['extra']}" +
+              (f"; fused/split: {'; '.join(d['alternatives'])}" if d["alternatives"] else ""))
         if x.get("trunk"):
             tr = x["trunk"]
             w(f"  vs the trunk ({tr['arch']}): arch keys that differ: " +
