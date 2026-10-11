@@ -52,7 +52,7 @@ TINY = {  # request "analysis.tiny" -> (tools/tinygen module, variants: (label, 
                                    ("--quant-dims", {"quant": True}, None)]),
 }
 
-# config.json (text_config) key -> GGUF key suffix [, transform of the config value]; "layers" = block_count -
+# config.json (text_config) key -> GGUF key suffix [, (transform of the config value, label)]; "layers" = block_count -
 # nextn_predict_layers; ABSENT in the report = the GGUF has no such key
 CONFIG_MAP = {
     "glm5-next": [("num_hidden_layers", "layers"), ("num_nextn_predict_layers", "nextn_predict_layers"),
@@ -88,7 +88,7 @@ CONFIG_MAP = {
                  ("rms_norm_eps", "attention.layer_norm_rms_epsilon"), ("max_position_embeddings", "context_length"),
                  ("rope_parameters.rope_theta", "rope.freq_base"),
                  # 1-based in the HF config; llama.cpp's converter writes i - 1 (conversion/qwen4exp.py:91-94 @79e2e74)
-                 ("ple_layer_ids", "ple.layers", lambda v: [i - 1 for i in v]),
+                 ("ple_layer_ids", "ple.layers", (lambda v: [i - 1 for i in v], "1-based")),
                  ("ngram_size", "ple.ngram_size"), ("heads_per_ngram", "ple.heads_per_ngram"),
                  ("ple_conv_kernel_size", "ple.conv_kernel"), ("vocab_size", "@vocab")],
 }
@@ -315,9 +315,10 @@ def section_config(m, rel, graph):
     cfg = cfg.get("text_config", cfg)
     rows = []
     for ck, gk, *fn in CONFIG_MAP[graph]:
-        cv = _cfg_get(cfg, ck)
-        if fn and cv is not None:
-            cv = fn[0](cv)
+        raw = cv = _cfg_get(cfg, ck)
+        mapping = None
+        if fn and raw is not None:
+            cv, mapping = fn[0][0](raw), fn[0][1]
         if gk == "layers":
             gv = (m.a("block_count") or 0) - (m.a("nextn_predict_layers") or 0) if m.has("block_count") else None
         elif gk == "@vocab":
@@ -334,8 +335,10 @@ def section_config(m, rel, graph):
             ok = len(gv) > 0 and all(_same(x, cv) for x in gv)
         else:
             ok = gv is not None and _same(gv, cv)
-        rows.append({"config": ck, "config_value": cv, "gguf": gk, "gguf_value": gv,
-                     "match": ok if gv is not None else None})
+        row = {"config": ck, "config_value": raw, "gguf": gk, "gguf_value": gv, "match": ok if gv is not None else None}
+        if mapping:                      # compared after the converter's mapping; the report shows both
+            row.update(mapping=mapping, config_value_compared=cv)
+        rows.append(row)
     return rows
 
 
@@ -489,8 +492,11 @@ def render(results, srcs):
         if r["config"]:
             w("  config.json cross-check:")
             for c in r["config"]:
+                cfgv = fmt(c["config_value"], 40)
+                if c.get("mapping"):
+                    cfgv += f" ({c['mapping']} -> {fmt(c['config_value_compared'], 40)})"
                 w(f"    {'OK    ' if c['match'] else 'ABSENT' if c['match'] is None else 'DIFF  '} {c['config']} = "
-                  f"{fmt(c['config_value'], 40)}  ->  {c['gguf']} = {fmt(c['gguf_value'], 60)}")
+                  f"{cfgv}  ->  {c['gguf']} = {fmt(c['gguf_value'], 60)}")
         w("  graph branches:")
         for b in r["branches"]:
             ex = b["exercised_by_tiny"]
