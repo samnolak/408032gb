@@ -97,6 +97,10 @@ class CorrectedFile(unittest.TestCase):
         _, header = strip_header(OURS.read_text(encoding="utf-8"))
         for s in (SOURCE_REV, SOURCE_SHA256, "zai-org/GLM-5.3-Flash", "79e2e74", "is not none", "MIT"):
             self.assertIn(s, header)
+        # the upstream MIT notice (copyright line and permission notice), verbatim from LICENSE of the same revision
+        lic = (ROOT / "third_party/hf/glm-5.3-flash-tokenizer/LICENSE").read_text(encoding="utf-8").strip()
+        self.assertIn("Copyright (c) 2026 Z.AI Co., Ltd", lic)
+        self.assertIn(lic, header)
         # llama.cpp picks some chat handlers by substrings of the template source (common/chat.cpp:1082-1283
         # @79e2e74): the header must not add any tag
         self.assertNotRegex(header, r"[<\[]")
