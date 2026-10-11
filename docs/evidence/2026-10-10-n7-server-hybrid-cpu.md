@@ -142,7 +142,7 @@ mtp server log   slot print_timing: id  0 | task 36 | draft acceptance = 0.00000
 ```
 Gate (f32 caches, flash attention off): every check passes on both architectures. Characterization (server defaults
 for KV type and flash attention): qwen4exp passes everything; glm5-next fails `prefix_extend_correct` and
-`isolation_two_slots` on the 1e-3 log-prob tolerance with identical tokens — explained under F7.
+`isolation_two_slots` on the 1e-3 log-prob tolerance with identical tokens — see F7 (corrected 2026-10-11).
 
 Precision attribution (gate and defaults rows: the driver run above, harness `0a20e20`; the two middle glm5-next rows:
 `--extra "-c 1024 -np 1 -t 2 --no-warmup <flags>"` with harness `7f96724` - the change between the two is the isolation
@@ -158,6 +158,19 @@ $ python3 tools/srvcheck/n7_report.py attr "gate f32 fa-off=..." "defaults (f16 
 config                 extend      isolation   determin.   mtp         | cold 256-token prompt vs the first run: first differing token, |d| at step 0, max |d| up to it
 gate f32 fa-off        4.77e-07    1.91e-06    0           7.15e-07    | 32, 0, 0
 defaults (f16 fa-on)   2.41e-05    2.29e-05    0           2.38e-07    | 32, 3e-05, 0.000248
+```
+
+Caveat on the right-hand column (correction 2026-10-11, see F7): each configuration's 256-token prompt holds its own
+first answer, so for glm5-next, whose first answers differ between configurations, the column compares answers to
+different prompts, not precisions on one prompt; for qwen4exp the first answers are identical in both configurations,
+so its row is a same-prompt comparison.
+Check on this run's result files (`<scratch>/n7/final2/<model>-<config>.json`, `prefix_extend.first.tokens` of the
+defaults against the gate; Python one-off, 2026-10-11):
+```
+qwen4exp ['qwen4exp-defaults.json', 'qwen4exp-gate.json']
+  first answers identical: True first differing index: None
+glm5next ['glm5next-defaults.json', 'glm5next-gate.json']
+  first answers identical: False first differing index: 13
 ```
 
 ## Findings
@@ -226,15 +239,32 @@ defaults (f16 fa-on)   2.41e-05    2.29e-05    0           2.38e-07    | 32, 3e-
    269 844 / 299 756 B with f32 caches, 181 140 / 211 052 B with defaults.
 7. **Precision: with the server defaults (flash attention on, f16 KV) glm5-next warm and cold answers differ by up
    to 0.027 in log-prob (tokens identical); qwen4exp by 2.4e-5.** (CONFIRMED as measured.) Attribution (table above):
-   flash attention with f32 caches 1.4e-3, f16 KV without flash attention 2.4e-4, both 2.7e-2. These differences are far
-   inside each configuration's own deviation from the f32 / flash-attention-off answer on the same prompt: 0.41-0.52 at
-   the first generated step and a different token by step 0-3. So they are not evidence of a cache bug; they show that
-   the tiny glm5-next is far more sensitive to KV precision and flash attention than the tiny qwen4exp: PROVISIONAL
-   10^3-10^4 depending on the metric (warm/cold 0.0267 / 2.41e-5 ≈ 1.1e3; step-0 |d| vs the gate 0.416 / 3e-5 ≈ 1.4e4;
-   max |d| up to the first differing token 0.86 / 0.000248 ≈ 3.5e3; numbers from the attribution tables above).
-   Why (PROVISIONAL, not traced): likely the DSA k-pool top-k selection flipping on near ties, which turns rounding into
-   a different attention set. Whether real GLM-5.3-Flash weights are as sensitive: UNKNOWN — R2.1 (KLD to Q8_0) and K2
-   (KV type) must measure it, not assume it. The gate stays at f32 caches + flash attention off, as in N2/N6.
+   flash attention with f32 caches 1.4e-3, f16 KV without flash attention 2.4e-4, both 2.7e-2.
+   **Correction (2026-10-11, after N10 traced this run at 79e2e74; `docs/evidence/2026-10-10-quant-fa-parity.md` on
+   branch `claude/n10-quant-fa-parity`, finding 5(b) and the trace output; script
+   `docs/evidence/mutation-scripts/2026-10-10-n10-n7-trace.py` there).** The earlier text compared these differences
+   with "each configuration's own deviation from the f32 / flash-attention-off answer on the same prompt: 0.41-0.52 at
+   the first generated step and a different token by step 0-3", concluded "not evidence of a cache bug", gave a
+   sensitivity ratio of 10^3-10^4 and named the DSA k-pool selection as the likely cause. All four were wrong:
+   * not the same prompt: `attr` compares each configuration's cold answer with the gate's, but each 256-token prompt
+     holds that configuration's own first answer (`tools/srvcheck/hybrid_server_checks.py:171`,
+     `nxt = prompt + first["tokens"] + tail`); the first answers differ (defaults from token 13), so the two prompts
+     differ at 18 positions from 213, and 0.41-0.52 / "token 0-3" compare answers to different prompts. On one prompt
+     (N10 trace, dump-tensors reproducing this server's log-probs within 6.2e-7): defaults vs f32 / FA off 1.5e-3 at
+     step 0 and 2.7e-2 at most over 32 steps (this table's top-5 metric), no greedy token changed in 32 steps; on the
+     shared 200-token prompt the first changed token is step 13 (CONFIRMED, N10 trace output);
+   * so warm / cold 0.027 is about the size of the same-prompt precision difference, not far inside it, and this
+     comparison does not show that it is rounding only (the warm call plan was not traced): UNKNOWN. A PROVISIONAL
+     reading: the warm request processes 25 new tokens and the cold one 256, and the CPU flash attention takes
+     different numerical paths below and above 64 query rows (N10 part A, finding 2);
+   * sensitivity, glm5-next against qwen4exp on the same prompt: 1.536e-3 / 3.004e-5 ≈ 51 (step 0) and
+     2.703e-2 / 2.484e-4 ≈ 109 (max over the steps); warm / cold stays ≈ 1.1e3: PROVISIONAL about 50 to 1.1e3 depending
+     on the metric (the earlier ratios divided a different-prompt glm5-next number by a same-prompt qwen4exp number);
+   * why (PROVISIONAL: traced at 79e2e74 by N10, causation not shown by forcing the expert set): the first token
+     change coincides with a MoE expert-set near-tie flip (layer 8, f32 margin 1.4e-5); DSA selections differ only in
+     the last layer (prompt row 45, without effect on other rows, and after the MoE flip).
+   Whether real GLM-5.3-Flash weights are as sensitive: UNKNOWN — R2.1 (KLD to Q8_0) and K2 (KV type) must measure it,
+   not assume it. The gate stays at f32 caches + flash attention off, as in N2/N6.
 8. **Two slots decoding at once are isolated** (CONFIRMED, CPU): both answers equal the lone runs (|d| ≤ 4.4e-5 in the
    gate run), and the server itself reported both slots processing at the same moment (`max_busy_slots 2` in all four
    runs). The concurrent |d| varies a little between runs because which tokens share a batch depends on request timing:
