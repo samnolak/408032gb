@@ -76,14 +76,18 @@ timing in `raw.jsonl`), so the targeted run above replaces it. NOT RUN: the whol
   other id (e.g. `weights_integrity`, `decode_filled_ctx_floor`, `exact_routing_logprobs`), a non-boolean flag, or a
   non-list. The declaration is a deviation from `criteria.default.json`, so VERDICT.md already prints the "criteria
   differ from the customer's" banner.
-* **The declaration must match the artifacts.** It is applied only if every matrix/probes run's `model_desc` contains
-  "synthetic" (any case). Otherwise it is recorded (`synthetic_run.applied: false`, `unmarked_runs`) and the behaviour
+* **The declaration must match the artifacts.** It is applied only if every matrix/probes run's `model_desc` carries
+  the positive marker `SYNTHETIC`: upper case, a whole word, not preceded by "non-" or "not " (`pack.py`
+  `SYNTHETIC_MARK`; until the audit fix this was a case-insensitive substring, which "non-synthetic" also matched -
+  audit M1, section 9). Otherwise it is recorded (`synthetic_run.applied: false`, `unmarked_runs`) and the behaviour
   criteria are judged as usual: a real-model run cannot hide a FAIL behind a flag.
 * **What changes.** A PASS or a score FAIL of a listed criterion becomes NOT RUN with reason code
   `not_applicable_synthetic` ("не применимо: прогон объявлен синтетическим, критерий проверяет поведение модели"); the
   raw verdict is kept (`details.synthetic_raw`) and listed in `verdict.json` `synthetic_run.not_applicable` and in a
   VERDICT.md banner line per criterion. NOT RUN results (missing, mock, unparseable, not filled) are left as they are.
-  A FAIL that contains probe request errors (`details.request_errors`) stays FAIL: that is the engine or the API.
+  A FAIL that contains probe request errors (`details.request_errors`) stays FAIL: that is the engine or the API. A
+  json probe whose `response_format` the server rejected (`probes.py` records `response_format_accepted: false` for
+  HTTP 400/422) is such a request error whatever its score (audit M2, section 9).
 * **Overall.** A declared synthetic run is never PASS: if every mandatory criterion is PASS the overall verdict is
   NOT RUN "declared synthetic run: never acceptance evidence"; an engine/tool FAIL (decode floor, weights integrity,
   quant audit, ...) still makes it FAIL.
@@ -214,9 +218,11 @@ The prefixes behind these tails were not traced here (UNKNOWN which decision fli
 ### 2.3 The value: 0.025 nats (PROVISIONAL until measured on real weights and GPU)
 
 `logprob_tie_tolerance_nats = 0.025` = 2 x 1.15e-2 (rounded up): twice the largest same-weights |d log-softmax|
-measured with **no discrete choice changed** (N10, traced). It covers every prefix of the pairs without discrete
-events and 86.7-100 % of the prefixes of every N24 pair (share <= TOL/2 above). It deliberately does **not** cover the
-discrete tails: "2 x the largest observed" would be 1.23 nats and would excuse real disagreements. A top-1 flip caused
+measured with **no discrete choice changed** (N10, traced). Measured shares of prefixes with `max_abs_dlogprob` <= TOL/2
+in the N24 pairs (summary above): glm5-next f16 fa off/on 162/166, glm5-next f32 vs f16 144/166, qwen4exp f16 fa off/on
+170/170, qwen4exp f32 vs f16 169/170 (same-server controls 166/166 and 170/170). Whether the remaining 4 + 22 + 1
+prefixes are discrete events (routing or selection near-ties) or continuous noise is **UNKNOWN**: they were not traced
+(audit M3, section 9). The value deliberately does **not** cover the large tails: "2 x the largest observed" would be 1.23 nats and would excuse real disagreements. A top-1 flip caused
 by a discrete near-tie upstream (routing, DSA selection) is legitimate numerics too, but its size is not bounded, so it
 stays a disagreement and uses the 3 % budget of `top1_agreement_min`.
 
@@ -603,3 +609,62 @@ exit=3
 * vLLM's CUDA `silu_and_mul_with_clamp` kernel and ik's / exllamav3's CUDA kernels: not read.
 * The full text of the Qwen Community License beyond clause 2 / line 11: not in the repository.
 * Whether the owner's decisions exist in writing from the customer: UNKNOWN (relayed by the lead).
+
+---
+
+## 9. Audit corrections (N24 audit: no FAIL, three MINORs)
+
+Fixes in `6442791` (code, tests, `criteria.default.json` notes, `tools/verify/README.md`, mutation script) and in this
+file (sections 1.2, 2.3, 9).
+
+| finding | fix |
+|---|---|
+| M1: `synthetic_declaration` matched the substring "synthetic" in any case, so a real-model run described as "non-synthetic" got the rule (FAIL -> NOT RUN; reproduced by the auditor) | positive marker `pack.py` `SYNTHETIC_MARK`: upper-case `SYNTHETIC`, whole word, not after "non-"/"not " (any case of those). A structured field (`meta.synthetic`) would need a change of `tools/bench` (`run_matrix.py`, `probes.py`) and of N11's derived configs; not done here, proposed for the bench's owner. New test `test_negated_marker_does_not_count`: "non-synthetic real weights", "NOT SYNTHETIC", "non-SYNTHETIC", lower-case "synthetic" keep the FAIL; eleven marker cases |
+| M2: a json probe whose `response_format` was rejected (HTTP 400/422) was not a request error, so a synthetic declaration turned an API defect into NOT RUN | `crit_agent_api_probes`: `details.response_format_accepted is False` is a request error (FAIL, in `details.request_errors`) whatever the score, with or without a declaration. New test `test_rejected_response_format_stays_fail` (passing scores and N11 scores). Note: this also FAILs a non-synthetic run whose plain JSON passed but whose server rejected `response_format` (before: PASS) |
+| M3: section 2.3 said 0.025 "covers every prefix of the pairs without discrete events" - not measured | reworded to the measured shares (162/166, 144/166, 170/170, 169/170); the classification of the other 27 prefixes is UNKNOWN (not traced). The same claim in `criteria.default.json` `_notes` and the "discrete tails" wording there corrected; the message of `4d41c87` repeats the old wording and is not rewritten (history is not rewritten) |
+
+Both new tests fail on the pack of `4d41c87` and pass at `6442791` (pack.py of `4d41c87` restored into the work tree for
+the run, then put back; filtered with `grep -E "^(FAIL|ERROR|Ran|OK|FAILED|AssertionError)"`):
+```
+FAIL: test_negated_marker_does_not_count (tests.test_verify_pack_n24.SyntheticRun.test_negated_marker_does_not_count)
+AssertionError: 'NOT RUN' != 'FAIL'
+FAIL: test_rejected_response_format_stays_fail (tests.test_verify_pack_n24.SyntheticRun.test_rejected_response_format_stays_fail)
+AssertionError: 'PASS' != 'FAIL'
+Ran 2 tests in 22.901s
+FAILED (failures=2)
+```
+After the fix (`<scratch>/n24/audit-tests.txt`, same filter):
+```
+# at 6442791
+$ python3 -m unittest tests.test_verify_pack_n24 tests.test_verify_pack tests.test_check_unittest tests.test_hooks
+Ran 95 tests in 62.698s
+OK
+```
+Mutation check with two new mutants P10 (substring marker back) and P11 (rejection not an error)
+(`<scratch>/n24/mut-round3.txt`):
+```
+$ python3 docs/evidence/mutation-scripts/2026-10-11-n24-mutations.py /home/user/wt-n24 <scratch>/n24/mut   # at 6442791
+CAUGHT   P1 declaration applied even when a run's model description does not say SYNTHETIC  [tests.test_verify_pack_n24: FAILED (failures=2)]
+CAUGHT   P2 probe request errors turned into NOT RUN too  [tests.test_verify_pack_n24: FAILED (failures=2)]
+CAUGHT   P3 a declared synthetic run may be PASS overall  [tests.test_verify_pack_n24: FAILED (failures=1)]
+CAUGHT   P4 any criterion may be declared not applicable  [tests.test_verify_pack_n24: FAILED (failures=1)]
+CAUGHT   P5 the not-applicable list is ignored (every criterion converted)  [tests.test_verify_pack_n24: FAILED (failures=4)]
+CAUGHT   P6 near_tie ignores the tolerance  [tests.test_verify_pack_n24: FAILED (failures=3)]
+CAUGHT   P7 near_tie accepts negative gaps  [tests.test_verify_pack_n24: FAILED (failures=1)]
+CAUGHT   P8 near_tie treats a missing gap as 0  [tests.test_verify_pack_n24: FAILED (failures=1)]
+CAUGHT   P10 the SYNTHETIC marker as a case-insensitive substring again (audit M1)  [tests.test_verify_pack_n24: FAILED (failures=1)]
+CAUGHT   P11 a rejected response_format not recorded as a request error (audit M2)  [tests.test_verify_pack_n24: FAILED (failures=1)]
+CAUGHT   P9 the threshold judged on strict top-1 (near-tie flips not counted)  [tests.test_verify_pack_n24: FAILED (failures=2)]
+CAUGHT   L1 cand_gap with the wrong sign  [tests.test_verify_pack_n24: FAILED (failures=3)]
+CAUGHT   L2 max_abs_dlogprob over one common token only  [tests.test_verify_pack_n24: FAILED (failures=1)]
+CAUGHT   H1 header check ignores the header sha256  [tests.test_hostcheck_glm_gguf: FAILED (failures=1)]
+CAUGHT   H2 --out allowed inside --dir  [tests.test_hostcheck_glm_gguf: FAILED (failures=1)]
+CAUGHT   H3 MATCH without comparing the sha256  [tests.test_hostcheck_glm_gguf: FAILED (failures=1)]
+CAUGHT   H4 --no-hash reported as a pass  [tests.test_hostcheck_glm_gguf: FAILED (failures=1)]
+CAUGHT   H5 architecture-prefixed keys looked up under a fixed 'glm5-next.'  [tests.test_hostcheck_glm_gguf: FAILED (failures=2)]
+CAUGHT   G1 output difference computed with the same semantics on both sides  [tests.test_swiglu_clamp_tools: FAILED (failures=1)]
+CAUGHT   G2 gate values above the limit not counted  [tests.test_swiglu_clamp_tools: FAILED (failures=2)]
+20/20 caught
+exit=0
+```
+
