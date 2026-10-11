@@ -14,7 +14,8 @@ import slot_persist as sp  # noqa: E402
 
 
 class Stub:
-    def __init__(self, broken_restore=False, nondeterministic=False, noop_restore=False, fail_restore_once=False):
+    def __init__(self, broken_restore=False, nondeterministic=False, noop_restore=False, fail_restore_once=False,
+                 same_text_other_tokens=False):
         self.cache = None          # prompt held by slot 0
         self.files = {}
         self.calls = 0
@@ -42,7 +43,13 @@ class Stub:
                     stub.cache = body["prompt"]
                     stub.calls += 1
                     text = "answer-%d" % (stub.calls if nondeterministic else n)
+                    # like llama-server with return_tokens; same_text_other_tokens: the warm answer (2nd call of a
+                    # repeat) has other token ids that decode to the same text (N11: ids 200 and 201 both read "\ufffd")
+                    toks = [ord(c) for c in text]
+                    if same_text_other_tokens and stub.calls % 2 == 0:
+                        toks[-1] += 1000
                     return self.reply(200, {"content": text, "tokens_cached": n,
+                                            **({"tokens": toks} if body.get("return_tokens") else {}),
                                             "timings": {"prompt_n": n - reused, "prompt_ms": (n - reused) * 2.0,
                                                         "predicted_n": body["n_predict"], "predicted_ms": 10.0}})
                 action = parse_qs(u.query).get("action", [""])[0]
@@ -109,6 +116,13 @@ class SlotPersist(unittest.TestCase):
         # the slot must be erased before restore, otherwise the warm request measures the live cache
         rc, r = self.run_stub(noop_restore=True)
         self.assertEqual(r["summary"]["warm_prompt_n_p50"], 3000)
+
+    def test_same_text_from_other_tokens_is_not_the_same_continuation(self):
+        # N11: on a real llama-server different tokens can decode to the same text (byte tokens that are not valid
+        # UTF-8 alone all read "\ufffd"); the continuation check compares token ids when the server returns them
+        rc, r = self.run_stub(same_text_other_tokens=True)
+        self.assertFalse(r["summary"]["all_continuations_identical"])
+        self.assertTrue(all(x["compared"] == "tokens" for x in r["runs"]))
 
     def test_partial_failure_is_a_nonzero_exit(self):
         rc, r = self.run_stub(fail_restore_once=True)
