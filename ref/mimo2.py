@@ -61,12 +61,51 @@ MTP block, graph_mtp (M:272-407), layer il = n_layer, on the MTP context with it
     (M:387-405). common/speculative.cpp pairs token p with the target's h_nextn of p-1; a draft step feeds the MTP's
     own h_nextn (tools/dump/dump_tensors.cpp DUMP_MTP).
 
+Several MTP heads (N17; MiMo-V2-Flash / V2.5 / V2.6 ship 3, conversion/mimo.py:22-24 @79e2e74): head k is layer
+n_layer + k (graph_mtp takes il = n_layer + cparams.nextn_layer_offset and asserts 0 <= offset < n_layer_nextn,
+M:276-279 @ec7630a, M:267-270 @79e2e74); every head is a sliding-window layer of the one MTP context, whose memory holds
+all n_layer_nextn layers on shared cells (the filter il >= n_layer, LM:2807-2812). common/speculative.cpp drives them
+(chain_heads = n_mtp_layers > 1, :1482 @79e2e74, :1421 @ec7630a; the same code at both pins):
+  process (every target call): for head k = 0 .. H-1: llama_memory_seq_rm(mtp, seq, first position of the call, -1),
+      nextn_layer_offset = k, decode the call's tokens with the TARGET's h rows (token p with the target h_nextn of p-1,
+      the first with the pending row); offset back to 0 (:1583-1621 @79e2e74, :1519-1557 @ec7630a). So every head
+      holds the K/V of its own layer for every processed position, each computed from the target's h.
+  draft (one sequence, id_last at pos0, pending = the target row of pos0-1; at most H steps, :1485): step k = 0 .. H-1
+      runs head k on the whole prefix after seq_rm(pos0): tokens [id_last, d_1, .., d_k] at pos0 .. pos0+k with the
+      rows [pending, h_0, .., h_{k-1}], where h_j is the MTP h_nextn that step j output at its last row (pos0 + j);
+      only the last row is an output, its argmax is d_{k+1} (:1681-1688, 1700-1708, 1767-1777 @79e2e74; :1604-1611,
+      1623-1631, 1686-1696 @ec7630a). Head k thus takes, at its new token, the h of head k-1 one position back, and at
+      the earlier rows those of heads 0 .. k-2 (and the target's at pos0).
+  llama-server around it (tools/server/server-context.cpp @79e2e74; 3063, 3998 @ec7630a): after drafting it removes
+      the draft positions from the MTP memory (seq_rm(pos0), :3423); after verification, accept() pairs the next token
+      with the target row of the last accepted position (speculative.cpp:1814-1827) and common_memory::seq_rm cuts both
+      contexts after it (:4505, common/common.cpp:1558-1563 @ec7630a).
+mtp_forward_chunk(..., offset=k) is head k; mtp_process / mtp_draft are the two loops above (tools/dump/dump_tensors.cpp
+DUMP_MTP replays them, with the server's seq_rm steps as plan steps "d<n>" and "r<n>").
+The cells are shared but each head writes only its own layer, and seq_rm moves the cache head back to the first freed
+cell (KV:410-419): when head 0's ubatch wraps around the end of the SWA ring, heads 1 .. H-1 place it from that cell on,
+the cells' positions follow them, and head 0's layer keeps under those cells K/V of other positions. The cache records
+per layer the position each cell's K/V was computed for (cache["P"]); attention_layer reports the rows that see such a
+cell (attn["foreign"]): there llama.cpp follows this cell model and not the full-sequence oracle
+(docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md).
+
+Precision (N17; prec=None keeps every result above bit for bit): prec = ref/fattn.py precision(kv, fa) is the cache
+type of -ctk / -ctv and the -fa flag. With an f16 cache the K and V rows are stored rounded to f16 (cpy_k / cpy_v are
+ggml_set_rows, src/llama-kv-cache.cpp:1328-1361; ref/fattn.py store()); flash attention casts f32 K / V to f16 anyway
+(LG:2660-2666) and runs the CPU path of ref/fattn.py attend() with the layer's sinks (one_chunk below 64 query rows,
+tiled at 64 and more; one query row over n_kv >= 512 cells takes the split-KV path, which with -t 1 equals one_chunk,
+ref/fattn.py docstring). Every layer's mask is the one of the f32 path: llama_kv_cache::set_input_kq_mask fills an f16
+(flash attention) or f32 mask with the same template (KV:1566-1716, 1789-1793 @ec7630a), 0 or -inf, both exact in f16.
+The rows the online softmax visits are the visible cells in CELL order (a wrapped SWA ring visits position 256 in cell 0
+before 249..255); the full-sequence oracle (cache None) visits positions in order.
+
 Quantized weights (N10): a weight may be a ref/quant.py QWeight; every product with a weight is written x @ w.T or
 w @ x, which for a QWeight applies the CPU activation conversion. Everything else runs in float64; shapes are
 numpy-natural (token-major), weights are the GGUF arrays as numpy reads them (ggml ne reversed).
 """
 import numpy as np
 
+from ref import fattn as F
 from ref.mimo import rope_neox
 from ref.router import route
 
@@ -228,16 +267,19 @@ class Cells:
 
 def new_cache(hp, n_ctx, n_ubatch, mtp=False, swa_size=None):
     """The memory of one llama context of mimo2: the iSWA pair (module docstring). mtp=False: the target context (the
-    trunk layers il < n_layer); mtp=True: an MTP context (the MTP layer il = n_layer alone). swa_size: a SWA cache of
-    that many cells instead of llama.cpp's pad(min(n_ctx, n_swa + n_ubatch), 256) (property tests only)."""
-    layers = [hp["n_layer"]] if mtp else list(range(hp["n_layer"]))
+    trunk layers il < n_layer); mtp=True: an MTP context (the MTP layers il = n_layer .. n_layer + n_nextn - 1, one per
+    head, on shared cells). swa_size: a SWA cache of that many cells instead of llama.cpp's pad(min(n_ctx, n_swa +
+    n_ubatch), 256) (property tests only)."""
+    layers = list(range(hp["n_layer"], hp["n_layer"] + max(1, hp.get("n_nextn", 1)))) if mtp else \
+        list(range(hp["n_layer"]))
     size_swa = swa_size or pad(min(n_ctx, hp["n_swa"] + n_ubatch), KV_PAD)
     c = dict(tokens=[], n_ctx=n_ctx, n_ubatch=n_ubatch, layers=layers, base=Cells(n_ctx), swa=Cells(size_swa, hp["n_swa"]),
-             K={}, V={})
+             K={}, V={}, P={})
     for il in layers:
         size = size_swa if hp["swa"][il] else n_ctx
         c["K"][il] = np.zeros((size, hp["n_head_kv"][il], hp["k_dim"]))
         c["V"][il] = np.zeros((size, hp["n_head_kv"][il], hp["v_dim"]))
+        c["P"][il] = np.full(size, -1, dtype=np.int64)    # the position each cell's K/V of this layer was computed for
     return c
 
 
@@ -254,6 +296,13 @@ def project_qkv(x, w, hp, il):
     else:
         q, k, v = x @ w["attn_q.weight"].T, x @ w["attn_k.weight"].T, x @ w["attn_v.weight"].T
     return q.reshape(T, H, Dk), k.reshape(T, Hkv, Dk), v.reshape(T, Hkv, Dv)
+
+
+def kq_scale(hp, prec=None):
+    """The attention scale. prec None (the f32 contract): 1/sqrt(k_dim) in float64. With prec: llama.cpp's f32 value
+    1.0f/sqrtf(k_dim) (M:179 @ec7630a, M:171 @79e2e74; ref/fattn.py kq_scale_f32), which one_chunk multiplies an f32
+    score by (ggml/src/ggml-cpu/ops.cpp:8978 @ec7630a): for k_dim 24 it is one f32 step below float32(1/sqrt(24))."""
+    return F.kq_scale_f32(hp["k_dim"]) if prec else 1.0 / np.sqrt(hp["k_dim"])
 
 
 def visible(qpos, kpos, n_swa):
@@ -283,28 +332,48 @@ def attend(q, qpos, K, V, kpos, sinks, n_swa, scale):
     return kq, p, out
 
 
-def attention_layer(x, w, hp, il, pos, cache=None, slots=None):
+def attention_layer(x, w, hp, il, pos, cache=None, slots=None, prec=None):
     """One attention block on x = rms_norm(inpL) * attn_norm at absolute positions pos. cache None: the full sequence
     from position 0 (the keys are this call's rows, prefill semantics); else the context's cache (new_cache) and slots
-    {"base"/"swa": cells of this ubatch}: k, v are written there and the attention runs over its n_kv cells."""
+    {"base"/"swa": cells of this ubatch}: k, v are written there and the attention runs over its n_kv cells.
+    prec: module docstring ("Precision"); the rows' modes are prec["modes"][position] where given, else the mode the
+    ubatch size implies (ref/fattn.py row_modes); returned as out["modes"], the stored rows as out["stored"]."""
     pos = np.asarray(pos)
     swa = hp["swa"][il]
     q0, k0, v = project_qkv(x, w, hp, il)
     base = hp["rope_base_swa"] if swa else hp["rope_base"]
     q, k = rope_neox(q0, pos, hp["n_rot"], base), rope_neox(k0, pos, hp["n_rot"], base)
-    out = dict(q_pre=q0, k_pre=k0, v=v, q=q, k=k)
+    ks, vs = (F.store(k, prec), F.store(v, prec)) if prec else (k, v)
+    out = dict(q_pre=q0, k_pre=k0, v=v, q=q, k=k, stored=dict(k=ks, v=vs))
     if cache is None:
-        K, V, kpos = k, v, pos
+        K, V, kpos = ks, vs, pos
     else:
         which = "swa" if swa else "base"
         idxs = slots[which]
-        cache["K"][il][idxs] = k
-        cache["V"][il][idxs] = v
+        cache["K"][il][idxs] = ks
+        cache["V"][il][idxs] = vs
+        cache["P"][il][idxs] = pos
         n = cache[which].n_kv()
         K, V, kpos = cache["K"][il][:n], cache["V"][il][:n], cache[which].pos[:n].copy()
-        out.update(idxs=list(idxs), n_kv=n)
-    kq, p, kqv = attend(q, pos, K, V, kpos, w.get("attn_sinks.weight"), hp["n_swa"] if swa else 0,
-                        1.0 / np.sqrt(hp["k_dim"]))
+        # a visible cell whose K/V of THIS layer were computed for another position than the cell now holds: the
+        # cells are shared by the layers of a cache, and only a layer that is written in every placement stays in
+        # step (the MTP heads are not, module docstring and docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md)
+        vis_ = visible(pos, kpos, hp["n_swa"] if swa else 0)
+        foreign = vis_ & (cache["P"][il][:n][None, :] != kpos[None, :])
+        out.update(idxs=list(idxs), n_kv=n, foreign=foreign.any(axis=1), foreign_cells=foreign)
+    scale = kq_scale(hp, prec)
+    n_swa, sinks = hp["n_swa"] if swa else 0, w.get("attn_sinks.weight")
+    if prec and F.kv_f16(prec) and not prec.get("fa"):
+        # mm16: kq = ggml_mul_mat(K f16, q) converts q to f16 (LG:2696, the vec_dot_type of F16)
+        kq, p, _ = attend(F.f16(q), pos, K, V, kpos, sinks, n_swa, scale)
+    else:
+        kq, p, kqv = attend(q, pos, K, V, kpos, sinks, n_swa, scale)
+    if prec:
+        modes = F.row_modes(prec, pos)
+        vis = visible(pos, kpos, n_swa)
+        cells = [np.nonzero(vis[t])[0] for t in range(len(pos))]
+        kqv = F.attend_rows(q, K, V, cells, scale, modes, sinks).reshape(len(pos), -1)
+        out["modes"] = modes
     att = kqv @ w["attn_output.weight"].T
     out.update(kpos=kpos, kq=kq, probs=p, kqv=kqv, attn_out=att,
                out=att * hp["v_scale"] if hp["v_scale"] else att)
@@ -343,11 +412,11 @@ def ffn_layer(x, w, hp, ids_override=None):
 
 # ---------------------------------------------------------------- trunk
 
-def _layer(h, W, hp, il, pos, cache=None, slots=None, moe_ids=None):
+def _layer(h, W, hp, il, pos, cache=None, slots=None, moe_ids=None, prec=None):
     w = layer_weights(W, il)
     L = dict(inp=h)
     L["attn_norm"] = x = rms_norm(h, hp["rms_eps"], w["attn_norm.weight"])
-    L["attn"] = a = attention_layer(x, w, hp, il, pos, cache, slots)
+    L["attn"] = a = attention_layer(x, w, hp, il, pos, cache, slots, prec)
     L["ffn_inp"] = f = a["out"] + h
     L["ffn_norm"] = fn = rms_norm(f, hp["rms_eps"], w["ffn_norm.weight"])
     L["ffn"] = ff = ffn_layer(fn, w, hp, moe_ids)
@@ -361,9 +430,10 @@ def _head(h, W, hp, out):
     return out
 
 
-def forward(tokens, W, hp, overrides=None):
+def forward(tokens, W, hp, overrides=None, prec=None):
     """The full sequence from position 0 in one pass (prefill semantics: every key of the sequence is available).
-    overrides {("moe", il): {position: expert ids}} replays reference choices among tied experts.
+    overrides {("moe", il): {position: expert ids}} replays reference choices among tied experts. prec: module
+    docstring (give prec["modes"] for every position: the ubatch size of this one pass is not llama.cpp's).
     Returns dict(layers=[per layer], h_nextn, result_norm, logits)."""
     overrides = overrides or {}
     tokens = np.asarray(tokens)
@@ -371,7 +441,7 @@ def forward(tokens, W, hp, overrides=None):
     h = W["token_embd.weight"][tokens]
     out = dict(pos=pos, inp_embd=h, layers=[])
     for il in range(hp["n_layer"]):
-        h, L = _layer(h, W, hp, il, pos, moe_ids=overrides.get(("moe", il)))
+        h, L = _layer(h, W, hp, il, pos, moe_ids=overrides.get(("moe", il)), prec=prec)
         out["layers"].append(L)
     return _head(h, W, hp, out)
 
@@ -395,10 +465,10 @@ def place(cache, n):
     return slots, pos
 
 
-def forward_chunk(tokens, W, hp, cache, overrides=None):
+def forward_chunk(tokens, W, hp, cache, overrides=None, prec=None):
     """One ubatch of a single sequence that continues `cache` (new_cache() at the start); updates cache in place.
     Returns a dict like forward() for the ubatch's rows, with the absolute positions and per layer the cells written
-    (attn["idxs"]), the cells read (attn["kpos"], n_kv) and kq / probs over those cells."""
+    (attn["idxs"]), the cells read (attn["kpos"], n_kv) and kq / probs over those cells. prec: module docstring."""
     overrides = overrides or {}
     tokens = [int(t) for t in tokens]
     slots, pos = place(cache, len(tokens))
@@ -408,7 +478,7 @@ def forward_chunk(tokens, W, hp, cache, overrides=None):
     for il in range(hp["n_layer"]):
         moe = overrides.get(("moe", il))
         h, L = _layer(h, W, hp, il, pos, cache, slots,
-                      {int(t) - int(pos[0]): e for t, e in moe.items()} if moe else None)
+                      {int(t) - int(pos[0]): e for t, e in moe.items()} if moe else None, prec)
         out["layers"].append(L)
     return _head(h, W, hp, out)
 
@@ -422,7 +492,7 @@ def cache_truncate(cache, n_keep):
     return cache
 
 
-def forward_calls(tokens, W, hp, plan, n_ctx=512, n_ubatch=512, swa_size=None):
+def forward_calls(tokens, W, hp, plan, n_ctx=512, n_ubatch=512, swa_size=None, prec=None):
     """Replay a DUMP_CALLS plan ("<n>" a call of n tokens, "r<n>" a rollback of n positions) the way llama.cpp runs it
     (ceil(n / n_ubatch) ubatches per call). Returns the list of per-ubatch results (forward_chunk) and the cache."""
     cache, outs, ti = new_cache(hp, n_ctx, n_ubatch, swa_size=swa_size), [], 0
@@ -433,19 +503,23 @@ def forward_calls(tokens, W, hp, plan, n_ctx=512, n_ubatch=512, swa_size=None):
         n = int(step)
         for j in range(0, n, n_ubatch):
             m = min(n_ubatch, n - j)
-            outs.append(forward_chunk(tokens[ti + j:ti + j + m], W, hp, cache))
+            outs.append(forward_chunk(tokens[ti + j:ti + j + m], W, hp, cache, prec=prec))
         ti += n
     assert ti == len(tokens), (ti, len(tokens))
     return outs, cache
 
 
-# ---------------------------------------------------------------- MTP block (nextn_predict_layers >= 1, offset 0)
+# ---------------------------------------------------------------- MTP block (nextn_predict_layers >= 1)
 
-def mtp_forward_chunk(tokens, h_prev, W, hp, cache=None, pos=None):
+def mtp_forward_chunk(tokens, h_prev, W, hp, cache=None, pos=None, offset=0, prec=None):
     """graph_mtp (M:272-407) on one ubatch of the MTP context (module docstring). tokens: the ubatch's ids; h_prev
     (T, n_embd): the pre-norm hidden row paired with each token. cache: new_cache(..., mtp=True) of the MTP context
-    (incremental); None: all positions 0..T-1 at once (prefill semantics, pos ignored)."""
-    il = hp["n_layer"]
+    (incremental); None: all positions 0..T-1 at once (prefill semantics, pos ignored). offset: the head,
+    cparams.nextn_layer_offset (layer n_layer + offset, 0 <= offset < n_nextn as M:277-279 asserts). prec: module
+    docstring."""
+    if not 0 <= offset < max(1, hp.get("n_nextn", 1)):
+        raise ValueError(f"nextn_layer_offset {offset} out of range [0, {hp.get('n_nextn')})")
+    il = hp["n_layer"] + offset
     w = layer_weights(W, il)
     eps = hp["rms_eps"]
     tokens = [int(t) for t in tokens]
@@ -460,7 +534,7 @@ def mtp_forward_chunk(tokens, h_prev, W, hp, cache=None, pos=None):
     x = np.concatenate([e, h], axis=-1) @ w["nextn.eh_proj.weight"].T
     out = dict(pos=pos, slots=slots, tok_embd=np.asarray(emb)[tokens], e_norm=e, h_norm=h, eh_proj=x)
     out["attn_norm"] = an = rms_norm(x, eps, w["attn_norm.weight"])
-    out["attn"] = a = attention_layer(an, w, hp, il, pos, cache, slots)
+    out["attn"] = a = attention_layer(an, w, hp, il, pos, cache, slots, prec)
     out["ffn_inp"] = f = a["out"] + x
     out["ffn_norm"] = fn = rms_norm(f, eps, w["ffn_norm.weight"])
     out["ffn"] = ff = ffn_layer(fn, w, hp)
@@ -469,4 +543,69 @@ def mtp_forward_chunk(tokens, h_prev, W, hp, cache=None, pos=None):
     out["h_nextn"] = post
     out["head_norm"] = hn = rms_norm(post, eps, head_norm)
     out["logits"] = hn @ w.get("nextn.shared_head_head.weight", W["output.weight"]).T
+    out["head"] = offset
     return out
+
+
+def _snap(out, cache, hp, offset):
+    """The K / V rows of the head's layer after a ubatch (the cache the graph read), as out["snap"]."""
+    il = hp["n_layer"] + offset
+    out["snap"] = (cache["K"][il].copy(), cache["V"][il].copy())
+    return out
+
+
+def mtp_ubatches(tokens, h_rows, W, hp, cache, n_ubatch, offset=0, prec=None, snap=False):
+    """One MTP-context call: ceil(T / n_ubatch) ubatches of mtp_forward_chunk under head `offset`. snap: keep the
+    head's cache rows after every ubatch (out["snap"])."""
+    h_rows = np.asarray(h_rows, dtype=np.float64)
+    outs = []
+    for j in range(0, len(tokens), n_ubatch):
+        o = mtp_forward_chunk(tokens[j:j + n_ubatch], h_rows[j:j + n_ubatch], W, hp, cache, offset=offset, prec=prec)
+        outs.append(_snap(o, cache, hp, offset) if snap else o)
+    return outs
+
+
+def mtp_process(tokens, h_rows, W, hp, cache, n_ubatch, prec=None, snap=False):
+    """common/speculative.cpp process() for one target call on the MTP context (module docstring): returns
+    {head: [ubatch results]}. One head: a plain call. H > 1: every head after seq_rm from the call's first position."""
+    n_heads = max(1, hp.get("n_nextn", 1))
+    p0 = len(cache["tokens"])
+    out = {}
+    for head in range(n_heads):
+        if n_heads > 1:
+            cache_truncate(cache, p0)
+        out[head] = mtp_ubatches(tokens, h_rows, W, hp, cache, n_ubatch, head, prec, snap)
+    return out
+
+
+def mtp_draft(id_last, pending, W, hp, cache, n_req, tokens=None, prec=None, snap=False):
+    """common/speculative.cpp draft() for one sequence, greedy (module docstring), from the cache's next position.
+    tokens: the draft tokens to feed (a reference's, e.g. llama.cpp's; the oracle's own argmax chain if None).
+    Returns (the oracle's argmax per step, [per step dict(head, tokens, rows, pos0, out)]). The caller applies the
+    server's seq_rm(pos0) afterwards."""
+    n_heads = max(1, hp.get("n_nextn", 1))
+    chain = n_heads > 1
+    n_max = min(n_req, n_heads) if chain else n_req
+    pos0 = len(cache["tokens"])
+    pending = np.asarray(pending, dtype=np.float64)
+    chain_h, own, fed, steps = [pending], [], [], []
+    ids, rows = [int(id_last)], [pending]
+    for i in range(n_max):
+        if chain:
+            cache_truncate(cache, pos0)
+        p_call = len(cache["tokens"])
+        out = mtp_forward_chunk(ids, np.vstack(rows), W, hp, cache, offset=i if chain else 0, prec=prec)
+        if snap:
+            _snap(out, cache, hp, i if chain else 0)
+        steps.append(dict(head=i if chain else 0, tokens=list(ids), rows=np.vstack(rows), pos0=p_call, out=out))
+        own.append(int(np.argmax(out["logits"][-1])))
+        fed.append(own[-1] if tokens is None or i >= len(tokens) else int(tokens[i]))
+        if len(fed) >= n_max:
+            break
+        h = out["h_nextn"][-1]
+        if chain:
+            chain_h.append(h)
+            ids, rows = [int(id_last)] + fed, list(chain_h)
+        else:
+            ids, rows = [fed[-1]], [h]
+    return own, steps
