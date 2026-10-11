@@ -17,6 +17,14 @@ tensor_type_fallback gives a 32-block type or F16 to rows not divisible by the b
 head_dim 64 (d_inner = 4 * 64 = 256, the input of the KDA attn_output), q_lora 256 (attn_q_b), v_mla 64 (the DSA
 attn_output reads n_head * v_mla = 256), expert, shared-expert and dense FFN widths 256.
 
+--dialect ik (N12, gap 5 of docs/reassessment/CORRECTNESS.md) writes the file ik_llama.cpp is run on in R1: the
+architecture string "glm5next" of the Unsloth UD files (as --arch glm5next) plus "glm5next.expert_group_count" = 1, the
+one key known to belong to the UD schema beyond the name (PROVISIONAL: base B requires it and reads the UD files,
+docs/evidence/2026-10-03-lighttransport-fork.md:92-105; the real value is UNKNOWN; 1 = a single group, no restriction). Neither ik_llama.cpp @5194a9e (src/llama-hparams.cpp:
+2458-2560, the GLM5NEXT block) nor llama.cpp @79e2e74 (src/models/glm5-next.cpp:7-59) reads that key; ik reads every
+other key and tensor the default file has under either name (the "glm5-next" alias resolves to GLM5NEXT,
+src/llama-model-loader.h:149-151 @5194a9e). Tensors and weights are those of the default file.
+
 Key and tensor names: llama.cpp @ec7630a src/llama-arch.cpp; shapes: src/models/glm5-next.cpp
 load_arch_tensors. numpy shapes are ggml ne reversed.
 Needs gguf-py from the same llama.cpp checkout on PYTHONPATH.
@@ -45,7 +53,7 @@ def layer_is_dsa(i):
     return i % 4 == 3                                        # GLM pattern: layers 3, 7, ...
 
 
-def build(path, cfg=DEFAULT, seed=0, mtp=False):
+def build(path, cfg=DEFAULT, seed=0, mtp=False, dialect=None):
     c = dict(cfg)
     rng = np.random.default_rng(seed)
     w = GGUFWriter(path, ARCH)
@@ -75,6 +83,8 @@ def build(path, cfg=DEFAULT, seed=0, mtp=False):
     w.add_float32(f"{p}.kda.gate_lower_bound", c["kda_lower_bound"])
     w.add_uint32(f"{p}.expert_count", c["n_expert"])
     w.add_uint32(f"{p}.expert_used_count", c["n_expert_used"])
+    if dialect == "ik":                                       # UD-schema key, ignored by both engines
+        w.add_uint32(f"{p}.expert_group_count", 1)
     w.add_uint32(f"{p}.expert_feed_forward_length", c["n_ff_exp"])
     w.add_uint32(f"{p}.expert_shared_count", c["n_shared"])
     w.add_uint32(f"{p}.leading_dense_block_count", c["n_dense_lead"])
@@ -190,9 +200,13 @@ if __name__ == "__main__":
                     help="GGUF architecture string and key prefix: glm5-next (llama.cpp master, default) or "
                          "glm5next (Unsloth UD files; what lighttransport/Strata reads, ADR-009)")
     ap.add_argument("--mtp", action="store_true", help="append the MTP block (nextn_predict_layers = 1)")
+    ap.add_argument("--dialect", choices=("ik",), default=None,
+                    help="ik: the file ik_llama.cpp is run on (arch glm5next + glm5next.expert_group_count, see the "
+                         "module docstring); implies --arch glm5next")
     ap.add_argument("--quant-dims", action="store_true",
                     help="input widths divisible by QK_K = 256 so that llama-quantize gives k-quants (QUANT)")
     a = ap.parse_args()
-    ARCH = a.arch
-    build(a.out, cfg=dict(QUANT if a.quant_dims else DEFAULT, n_layer=a.layers), seed=a.seed, mtp=a.mtp)
+    ARCH = "glm5next" if a.dialect == "ik" else a.arch
+    build(a.out, cfg=dict(QUANT if a.quant_dims else DEFAULT, n_layer=a.layers), seed=a.seed, mtp=a.mtp,
+          dialect=a.dialect)
     print("wrote", a.out)
