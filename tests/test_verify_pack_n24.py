@@ -338,12 +338,12 @@ def near_tie_handler(shift):
 class CompareFields(unittest.TestCase):
     def test_gaps_and_noise(self):
         ref = {"a": -0.60, "b": -0.61, "c": -3.0}
-        cand = {"a": -0.62, "b": -0.59, "d": -3.1}
+        cand = {"a": -0.62, "b": -0.56, "d": -3.1}
         m = logprob_compare.compare(ref, cand)
         self.assertFalse(m["top1_agree"])
         self.assertAlmostEqual(m["ref_gap"], 0.01)
-        self.assertAlmostEqual(m["cand_gap"], 0.03)
-        self.assertAlmostEqual(m["max_abs_dlogprob"], 0.02)
+        self.assertAlmostEqual(m["cand_gap"], 0.06)
+        self.assertAlmostEqual(m["max_abs_dlogprob"], 0.05)      # b moved most (0.05), a 0.02; c, d not in both
         self.assertEqual(m["n_common"], 2)
 
     def test_unknown_gap_when_token_outside_top_k(self):

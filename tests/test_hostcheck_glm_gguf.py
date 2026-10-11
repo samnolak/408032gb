@@ -162,6 +162,24 @@ class HostCheck(unittest.TestCase):
         self.assertTrue(r["size_ok"] and r["header_ok"])
         self.assertIn("DIFFERS (pin", text)
 
+    def test_header_byte_changed_size_kept(self):
+        """Same size, same header length, one header byte different: the header sha256 must catch it."""
+        p = os.path.join(self.dir, self.pins["files"][0]["name"])
+        with open(p, "rb") as f:
+            body = f.read()
+        i = body.index(b"SYNTHETIC GLM")
+        with open(p, "r+b") as f:
+            f.seek(i + len("SYNTHETIC GL"))
+            f.write(b"X")
+        code, text, rep, _ = self.run_tool("--no-hash")
+        self.assertEqual(code, 1, text)
+        r = rep["files"][0]
+        self.assertTrue(r["size_ok"])
+        self.assertEqual(r["header"]["general.name"], "SYNTHETIC GLX")
+        self.assertEqual(r["header"]["header_bytes"], self.pins["files"][0]["header_bytes"])
+        self.assertFalse(r["header_ok"])
+        self.assertIn("DIFFERS from pin", text)
+
     def test_missing_shard_and_other_files(self):
         os.remove(os.path.join(self.dir, self.pins["files"][5]["name"]))
         open(os.path.join(self.dir, "mtp-SYNTHETIC.gguf"), "wb").close()
