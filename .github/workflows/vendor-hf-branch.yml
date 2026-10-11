@@ -25,14 +25,18 @@ jobs:
       - name: fetch the pending requests from Hugging Face, verify git blob ids
         run: python3 scripts/vendor_hf_new.py
       - name: commit and push to this claude/* branch
+        # the branch name reaches the script through the environment, never expanded into the script text
+        env:
+          REF: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add third_party/hf
           if git diff --cached --quiet; then echo "::notice::nothing to commit"; exit 0; fi
-          git commit -q -m "[infra-ops] vendor: Hugging Face text files under third_party/hf for ${{ github.ref_name }} (workflow vendor-hf-branch, run ${{ github.run_id }})"
+          git commit -q -m "[infra-ops] vendor: Hugging Face text files under third_party/hf for $REF (workflow vendor-hf-branch, run $RUN_ID)"
           for i in 1 2 3; do
-            if git pull -q --rebase origin "${{ github.ref_name }}" && git push origin HEAD:"${{ github.ref_name }}"; then
+            if git pull -q --rebase origin "$REF" && git push origin HEAD:"$REF"; then
               echo "::notice::vendor commit $(git rev-parse HEAD)"; exit 0
             fi
             sleep 15
