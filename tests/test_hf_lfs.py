@@ -232,6 +232,15 @@ class Fetch(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("no lfs_files", out)
 
+    def test_non_hex_sha256_refused(self):
+        with open(self.pin, "w") as f:
+            json.dump({"repo": "x/m", "revision": REV, "lfs_files": [
+                {"path": "tokenizer.json", "size": len(TOK), "sha256": "g" * 64}]}, f)
+        rc, out = self.main(self.pin)
+        self.assertEqual(rc, 1)
+        self.assertIn("64-hex sha256", out)
+        self.assertEqual(Handler.hits, [])
+
     def test_short_revision_refused(self):
         with open(self.pin, "w") as f:
             json.dump({"repo": "x/m", "revision": "main", "lfs_files": [

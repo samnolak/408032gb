@@ -15,8 +15,8 @@ round 2 (section 13) fills it in from the vendor run, or marks it NOT RUN with t
    sha256 `5d47ac8e48510b5c6543db4000ef145201823bf46bae9cf51ac6a9553a16ef5a`, the header now also carries the upstream MIT
    notice verbatim, section 13.2; round 1 file 12 047 B `b2ff07b2…9839`, which the round-1 outputs below refer to) = the official
    `zai-org/GLM-5.3-Flash@eb9eb208` template (sha256 `0c4099f3…6309c5`) plus a header comment, one inserted line
-   (`{%- set reasoning_content = none %}`, line 153, the first statement of every assistant iteration after `content`)
-   and one changed test (`reasoning_content is defined` → `is not none`, line 160). `CorrectedFile.test_only_the_two_lines_differ`
+   (`{%- set reasoning_content = none %}`, line 177 at HEAD (153 in the round-1 file), the first statement of every assistant iteration after `content`)
+   and one changed test (`reasoning_content is defined` → `is not none`, line 184 at HEAD (160 in round 1)). `CorrectedFile.test_only_the_two_lines_differ`
    asserts exactly that diff. The variable is now assigned in every iteration, so the scope difference between the two
    engines (jinja2: one scope per iteration; llama.cpp @79e2e74: one scope for all iterations,
    `common/jinja/runtime.cpp:486,601-618@79e2e74`) can no longer show.
@@ -74,23 +74,25 @@ round 2 (section 13) fills it in from the vendor run, or marks it NOT RUN with t
    tokenizer.json (GLM breaks only where bytes break, tags single tokens, the Qwen `ĊĊ` merge at the same requests),
    and **HF and llama.cpp's GGUF tokenizer give identical ids** on every rendered prompt and turn (`Parity`).
    transformers' own renderer equals hf_render on the runner as well. The per-request summary / artifact of that run
-   failed on a second relative-path bug of mine (`--out`); fixed, NOT RUN until the next run.
+   failed on a second relative-path bug of mine (`--out`); fixed, and the third run (38175655900, 13.6) ran it green.
 10. **The Qwen break is real in llama-server too, CONFIRMED live (section 7.3)** on a tiny qwen4exp carrying the real
     Qwen vocabulary (248 320 tokens, 247 587 merges, pre `qwen35`, from N15's header) with the slot pre-filled with the
     canonical tokens of each turn: reuse breaks exactly where the tokenizer predicts, and the server restores the
     checkpoint 4 tokens before the end of the previous prompt (`cache_n` = previous prompt − 4: 1055, 826, 893, 1060,
-    1133), re-processing turn + 4 tokens (58-61 per break); over the mixed loop Σ prompt_n 1021 instead of 819 (+202
-    tokens). No full re-prefill. **Mitigation:** the official format cannot avoid it (any `<think>\n\n</think>`
-    re-tokenizes to `ĊĊ`); recommended: accept it for R1 (bounded by the last turn), use `enable_thinking: false` where
-    thinking is off anyway (no break, CONFIRMED); alternatives in section 7.3.
+    1133), re-processing turn + 4 tokens: 41-62 per break (61, 48, 41, 62, 51; held − `cache_n` from §11.3); over the
+    mixed loop Σ prompt_n 1021 instead of 819 (+202 tokens). No full re-prefill on the tiny model with the default
+    checkpoints (PROVISIONAL for real models). **Mitigation:** the official format cannot avoid it (any
+    `<think>\n\n</think>` re-tokenizes to `ĊĊ`); recommended: accept it for R1 (bounded by the last turn: shown on the
+    tiny model with default checkpoints, PROVISIONAL for real models), use `enable_thinking: false` where thinking is off
+    anyway (no break: CONFIRMED at the tokenizer level, §7.1 / §11.2, not run live); alternatives in section 7.3.
 11. **N15 caveat closed, CONFIRMED:** N15 ran llama-tokenize without `--no-escape` (escape processing is on by default,
-    `common/common.h:570@79e2e74`); none of the 97 distinct rendered texts (47 GLM, 50 Qwen) contains a backslash, so it did not matter.
+    `common/common.h:570@79e2e74`, checked again in round 2c: `git show 79e2e74…:common/common.h | grep -n 'bool escape'` → `570:`, see 13.6); none of the 97 distinct rendered texts (47 GLM, 50 Qwen) contains a backslash, so it did not matter.
     The GLM vocabulary adds no BOS either (llama-tokenize without `--no-bos`: `[gMASK]<sop>hi` → `[154822, 154824,
     6023]`; its header has no `tokenizer.ggml.add_bos_token` key), nor does Qwen's (`add_bos_token = false` in the
     header), so `--no-bos` changes nothing for these files and llama-server does not double `[gMASK]`.
 
 Tests: `tests/test_glm_template_n23.py` 12 (6 without a build: 3 file, 3 jinja2; 1 transformers; 5 llama-server),
-`tests/test_token_level.py` 12 (5 llama, 5 hf, 1 parity, 1 pin), `tests/test_hf_lfs.py` 15. Sandbox: all llama-server
+`tests/test_token_level.py` 13 (5 llama, 5 hf, 1 parity, 1 pin, 1 LlamaTokPaths), `tests/test_hf_lfs.py` 16 (round 2c: + non-hex sha256). Sandbox: all llama-server
 and llama side tests pass; hf / parity tests skip cleanly (runner); PinRecords passes since round 2. Mutation check: section 10.
 
 ## 1. Inputs
@@ -127,6 +129,9 @@ $ diff third_party/hf/glm-5.3-flash-chat/chat_template.jinja templates/glm-5.3-f
 ---
 > {%- if (not clear_thinking or loop.index0 > ns.last_user_index) and reasoning_content is not none -%}
 ```
+
+The diff above is that of the round-1 file (`0a1,10`). With the MIT notice added in round 2 (13.2) the header is 34
+lines and the diff reads `0a1,34`, `142a177`, `149c184`; the two changed lines are the same.
 
 Why it is equivalent under jinja2: in the official template `reasoning_content` is either unset or a string in each
 iteration (lines 143-148: `m.reasoning_content` when it is a string, else the text before `</think>` in content); ours
@@ -280,17 +285,18 @@ tokenizes, `cache_n` is the measurement; (b) `/completion` with the token ids T(
 | agent_loop_mixed | 6 | 1122 | 1063 | 1060 | 1060 (= 1064 − 4) | 77 | CONFIRMED |
 | agent_loop_mixed | 7 | 1184 | 1136 | 1133 | 1133 (= 1137 − 4) | 66 | CONFIRMED |
 
-Every other request reused exactly the held tokens. Extra work per break = held − `cache_n` = 58-61 tokens (the turn
-+ 4); over the mixed loop Σ `prompt_n` = 1021 against 819 if every request had extended (+202 tokens, +24.7 % of this
-short invented session; PROVISIONAL as a share for real sessions). Bounded by the length of the last turn; no full
-re-prefill; the model's history is the correct one.
+Every other request reused exactly the held tokens. Extra work per break = held − `cache_n` (the turn + 4) = 41-62
+tokens (61, 48, 41, 62, 51); over the mixed loop Σ `prompt_n` = 1021 against 819 if every request had extended (+202
+tokens, +24.7 % of this short invented session; PROVISIONAL as a share for real sessions). On this tiny model with the
+default checkpoints the cost is bounded by the last turn and there is no full re-prefill; for real models (other
+checkpoint spacing, `--ctx-checkpoints`, real turn lengths) both are PROVISIONAL. The model's history is the correct one.
 
 Options:
 
 | option | effect | cost / risk | recommendation |
 |---|---|---|---|
 | A. accept | turn + 4 tokens per turn without reasoning | small; grows with long tool-call turns | **recommended for R1** |
-| B. `enable_thinking: false` per request when reasoning is off anyway | generation prompt `<think>\n\n</think>\n\n` = history bytes → no break (CONFIRMED, row above) | only where thinking is not wanted | use when applicable |
+| B. `enable_thinking: false` per request when reasoning is off anyway | generation prompt `<think>\n\n</think>\n\n` = history bytes → no break (CONFIRMED at the tokenizer level, §7.1 / §11.2; not run live) | only where thinking is not wanted | use when applicable |
 | C. our own Qwen template with a generation prompt ending at `<think>` | the model writes `\n` itself, history re-tokenizes canonically (PROVISIONAL) | changes the official prompt bytes the model was trained on; quality UNKNOWN | not without an eval |
 | D. agent harness keeps token ids (`/completion` with token arrays) | no re-tokenization at all | only for our own harness, not OpenAI-compatible clients | possible for the bench harness |
 | E. llama-server patch: compare cached and new prompts by text near the end of the cached prompt | fixes every merge of this kind | an upstream patch; out of N23 | upstream idea |
@@ -327,8 +333,8 @@ Also for the client side of R1's agent loop: never send `"reasoning_content": nu
 | test_token_level | PinRecords (1) | vendored tokenizer pins | pass (round 2) |
 | | LlamaTokenLevel (5) | llama-tokenize + vocab GGUFs | pass |
 | | LlamaTokPaths (1, round 2) | nothing | pass |
-| | HFTokenLevel (5), Parity (1) | tokenizer.json in the cache (+ llama) | skip in the sandbox; runner: pass (13.5) |
-| test_hf_lfs | VendorLfs (7), Fetch (7), Requests (1) | nothing (no network) | pass |
+| | HFTokenLevel (5), Parity (1) | tokenizer.json in the cache (+ llama) | skip in the sandbox; runner: pass (13.5, 13.6) |
+| test_hf_lfs | VendorLfs (7), Fetch (8), Requests (1) | nothing (no network) | pass |
 
 The N14 suite (`tests/test_chat_templates.py`, 14 tests) still passes with the refactored `run_n14.py` (section 11).
 
@@ -520,9 +526,10 @@ tests`) is in the report of this round.
 
 - Vendoring of both tokenizer requests: done in round 2 (section 13.1).
 - `token-level.yml` tests (HF tokenizer, parity, transformers render on the runner): pass on the second run (13.5).
-- NOT RUN: the per-request token-prefix summary with the HF tokenizer and the `token-prefix.json` artifact on the runner;
-  the second run's summary step failed on a relative `--out` (13.5) and stayed green; both fixed, they run with the next
-  push (the workflow's push paths include `tools/chattmpl/**`).
+- The per-request token-prefix summary with the HF tokenizer and the `token-prefix.json` artifact: the second run's
+  summary step failed on a relative `--out` and stayed green (13.5); fixed, and the third run's summary step passed under
+  the fail-closed logic (13.6). Not visible from the sandbox: the artifact (download refused) and the parts of the summary
+  that GitHub cut at 4096 characters per annotation (13.6).
 - The live Qwen probe uses canonical tokens for the turn; tokens a real model samples may differ (UNKNOWN), which can
   only add breaks.
 - NOT RUN: ik_llama.cpp's template engine with our file; image / video / audio content parts; `add_vision_id`.
@@ -704,6 +711,13 @@ test_turn_without_reasoning_renders_an_empty_think_block (JinjaEquality) ... ok
 ##[notice]tokenizer.json sha256: 19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d (glm) 0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3 (qwen)
 ```
 
+The last line is the lead's shorthand. The annotation itself, read in round 2c:
+
+```
+$ gh api repos/samnolak/408032gb/check-runs/114557534609/annotations --jq '.[] | "\(.annotation_level) | \(.message)"' | grep sha256
+notice | tokenizer.json sha256: 19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d  /home/runner/.cache/408032gb/hf-lfs/19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d/tokenizer.json 0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3  /home/runner/.cache/408032gb/hf-lfs/0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3/tokenizer.json 
+```
+
 What this confirms, CONFIRMED (runner log, relayed by the lead):
 - **Tokenizer files.** The fetched tokenizer.json files hash to the pinned sha256: GLM `19e77364…a82d`, Qwen
   `0997f410…b9f3`, both equal to PIN.json.
@@ -746,8 +760,134 @@ exit 0
 SAME-AS-ROUND1
 ```
 
-The per-request summary with the HF tokenizer (counts per session, as in 7.1) and the artifact are **NOT RUN** until
-the next run.
+The per-request summary with the HF tokenizer and the artifact: run in the third run, 13.6.
+
+### 13.6 Third token-level run (run 38175655900, job 114577374473, on `4447b2c`): green, summary step fail-closed
+
+```
+$ gh api repos/samnolak/408032gb/actions/jobs/114577374473 --jq '.conclusion, .head_sha, (.steps[] | "\(.number) \(.name) \(.conclusion)")'
+success
+4447b2c1961d5be0e7fa22c374a772f2a8048d31
+1 Set up job success
+2 Run actions/checkout@v4 success
+3 tokenizer pins vendored? success
+4 deps (pinned versions) success
+5 cache of the pinned LFS files success
+6 fetch tokenizer.json by the pinned sha256 success
+7 llama-tokenize at the R1 pin success
+8 vocab-only GGUFs from N15's committed GGUF headers success
+9 token-level tests and transformers render (fail on any skip) success
+10 summary (annotations) and token-prefix.json success
+11 Run actions/upload-artifact@v4 success
+21 Post cache of the pinned LFS files success
+22 Post Run actions/checkout@v4 success
+23 Complete job success
+$ gh api repos/samnolak/408032gb/check-runs/114577374473/annotations --jq '.[] | (.message|length)'
+292
+4096
+4084
+387
+992
+28
+50
+$ gh api repos/samnolak/408032gb/check-runs/114577374473/annotations --jq '.[] | "\(.annotation_level) | \(.message)"'
+warning | Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/cache@v4, actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+notice |   enable_thinking_false: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  empty_reasoning_turn: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  agent_loop_mixed: 7 request pairs; byte-extends 7, token-extends 7, prompt-token-extends 7, concat canonical 7
+  agent_loop_mixed_preserve_off: 7 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 7
+    request 4 (k=11): bytes False (reuse 1921 of 3270), tokens False (reuse 490 of 685, prompt 669) at {"index": 490, "held": [13, 154828, 154841, 5890, 2176, 12402], "next": [13, 154828, 154841, 154842, 154843, 38002]}
+llama glm_n23: tags {"[gMASK]": [154822], "<sop>": [154824], "<|system|>": [154826], "<|user|>": [154827], "<|assistant|>": [154828], "<|observation|>": [154829], "<think>": [154841], "</think>": [154842], "<tool_call>": [154843], "</tool_call>": [154844], "<arg_key>": [154847], "</arg_key>": [154848], "<arg_value>": [154849], "</arg_value>": [154850], "<tool_response>": [154845], "</tool_response>": [154846]}
+  default: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  preserve_off: 6 request pairs; byte-extends 5, token-extends 5, prompt-token-extends 5, concat canonical 6
+    request 4 (k=11): bytes False (reuse 1936 of 3704), tokens False (reuse 494 of 797, prompt 777) at {"index": 494, "held": [13, 154828, 154841, 40, 1265, 1401], "next": [13, 154828, 154841, 154842, 154843, 1607]}
+  enable_thinking_false: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  empty_reasoning_turn: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  agent_loop_mixed: 7 request pairs; byte-extends 7, token-extends 7, prompt-token-extends 7, concat canonical 7
+  agent_loop_mixed_preserve_off: 7 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 7
+    request 4 (k=11): bytes False (reuse 1921 of 3270), tokens False (reuse 490 of 685, prompt 669) at {"index": 490, "held": [13, 154828, 154841, 5890, 2176, 12402], "next": [13, 154828, 154841, 154842, 154843, 38002]}
+llama qwen_hf: tags {"<|im_start|>": [248045], "<|im_end|>": [248046], "<think>": [248068], "</think>": [248069], "<tool_call>": [248058], "</tool_call>": [248059], "<tool_response>": [248066], "</tool_response>": [248067], "<function=": [27, 1628, 28], "</function>": [510, 1628, 29], "<parameter=": [27, 15704, 28], "</parameter>": [510, 15704, 29]}
+  default: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  preserve_off: 6 request pairs; byte-extends 5, token-extends 5, prompt-token-extends 5, concat canonical 6
+    request 4 (k=11): bytes False (reuse 2756 of 4651), tokens False (reuse 683 of 1170, prompt 1146) at {"index": 683, "held": [248045, 74455, 198, 248068, 198, 40], "next": [248045, 74455, 198, 248058, 198, 27]}
+  enable_thinking_false: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  empty_reasoning_turn: 6 request pairs; byte-extends 6, token-extends 5, prompt-token-extends 5, concat canonical 5
+    request 3 (k=9): bytes True (reuse 4425 of 4425), tokens False (reuse 1058 of 1117, prompt 1059) at {"index": 1058, "held": [74455, 198, 248068, 198, 198, 248069], "next": [74455, 198, 248068, 271, 248069, 271]}
+  agent_loop_mixed: 7 request pairs; byte-extends 7, token-extends 3, prompt-token-extends 3, concat canonical 3
+    request 1 (k=5): bytes True (reuse 3462 of 3462), tokens False (reuse 829 of 875, prompt 830) at {"index": 829, "held": [74455, 198, 248068, 198, 198, 248069], "next": [74455, 198, 248068, 271, 248069, 271]}
+    request 2 (k=7): bytes True (reuse 3724 of 3724), tokens False (reuse 896 of 935, prompt 897) at {"index": 896, "held": [74455, 198, 248068, 198, 198, 248069], "next": [74455, 198, 248068, 271, 248069, 271]}
+    request 5 (k=13): bytes True (reuse 4492 of 4492), tokens False (reuse 1063 of 1123, prompt 10
+notice | hf glm_hf: tags {"[gMASK]": [154822], "<sop>": [154824], "<|system|>": [154826], "<|user|>": [154827], "<|assistant|>": [154828], "<|observation|>": [154829], "<think>": [154841], "</think>": [154842], "<tool_call>": [154843], "</tool_call>": [154844], "<arg_key>": [154847], "</arg_key>": [154848], "<arg_value>": [154849], "</arg_value>": [154850], "<tool_response>": [154845], "</tool_response>": [154846]}
+  default: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  preserve_off: 6 request pairs; byte-extends 5, token-extends 5, prompt-token-extends 5, concat canonical 6
+    request 4 (k=11): bytes False (reuse 1936 of 3704), tokens False (reuse 494 of 797, prompt 777) at {"index": 494, "held": [".", "<|assistant|>", "<think>", "I", "Ġshould", "Ġlook"], "next": [".", "<|assistant|>", "<think>", "</think>", "<tool_call>", "list"]}
+  enable_thinking_false: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  empty_reasoning_turn: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  agent_loop_mixed: 7 request pairs; byte-extends 7, token-extends 7, prompt-token-extends 7, concat canonical 7
+  agent_loop_mixed_preserve_off: 7 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 7
+    request 4 (k=11): bytes False (reuse 1921 of 3270), tokens False (reuse 490 of 685, prompt 669) at {"index": 490, "held": [".", "<|assistant|>", "<think>", "Search", "Ġboth", "Ġtrees"], "next": [".", "<|assistant|>", "<think>", "</think>", "<tool_call>", "grep"]}
+hf glm_n23: tags {"[gMASK]": [154822], "<sop>": [154824], "<|system|>": [154826], "<|user|>": [154827], "<|assistant|>": [154828], "<|observation|>": [154829], "<think>": [154841], "</think>": [154842], "<tool_call>": [154843], "</tool_call>": [154844], "<arg_key>": [154847], "</arg_key>": [154848], "<arg_value>": [154849], "</arg_value>": [154850], "<tool_response>": [154845], "</tool_response>": [154846]}
+  default: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  preserve_off: 6 request pairs; byte-extends 5, token-extends 5, prompt-token-extends 5, concat canonical 6
+    request 4 (k=11): bytes False (reuse 1936 of 3704), tokens False (reuse 494 of 797, prompt 777) at {"index": 494, "held": [".", "<|assistant|>", "<think>", "I", "Ġshould", "Ġlook"], "next": [".", "<|assistant|>", "<think>", "</think>", "<tool_call>", "list"]}
+  enable_thinking_false: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  empty_reasoning_turn: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  agent_loop_mixed: 7 request pairs; byte-extends 7, token-extends 7, prompt-token-extends 7, concat canonical 7
+  agent_loop_mixed_preserve_off: 7 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 7
+    request 4 (k=11): bytes False (reuse 1921 of 3270), tokens False (reuse 490 of 685, prompt 669) at {"index": 490, "held": [".", "<|assistant|>", "<think>", "Search", "Ġboth", "Ġtrees"], "next": [".", "<|assistant|>", "<think>", "</think>", "<tool_call>", "grep"]}
+hf qwen_hf: tags {"<|im_start|>": [248045], "<|im_end|>": [248046], "<think>": [248068], "</think>": [248069], "<tool_call>": [248058], "</tool_call>": [248059], "<tool_response>": [248066], "</tool_response>": [248067], "<function=": [27, 1628, 28], "</function>": [510, 1628, 29], "<parameter=": [27, 15704, 28], "</parameter>": [510, 15704, 29]}
+  default: 6 request pairs; byte-extends 6, token-extends 6, prompt-token-extends 6, concat canonical 6
+  preserve_off: 6 request pairs; byte-extends 5, token-extends 5, prompt-token-extends 5, concat canonical 6
+    request 4 (k=11): bytes False (reuse 2756 of 4651), tokens False (reuse 683 of 1170, prompt 1146) at {"index": 683, "held": ["<|im_start|>", "assistant", "Ċ", "<think>", "Ċ", "I"], "next": ["<|im_start|>", "assistant", "Ċ", "<tool_call>", "Ċ", "<"]}
+  enable_
+notice | tokenizer.json sha256: 19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d  /home/runner/.cache/408032gb/hf-lfs/19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d/tokenizer.json 0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3  /home/runner/.cache/408032gb/hf-lfs/0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3/tokenizer.json 
+notice | test_glm_official_and_corrected_identical (HFTokenLevel) ... ok
+test_glm_tags_single_tokens (HFTokenLevel) ... ok
+test_glm_tokens_break_only_where_bytes_break (HFTokenLevel) ... ok
+test_qwen_newline_merge_after_empty_reasoning (HFTokenLevel) ... ok
+test_qwen_tags (HFTokenLevel) ... ok
+test_relative_paths_are_made_absolute (LlamaTokPaths) ... ok
+test_glm_official_and_corrected_identical (LlamaTokenLevel) ... ok
+test_glm_tags_single_tokens (LlamaTokenLevel) ... ok
+test_glm_tokens_break_only_where_bytes_break (LlamaTokenLevel) ... ok
+test_qwen_newline_merge_after_empty_reasoning (LlamaTokenLevel) ... ok
+test_qwen_tags (LlamaTokenLevel) ... ok
+test_same_ids (Parity) ... ok
+test_lfs_records_match_the_template_pins (PinRecords) ... ok
+test_transformers_renders_like_hf_render (TransformersRender) ... ok
+test_agent_loops_prefix_stable (JinjaEquality) ... ok
+test_byte_equal_everywhere (JinjaEquality) ... ok
+test_turn_without_reasoning_renders_an_empty_think_block (JinjaEquality) ... ok
+
+notice | Ran 17 tests in 111.899s OK 
+notice | llama.cpp 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6
+```
+
+What this confirms, CONFIRMED (runner annotations):
+- **Fail-closed summary step.** Step 10 is green. Under the round-2b logic that requires `token_prefix.py` to exit 0,
+  `tok-out/token-prefix.json` to be non-empty, and no parity `DIFF` line. The artifact `token-prefix` is 7 091 B (the
+  lead's figure; I cannot download it).
+- **The tests again.** 17 ok.
+- **HF-tokenizer summary.** The visible part matches §7.1 line for line:
+  - GLM `glm_hf` / `glm_n23` sessions: breaks only at the byte break, request 4 of the `preserve_off` sessions.
+  - The `hf qwen_hf` tags.
+  - The llama `qwen_hf` rows, including the `ĊĊ` breaks at requests 3 / 1, 2, 5.
+
+Not visible, UNKNOWN from the sandbox: GitHub limits each annotation message to 4096 characters (the lengths above),
+so these were cut:
+- the first summary chunk (llama `glm_hf`);
+- the HF Qwen rows after `enable_`;
+- the parity lines.
+
+The HF = llama.cpp id equality itself is covered by `Parity.test_same_ids ... ok`, and a parity `DIFF` line would have
+failed step 10. A later change could annotate fewer lines per notice; not done in this round.
+
+Round 2c also re-checked the escape line at the pin:
+
+```
+$ git -C <S>/llama.cpp show 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6:common/common.h | grep -n 'bool escape'
+570:    bool escape            = true;  // escape "\n", "\r", "\t", "\'", "\"", and "\\"
+```
 
 ## Appendix A. `tools/chattmpl/run_n23.sh` at `4ed71cb`, full output
 
