@@ -367,6 +367,42 @@ class Matrix(TmpDirCase):
         roles = [r for r in raw if r.get("phase") == "agent_turn"]
         self.assertIn("tools", roles[0]["result"]["request_keys"])
 
+    COLD_ARGS = ["--inputs", "400", "--outputs", "8", "--states", "cold", "--concurrency", "1", "--repeats", "2",
+                 "--scenarios", "matrix,agent", "--agent-turns", "2", "--agent-tool-tokens", "300,400",
+                 "--agent-max-tokens", "4"]
+
+    def two_runs(self, extra=()):
+        out = []
+        for name in ("first", "second"):
+            code, d = self.run_matrix(self.COLD_ARGS + list(extra), name)
+            self.assertEqual(code, 0)
+            meta, raw, s, md = self.load_run(d)
+            out.append((meta, [r["metrics"] for r in raw if r.get("phase") == "measure"],
+                        s["agent_loop"]["cold_control"]))
+        return out
+
+    def test_second_run_against_the_same_server_is_still_cold(self):
+        # N11 (docs/evidence/2026-10-11-n11-r1-tools-cpu-server.md): the cold nonce depended only on --seed and the cell,
+        # so a second run against the same server (a re-run, or ctx-2k after smoke-2k in scripts/r1/configs/
+        # llamacpp-server.json: same seed, same key ("cold", 2048, 128, 1, 0, 0)) re-sent byte-identical "cold" prompts
+        # and the real llama-server answered them from its prompt cache (cached 1019 of 1023 tokens)
+        (m1, cold1, ctrl1), (m2, cold2, ctrl2) = self.two_runs()
+        self.assertTrue(m1["nonce_salt"] and m2["nonce_salt"] and m1["nonce_salt"] != m2["nonce_salt"])
+        self.assertEqual(len(cold2), 2)
+        for m in cold1 + cold2:
+            self.assertLess(m["cached_tokens"], 8, m)          # only "<|user|>\nDocument" can match an earlier prompt
+        # the agent loop's cold control shares only the tool schemas and the template head with earlier prompts
+        self.assertLess(ctrl2["cached_tokens"], 0.5 * ctrl2["prompt_tokens"])
+        self.assertLessEqual(ctrl2["cached_tokens"], ctrl1["cached_tokens"] + 2)
+
+    def test_nonce_salt_reproduces_a_run(self):
+        # the same --nonce-salt (recorded in meta.json) re-sends byte-identical prompts: the server then reuses them
+        (m1, cold1, ctrl1), (m2, cold2, ctrl2) = self.two_runs(["--nonce-salt", "n11"])
+        self.assertEqual((m1["nonce_salt"], m2["nonce_salt"]), ("n11", "n11"))
+        for m in cold2:
+            self.assertGreaterEqual(m["cached_tokens"], m["prompt_tokens"] - 1, m)
+        self.assertGreaterEqual(ctrl2["cached_tokens"], ctrl2["prompt_tokens"] - 1)
+
     def test_http500_everywhere_records_failures_without_numbers(self):
         reset(fault="http500")
         code, d = self.run_matrix(["--inputs", "200", "--outputs", "16", "--concurrency", "1,2", "--repeats", "1",
