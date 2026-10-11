@@ -11,7 +11,11 @@ inside its last verify call (CONFIRMED by reading), and the one server path foun
 rollback is pending is the shared prompt prefix of decision tasks (tools/server/server-context.cpp:3826-3849@79e2e74),
 which needs at least two slots (tools/server/server-decision.cpp:1139-1161@79e2e74) (PROVISIONAL: by reading, no server
 run). llama-server's default is -np auto = 4 slots (common/arg.cpp:1406@79e2e74, tools/server/server.cpp:168-173@79e2e74),
-so the slot count must be given.
+so the slot count must be given. A draft model without an explicit --spec-type counts as such a type: llama.cpp infers
+draft-mtp, draft-dspark, draft-dflash or draft-eagle3 from the draft repo's sidecar or the draft GGUF's metadata when no
+type is requested (common/arg.cpp:546-573@79e2e74); draft model flags: -md / --spec-draft-model / --model-draft
+(LLAMA_ARG_SPEC_DRAFT_MODEL), -hfd / -hfrd / --spec-draft-hf / --hf-repo-draft (LLAMA_ARG_SPEC_DRAFT_HF_REPO), and the
+presets --fim-qwen-7b-spec / --fim-qwen-14b-spec (common/arg.cpp:3995-4000, 4276-4282, 4652-4676@79e2e74).
 
 check(argv, env) -> list of problems (empty: the rule holds). argv is llama-server's argument list; env its environment
 (LLAMA_ARG_SPEC_TYPE, LLAMA_ARG_N_PARALLEL are read when the flag is absent, as common/arg.cpp's set_env does).
@@ -54,8 +58,22 @@ def n_slots(argv, env=None):
     return AUTO_SLOTS if n < 0 else n
 
 
+DRAFT_FLAGS = ["-md", "--spec-draft-model", "--model-draft", "-hfd", "-hfrd", "--spec-draft-hf", "--hf-repo-draft"]
+DRAFT_ENV = ["LLAMA_ARG_SPEC_DRAFT_MODEL", "LLAMA_ARG_SPEC_DRAFT_HF_REPO"]
+DRAFT_PRESETS = ["--fim-qwen-7b-spec", "--fim-qwen-14b-spec"]                 # common/arg.cpp:4652-4676@79e2e74
+
+
+def draft_model(argv, env=None):
+    """True if a draft model is given (flag, environment or preset)."""
+    return bool(_values(argv, DRAFT_FLAGS) or any(a in DRAFT_PRESETS for a in argv)
+                or any((env or {}).get(k) for k in DRAFT_ENV))
+
+
 def check(argv, env=None):
-    rs = sorted(set(spec_types(argv, env)) & RS_TYPES)
+    types = spec_types(argv, env)
+    rs = sorted(set(types) & RS_TYPES)
+    if not types and draft_model(argv, env):
+        rs = ["(inferred from the draft model)"]          # common/arg.cpp:546-573@79e2e74
     if not rs:
         return []
     n = n_slots(argv, env)
@@ -77,7 +95,8 @@ def main(paths):
         probs = check(eng.get("argv", []), eng.get("env", {}))
         types = spec_types(eng.get("argv", []), eng.get("env", {}))
         print(f"{p}: {'VIOLATES: ' + '; '.join(probs) if probs else 'ok'} "
-              f"(spec types {types or 'none'}, slots {n_slots(eng.get('argv', []), eng.get('env', {}))})")
+              f"(spec types {types or 'none'}, draft model {'yes' if draft_model(eng.get('argv', []), eng.get('env', {})) else 'no'}, "
+              f"slots {n_slots(eng.get('argv', []), eng.get('env', {}))})")
         bad += bool(probs)
     return 1 if bad else 0
 
