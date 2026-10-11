@@ -14,28 +14,42 @@ was printed from those checkouts in this session.
 
 1. **ik_llama.cpp builds on CPU at the pin** with the pins.json flags minus the four CUDA ones: AVX2 on, AVX-512 off
    (CONFIRMED, section 1). Standalone build of `llama-server llama-eval-callback llama-cli llama-tokenize`: configure
-   2 s, build 422 s on 4 cores; the out-of-tree build of `tools/ik` (ggml, llama, common and our dump tool): 1 s +
-   325 s (CONFIRMED, wall times of this sandbox, not benchmarks).
+   2 s, build 422 s on 4 cores (CONFIRMED, `build.times`, section 1). The out-of-tree build of `tools/ik` (ggml,
+   llama, common and our dump tool): the first attempt, which also compiled ik's llama-server sources until they
+   failed (see `tools/ik/CMakeLists.txt`), logged `configure_s=1 build_s=359` (`wrap.times`, CONFIRMED); the final
+   build of the dump tool alone took 1 s + 325 s (PROVISIONAL: printed in the session, not saved; the file mtimes
+   05:22:43 -> 05:28:08 of its logs agree). The whole driver from an empty build directory, that build included:
+   353 s (CONFIRMED, `driver rc=0 wall_s=353`, section 3). Wall times of this sandbox, not benchmarks.
 2. **ik loads our tiny GLM under both names.** `glm5next` (`--dialect ik`, and `--arch glm5next`) and `glm5-next`
-   (the alias, `src/llama-model-loader.h:149-151`) load and give bit-identical logits (CONFIRMED, test
-   `IkAlias`). The loader rejects any unclaimed tensor or wrong shape (`src/llama-model-loader.cpp:1030-1043`,
+   (the alias, `src/llama-model-loader.h:149-151`) load and give bit-identical logits (CONFIRMED: test `IkAlias` for
+   `--dialect ik` against `glm5-next`; all three files in `2026-10-11-n12-arch-names.sh`, section 2). The loader rejects any unclaimed tensor or wrong shape (`src/llama-model-loader.cpp:1030-1043`,
    `1107-1114`), so a clean load means every tensor name and shape matched. No key ik requires is missing from our
-   files; the only key nobody reads is `expert_group_count` (CONFIRMED, section 2). Neither ik nor llama.cpp reads
-   `expert_group_count` at their pins; ik ignores `attention.indexer.kpool_select_tail` and `attention.indexer.types`
-   (the tail is always appended, B:210-214; every MLA layer has its own indexer, H:2563-2566). What the real UD
-   file's header holds beyond `glm5next.expert_group_count` is UNKNOWN here (its value too); `--dialect ik` writes
-   that key as 1
-   (PROVISIONAL choice: one group, no restriction).
+   files; the only key of ours that neither tabulated reader reads is `expert_group_count` (CONFIRMED, section 2).
+   ik does not read `expert_group_count` for glm5next (only for other architectures, H:1655, 1680). llama.cpp
+   @79e2e74 reads it for every architecture (ML src/llama-model.cpp:1362) and, with more than one group, restricts
+   glm5-next's routing to the top groups (ML src/llama-graph.cpp:2145-2163, `build_moe_ffn` called at
+   src/models/glm5-next.cpp:621, 743). Our value 1 has no effect in either engine (PROVISIONAL choice: one group, no
+   restriction). That the real UD file carries the key is PROVISIONAL (base B requires it,
+   docs/evidence/2026-10-03-lighttransport-fork.md:92-105); its value is UNKNOWN, and neither
+   `models/specs/glm-5.3-flash.json` (its `moe` block lists `n_experts`, `top_k`, `n_shared`, `expert_ff` only) nor
+   docs/models/glm-5.3-flash.md:15 (`noaux_tc` router, no group counts) records `n_group` / `topk_group` (CONFIRMED,
+   both files read). If the real value is above 1, llama.cpp and ik route differently: a possible seventh
+   difference (UNKNOWN). ik also ignores `attention.indexer.kpool_select_tail` and `attention.indexer.types` (the tail
+   is always appended, B:210-214; every MLA layer has its own indexer, H:2563-2566). What else the real UD file's
+   header holds is UNKNOWN here.
 3. **ik computes a different function from llama.cpp's glm5-next on the same weights**, by six documented
    deviations (ref/glm5next_ik.py, each cited there), all reproduced by the ik-semantics oracle on ik's own inputs
    to 3.3e-7 (1.0e-5 for flash attention in single-token graphs) (CONFIRMED, section 3):
    1. SwiGLU clamp **after** the SiLU: `min(silu(g), L) * clamp(u, -L, L)` (ggml/src/ggml.c:17374-17377,
       ggml/src/iqk/iqk_mul_mat.cpp:155-157, 169-170). llama.cpp clamps the gate before it,
-      `silu(min(g, L)) * clamp(u, -L, L)` (ML ggml/src/ggml-cpu/ops.cpp:3614-3615), as the DeepSeek-V4.1 reference
-      does (third_party/deepseek-v41-flash/inference/model.py:845-848). Which one GLM-5.3-Flash was trained with:
-      UNKNOWN (no GLM modeling code is vendored). The two differ only where the gate pre-activation exceeds L, by at
-      most `L * sigmoid(-L)`: 4.54e-4 per activation for GLM-5.3-Flash's L = 10 (docs/models/glm-5.3-flash.md:16;
-      CONFIRMED arithmetic, section 3), 0.189 for the tiny model's 0.5. On the tiny model this is the dominant
+      `silu(min(g, L)) * clamp(u, -L, L)` (ML ggml/src/ggml-cpu/ops.cpp:3614-3616), as the DeepSeek-V4.1 reference
+      does (third_party/deepseek-v41-flash/inference/model.py:845-848). ik's own comment says the opposite of its
+      kernels: "clamped SwiGLU (gate clamped before the SiLU, deepseek4 semantics)" (H:2505). Which one GLM-5.3-Flash
+      was trained with: UNKNOWN (no GLM modeling code is vendored). The two differ only where the gate pre-activation
+      exceeds L: the gate factor by at most `L * sigmoid(-L)` (4.54e-4 for GLM-5.3-Flash's L = 10,
+      docs/models/glm-5.3-flash.md:16; 0.189 for the tiny model's 0.5), the SwiGLU output (that factor times the
+      clamped up, |up| <= L) by at most `L^2 * sigmoid(-L)` (4.54e-3 for L = 10; 0.094 for L = 0.5) (CONFIRMED
+      arithmetic, section 3). On the tiny model this is the dominant
       difference: ik's FFN output is 0.48-0.71 away from llama.cpp's semantics on ik's own inputs.
    2. Indexer key LayerNorm eps = the RMS eps when `attention.layer_norm_epsilon` is absent (H:2461-2468); llama.cpp
       uses 0 then. Measured 1.0e-5 on the indexer key; no effect on the selection seen here.
@@ -44,26 +58,41 @@ was printed from those checkouts in this session.
    4. DSA k-pool selection only with `--dsa` (C:454, B:268; default dense MLA). With it, the unused tail slots hold
       cell 0 (L:5934) and the sparse mask unmasks every listed cell (ggml/src/iqk/iqk_cpu_ops.cpp:1106-1108): **position
       0 is added to the cells of every token whose tail has fewer than kpool-1 cells, unless pool 0 is selected or
-      the tail itself contains position 0** (90 row-layers of 192 on the 64-token prefill). llama.cpp fills those slots with the sentinel `n_kv`, which
-      selects nothing (ML src/llama-memory-hybrid-idx.cpp:814, 949-975). Removing cell 0 from those rows moves ik's
+      the tail itself contains position 0** (90 of 192 row-layers on the 64-token prefill, 47%; counted on ik's
+      attended cells by `2026-10-11-n12-deviations.py`). The test's own count, 83, takes rows with cell 0 in the
+      cells and not in the oracle's own reference choice; the 7 rows between the two are replayed ties where the
+      oracle's own choice contained pool 0 and ik's tied choice did not (CONFIRMED, `2026-10-11-n12-cell0-count.py`,
+      section 3). llama.cpp fills those slots with the sentinel `n_kv`, which selects nothing (ML
+      src/llama-memory-hybrid-idx.cpp:814, 949-975). ik always appends the tail (B:210-214) and does not read
+      `attention.indexer.kpool_select_tail`; the oracle follows this (ref/glm5next_ik.py item 7). Removing cell 0 from those rows moves ik's
       attention output by 0.38-0.54 (normwise) on the tiny model. On GLM-5.3-Flash (top-k 2048, kpool 4) it matters
       only once a token has more than 512 complete pools visible, i.e. beyond about 2048 tokens (PROVISIONAL, from the
       selection rule; not run).
-   5. Cache precision: with `-fa off` (and `-mla` ≠ 1; default 3, C:446) the MLA latent cache takes the **`-ctv`** type
-      (L:1496-1497), and `-ctv f32` is refused without flash attention (L:9257-9259); with `-fa on` an f32 K/V cache
-      aborts in the iqk kernel (ggml/src/iqk/iqk_flash_attn.cpp:280-298). So **no CPU configuration of ik keeps the MLA
-      latent in f32**. The log still prints the `-ctk` type as "c^KV" (L:9808-9811), e.g. `c^KV (f32)` for a cache
-      that holds f16. The indexer key | gate cache has its own type `-ictk`, default f16 (C:495); llama.cpp uses the
-      `-ctk` type for it. With `-fa off` the attention itself is f32 over the f16 latent.
+   5. Cache precision: with `-fa off` and `-mla 2` or `3` (default 3, C:446) the MLA latent cache takes the
+      **`-ctv`** type (L:1496-1497), and `-ctv f32` is refused without flash attention (L:9257-9259), so the latent is
+      f16 or bf16; with `-fa on` an f32 K/V cache aborts in the iqk kernel (ggml/src/iqk/iqk_flash_attn.cpp:280-298).
+      With `-mla 1 -fa off` the latent K cache takes the `-ctk` type and can be f32 (CONFIRMED, `kv_cache-3`
+      `"ggml_type": "f32"`, section 2), but its transposed V copy is in the `-ctv` type, f16 or bf16 (L:1513-1516,
+      B:331-338; `kv^T (f16)` in the log): **no CPU configuration keeps both K and V of the latent in f32** (numerics
+      of `-mla 1`: NOT RUN). The log prints the `-ctk` type as "c^KV" (L:9808-9811) also when the cache holds the
+      `-ctv` type, e.g. `c^KV (f32)` for a cache that holds f16 under `-mla 3`. The indexer key | gate cache has its
+      own type `-ictk`, default f16 (C:495); llama.cpp gives it the `-ctk` type (ML
+      src/llama-memory-hybrid-idx.cpp:70-71). ik pools the keys afresh in every graph from the cached key | gate rows
+      (B:109-137) and never rounds the pooled key to a cache type, whereas llama.cpp stores it in the indexer cache;
+      under an f16 indexer cache the two differ (the oracle follows ik, ref/glm5next_ik.py item 7). With `-fa off`
+      the attention itself is f32 over the f16 latent when the cache has fewer than 256 cells, where ik sets
+      GGML_PREC_F32 on kq (B:345-348); every run here had at most 64 cells; at 256 cells or more: UNKNOWN.
    6. CPU flash attention (`-fa on`, ik's default, C:445) runs the iqk kernels; over an f16 latent it equals our
       `ref/fattn.py` "fa_chunk" emulation (q in f16, online softmax, f16 V accumulator) to 1.6e-7 at 64 query rows
       and 1.0e-5 on single-token graphs (CONFIRMED on these runs; the kernel itself is not transcribed, so the
-      mechanism is PROVISIONAL). llama.cpp switches to its f32 tiled kernel at 64 rows.
+      mechanism is PROVISIONAL). llama.cpp switches to its f32 tiled kernel at 64 rows
+      (docs/evidence/2026-10-10-quant-fa-parity.md:34).
    Whole model on the 64-token prefill: ik's logits are 1.26e-4 from the ik-semantics oracle (argmax 64/64) and 0.905
    from the llama.cpp-semantics oracle (argmax 19/64) (CONFIRMED, section 3). Everything else (mHC/Sinkhorn, KDA,
    MLA, indexer pooling and scores, the sigmoid router with selection bias, shared expert, head) agrees within the
    N9/N10 tolerances; the MTP graph was not compared (NOT RUN, see below).
-4. **Precision contract.** f32 caches with FA off cannot be run on ik (finding 3.5). The closest, `-fa off -ctk f32
+4. **Precision contract.** f32 caches for both K and V of the latent with FA off cannot be run on ik (finding 3.5;
+   `-mla 1` gives an f32 K with an f16 V and was not compared). The closest, `-fa off -ctk f32
    -ctv f16 -ictk f32`, passes every check; so do `-ictk f16` and the R1 template's `-fa on -ctk f16 -ctv f16`
    (prefill and decode). The chained tolerance after the first DSA layer is N10's 16 * 2^-11; the worst chained
    error is 2.7e-3 in the driver's runs and 3.2e-3 on the server's token sequence (CONFIRMED, sections 3, 4).
@@ -93,17 +122,19 @@ was printed from those checkouts in this session.
      48 tokens for a 48-token prompt and 5 of 2547 for a 2547-token one (which prefix ik can reuse depends on its
      checkpoints: mechanism UNKNOWN, not traced). **Restoring the save of an empty slot aborts the server** (`GGML_ASSERT(kv_self.cells[kv_self.head].pos == batch.pos[0])`, L:11739; process exit -6).
    * The server's greedy continuation of the N9 prompt with the template's flags equals the dump tool's argmax at the
-     same flags (16/16), and that run passes the parity test (CONFIRMED, section 4). Without the tie replays of the
-     test the oracle's own continuation differs from step 3 on (7 of 16 equal in a superseded version of the probe,
-     whose output was not kept: PROVISIONAL): exact zero DSA scores (two indexer heads, ReLU) are frequent on the tiny
-     model, and the choice among them is ik's (20 replays per 64-token run, section 3).
+     same flags (16/16), and that run passes the parity test, which replays exact DSA ties (19 on that sequence)
+     (CONFIRMED, section 4). How far the oracle's own greedy continuation, without replays, would follow ik's: UNKNOWN
+     (not kept).
 6. **R1 tools against ik** (N11's tools from `git archive claude/n11-r1-tools-cpu-server`, not merged here):
    `prompts.py` fits with ik's `/tokenize` (dialect detected, same counts as llama.cpp); `logprob_compare.py` parses
    ik's `/v1/completions` (29 of 40 prefixes, top-1 agreement 1.0 between `-fa off` and the template flags; the 11
    errors are all the known llama-server case of a token ending in an incomplete UTF-8 sequence);
    `slot_persist.py` works but compares by text, because ik returns no `tokens` (CONFIRMED, section 4). N7's
    `tools/srvcheck/hybrid_server_checks.py` reads `completion_probabilities[].top_logprobs` and `tokens`, which ik
-   does not return: against ik its `same_tokens` would compare `None == None` (PROVISIONAL: code reading, not run).
+   does not return. Its `compare()` would pass the determinism check vacuously (`same_tokens` = `None == None`, line
+   137), but `check_prefix_extend` builds `prompt + first["tokens"] + tail` (line 171) and raises TypeError on None,
+   and `main()` records that as `{"error": ..., "verdict": {"all_pass": False}}` (lines 390-394): the run as a whole
+   errors out with all_pass False (PROVISIONAL: code reading of claude/n11-r1-tools-cpu-server @6680448, not run).
 7. **CI**: the job `ik-glm5next` of `.github/workflows/parity-r1-pin.yml` runs the driver; locally the whole driver
    from a clean build directory took 353 s (section 6), under the 8-minute budget. Not run on GitHub here (NOT RUN:
    no push from this session).
@@ -118,7 +149,15 @@ was printed from those checkouts in this session.
 * `scripts/engines/build_engine.py` was not run here (CUDA build); nothing to report on it from this CPU work.
 * N11's `tools/bench/prompts.py --verify` exits 1 on target 1024 (1022 tokens marked exact) against ik **and** against
   llama.cpp at the R1 pin on the same tiny text vocabulary: a fitting quirk of the tool, not of ik (section 4).
-* N7's `hybrid_server_checks.py` would pass vacuously against ik (finding 6).
+* N7's `hybrid_server_checks.py` against ik: `compare()` would pass vacuously, the whole run errors out in
+  prefix_extend with all_pass False (finding 6). It would need ids from ik's `/completion` (absent) to check anything.
+* `expert_group_count`: llama.cpp would group-limit glm5-next routing if the real file's value is above 1; ik never
+  does for glm5next (finding 2). The real value is UNKNOWN; read it from the real header before comparing the two
+  engines on real weights.
+* Housekeeping: ik's logger writes `llama.log` into the current directory. Every N12 script now runs ik from a
+  scratch directory. A `llama.log` in /home/user/408032gb dated 06:18:16 (a server start with a 262144-token context)
+  was not written by any N12 run after the report was delivered; it is left in place for the coordinator, since this
+  session does not touch the main checkout.
 
 ## 1. Fetch and build
 
@@ -162,6 +201,8 @@ llama-cli
 llama-eval-callback
 llama-server
 llama-tokenize
+$ cat wrap.times   # first tools/ik attempt: cmake -S tools/ik -B build-ik ... ; cmake --build build-ik -j4 --target ik-dump-tensors llama-server (the server sources failed to compile there)
+configure_s=1 build_s=359
 ```
 
 ## 2. Loader contract
@@ -259,13 +300,13 @@ legacy speculative option '-mtp' is disabled; use --spec-type mtp:n_max=1,p_min=
   no logits (the run did not get that far)
 ```
 
-The two rejected f32 configurations (finding 3.5), literal (the iqk type list is cut to the lines the grep kept;
-the full list also has `q8_KV`):
+The two rejected f32 configurations (finding 3.5), literal (only the lines the greps keep; the first error line was
+cut at 120 characters, its model path is shown as `<scratch>`):
 ```
 $ DUMP_DIR=x DUMP_TOKENS=5,9,11,20 ik-dump-tensors -m ik.gguf -c 512 -b 512 -ub 512 -t 1 -fa off -ctk f32 -ctv f32 --dsa
 rc=1
 llama_init_from_model: V cache quantization requires flash_attn
-llama_init_from_gpt_params: error: failed to create context with model '/tmp/claude-0/-home-user-408032gb/83634621-ad4f-
+llama_init_from_gpt_params: error: failed to create context with model '<scratch>/n12/work-ci/ik.gguf'
 ik-dump: failed to load the model
 $ DUMP_DIR=y DUMP_TOKENS=5,9,11,20 ik-dump-tensors -m ik.gguf -c 512 -b 512 -ub 512 -t 1 -fa on -ctk f32 -ctv f32 --dsa
 /bin/bash: line 21: 12016 Aborted                 DUMP_DIR=$N/rej/y DUMP_TOKENS=5,9,11,20 $D -m $M -c 512 -b 512 -ub 512 -t 1 -fa on -ctk f32 -ctv f32 --dsa > rej2.log 2>&1
@@ -291,11 +332,40 @@ $ cat <work>/n12/p64/g000/dsa_cached_all-3__0.json <work>/n12/ictk16/g000/dsa_ca
 {"type": "f32", "ggml_type": "f16", "ne": [32, 64, 1, 1]}
 ```
 
+With `-mla 1` (finding 3.5), `docs/evidence/mutation-scripts/2026-10-11-n12-mla1.sh` (run in a scratch directory; `kv_cache_trans` could not be dumped: it is a non-contiguous view, so the V type is the log's `kv^T (f16)`):
+```
+$ DUMP_DIR=d DUMP_PREFIXES=kv_cache- DUMP_TOKENS=5,9,11,20 ik-dump-tensors -m ik.gguf -c 512 -b 512 -ub 512 -t 1 -mla 1 -fa off -ctk f32 -ctv f16 -ictk f32 --dsa
+rc=0
+llama_init_from_model: mla_attn      = 1
+llama_init_from_model: KV self size  =    0.14 MiB, c^KV (f32):    0.09 MiB, kv^T (f16):    0.05 MiB
+ik-dump: 1 calls, 1 graphs, 4 tokens
+$ cat d/g000/kv_cache-3__0.json
+{"type": "f32", "ggml_type": "f32", "ne": [16, 32, 1, 1]}
+```
+The same weights under three names (finding 2), `docs/evidence/mutation-scripts/2026-10-11-n12-arch-names.sh` (flags of the p64 run):
+```
+dialect-ik: exit 0, glm5next, sha256 6050ee362d635168...
+arch-glm5next: exit 0, glm5next, sha256 8a63da35ebde0f64...
+glm5-next: exit 0, glm5-next, sha256 26c83267fe1a7588...
+arch-glm5next == dialect-ik bitwise: True
+glm5-next == dialect-ik bitwise: True
+```
+
 ## 3. Does ik compute the same model?
 
 Driver: `LLAMA_CPP_GGUF_PY=<llama.cpp @79e2e74>/gguf-py tools/tinygen/run_parity_ik_glm5next.sh <ik @5194a9e>
-<build dir>`. Model sha256 (`--layers 12 --dialect ik`): `6050ee362d635168a153380bd9b3b703223e444f19e3c7e12e32b1ecef64a6f0` (the default `--layers 12` file, the N9/G1 model under `glm5-next`: `26c83267fe1a7588d40153c7b9baaea55ac9d437bb2df85e9ad34ad72acc2ae5`, unchanged). Tokens: the 64 ids of N9 (seed 9). Literal output
-(the per-test `ok` lines are cut to the summary; the table is the test's own):
+<build dir>`. Model sha256 (`--layers 12 --dialect ik`): `6050ee362d635168a153380bd9b3b703223e444f19e3c7e12e32b1ecef64a6f0`; the default `--layers 12` file (the N9/G1 model
+under `glm5-next`) is unchanged by N12:
+```
+$ sha256sum work-ci/ik.gguf work-ci/llama.gguf   # written by the driver at HEAD
+6050ee362d635168a153380bd9b3b703223e444f19e3c7e12e32b1ecef64a6f0  work-ci/ik.gguf
+26c83267fe1a7588d40153c7b9baaea55ac9d437bb2df85e9ad34ad72acc2ae5  work-ci/llama.gguf
+$ grep -E "/(l12|default)\.gguf" gen-before/SHA256SUMS   # written before any N12 change (glm5next_tiny.py at 0d4d582: --layers 12, and the default)
+26c83267fe1a7588d40153c7b9baaea55ac9d437bb2df85e9ad34ad72acc2ae5  gen-before/default.gguf
+26c83267fe1a7588d40153c7b9baaea55ac9d437bb2df85e9ad34ad72acc2ae5  gen-before/l12.gguf
+```
+Tokens: the 64 ids of N9 (seed 9). Literal output (the per-test `ok` lines are cut to the summary; the table is the
+test's own; a re-run after the audit fixes, on the existing build, gave the same table, only `Ran 43 tests in` differs):
 ```
 $ LLAMA_CPP_GGUF_PY=<llama.cpp @79e2e74>/gguf-py IK_GLM5NEXT_WORK=<scratch>/n12/work-ci tools/tinygen/run_parity_ik_glm5next.sh <scratch>/n12/ik-src <scratch>/n12/build-ci
 GGML_AVX2:BOOL=ON GGML_AVX512:BOOL=OFF GGML_CUDA:BOOL=OFF GGML_NATIVE:BOOL=OFF 
@@ -436,7 +506,19 @@ fa16: item 2 indexer LayerNorm eps, from ik's attn_norm: rms eps 1.66e-07, eps 0
 fa16: item 4 attention over ik's cells 1.60e-07; without the padded cell 0 3.75e-01 (90 row-layers padded)
 fa16: logits ik vs ik-semantics oracle 5.29e-04, argmax equal 64/64; vs llama.cpp-semantics oracle 9.06e-01, argmax equal 19/64
 item 1 bound for GLM-5.3-Flash (swiglu_limit 10.0): max |min(silu(g), L) - silu(min(g, L))| = L * sigmoid(-L) = 4.540e-04; for the tiny model's 0.5: 1.888e-01
+item 1 bound on the SwiGLU output (gate factor times clamp(up), |up| <= L): L^2 * sigmoid(-L) = 4.540e-03 for L = 10.0; 9.439e-02 for L = 0.5
 item 3 L2 norm, 1e5 random 16-vectors: max |ik - llama.cpp| = 1.25e-07
+```
+The two cell-0 counts (finding 3.4), `docs/evidence/mutation-scripts/2026-10-11-n12-cell0-count.py`:
+```
+p64: test count 83, deviations-probe count 90 of 192 row-layers; rows only the probe counts: 7
+  layer 3, position 11: pool 0 in the oracle's own choice, replayed tie
+  layer 3, position 60: pool 0 in the oracle's own choice, replayed tie
+  layer 7, position 20: pool 0 in the oracle's own choice, replayed tie
+  layer 11, position 35: pool 0 in the oracle's own choice, replayed tie
+  layer 11, position 43: pool 0 in the oracle's own choice, replayed tie
+  layer 11, position 45: pool 0 in the oracle's own choice, replayed tie
+  layer 11, position 61: pool 0 in the oracle's own choice, replayed tie
 ```
 
 ## 4. ik's llama-server
@@ -469,8 +551,10 @@ llama.cpp (R1 pin) llama-server --help: exit 0
 ```
 `-sm` is found only inside the description of `-gap`; its own entry is hidden like those of `-ngl` and `-ts` (CC:3585 prints them only when `llama_supports_gpu_offload()`). A text search such as run_r1's flags check (scripts/r1/run_r1.py:1156-1177) would therefore report `-ngl` and `-ts` missing and `-sm` present on a CPU build; on a CUDA build all three should be listed (PROVISIONAL: not built here).
 
-`docs/evidence/mutation-scripts/2026-10-11-n12-ik-server-probe.py` (template argv substituted for 4 CPU cores; JSON
-key layouts of /props, /v1/models, /completion and /slots cut: they are printed in full by the script):
+`docs/evidence/mutation-scripts/2026-10-11-n12-ik-server-probe.py` (template argv substituted for 4 CPU cores; servers
+started from the work directory; cut: the long JSON key layouts of /props, /v1/models, /completion and GET /slots,
+which the script prints in full; kept: the short bodies, i.e. the /tokenize errors (`unordered_map::at`), /detokenize
+and the /slots save / erase / restore answers; long lines cut at 400 characters):
 ```
 argv (substituted): <scratch>/n12/ik-build/bin/llama-server -m <scratch>/n12/work-ci/ik.gguf --host 127.0.0.1 --port 18471 --ctx-size 262144 --parallel 1 --jinja -ngl 999 -sm layer -ts 1,1,1,1 -ncmoe 17 -fa on --dsa -ctk f16 -ctv f16 -t 4 --threads-batch 4 -b 2048 -ub 1024 -muge
 --version rc 0 | ['version: 1 (5194a9e)', 'built with cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0 for x86_64-linux-gnu']
@@ -485,8 +569,11 @@ log lines with 'merge': ['print_info: n_merges              = 0', 'merge_up_gate
 --- GET /props: HTTP 200
 --- GET /v1/models: HTTP 200
 --- POST /tokenize {content: 't5t9'}: HTTP 500
+{"error": {"code": 500, "message": "unordered_map::at", "type": "server_error"}}
 --- POST /tokenize with_pieces: HTTP 500
+{"error": {"code": 500, "message": "unordered_map::at", "type": "server_error"}}
 --- POST /detokenize [5, 9]: HTTP 200
+{"content": "t5t9"}
 --- POST /completion n_predict 16 ignore_eos n_probs 3 (layout): HTTP 200
 tokens_predicted 16 stop_type None tokens None
 completion_probabilities[0]: {"content": "t62", "probs": [{"tok_str": "t62", "prob": 0.060870010405778885}, {"tok_str": "t47", "prob": 0.029555555433034897}, {"tok_str": "t87", "prob": 0.028698427602648735}]}
@@ -499,15 +586,21 @@ tokens_predicted 16 stop_type None
 choices[0].logprobs: {"content": [{"id": 62, "token": "t62", "bytes": [116, 54, 50], "logprob": -2.7990145683288574, "top_logprobs": [{"id": 62, "token": "t62", "bytes": [116, 54, 50], "logprob": -2.7990145683288574}, {"id": 47, "token": "t47", "bytes": [116, 52, 55], "logprob": -3.5214836597442627}, {"id": 87, "token": "t87", "bytes": [116, 56, 55], "logprob": -3.550912857055664}]}, {"id": 84, "t
 --- GET /slots (no --slot-save-path): HTTP 200
 --- POST /slots/0?action=save (no --slot-save-path): HTTP 404
+{"error": {"code": 404, "message": "File Not Found", "type": "not_found_error"}}
 CPU argv + --slot-save-path: started
 completion before save: HTTP 200 t62t84t5t52t66t39t9t27 tokens_cached 55
 --- POST /slots/0?action=save: HTTP 200
+{"id_slot": 0, "filename": "n12.bin", "n_saved": 55, "n_written": 74504, "timings": {"save_ms": 5.311}}
 files in slot dir: {'n12.bin.tokens.json': 242, 'n12.bin': 74504}
 --- POST /slots/0?action=erase: HTTP 200
+{"id_slot": 0, "n_erased": 55}
 --- POST /slots/0?action=restore: HTTP 200
+{"id_slot": 0, "filename": "n12.bin", "n_restored": 55, "n_read": 74504, "timings": {"restore_ms": 3.657}}
 before save: t62t84t5t52t66t39t9t27 | after restore: t62t84t5t52t66t39t9t27 | identical: True | prompt_n after restore: 48 of 48 | tokens_cached 55
 --- POST /slots/0?action=erase: HTTP 200
+{"id_slot": 0, "n_erased": 55}
 --- POST /slots/0?action=save (empty slot): HTTP 200
+{"id_slot": 0, "filename": "empty.bin", "n_saved": 0, "n_written": 58004, "timings": {"save_ms": 5.19}}
 restore of the empty save: no HTTP answer: RemoteDisconnected Remote end closed connection without response
 server process after it: returncode -6
 server log: ['<scratch>/n12/ik-src/src/llama.cpp:11739: GGML_ASSERT(kv_self.cells[kv_self.head].pos == batch.pos[0]) failed']
@@ -650,9 +743,11 @@ gain `tests/test_ik_glm5next_parity.py` and `tools/ik/**` (`tools/tinygen/**`, `
 `tools/engines/pins.json` were already in them).
 
 Time: the same driver from an empty build directory on the 4 sandbox cores, `driver rc=0 wall_s=353` (last line of the
-output in section 3; most of it is the build of ggml, llama, common and the dump tool: the earlier timed `tools/ik`
-build alone took configure 1 s + build 325 s). 353 s is inside the task's 8-minute budget, so the step was added
-(CONFIRMED locally). Its time on a GitHub runner: UNKNOWN until the job runs (NOT RUN: no push from this session).
+output in section 3; CONFIRMED). Most of it is the build of ggml, llama, common and the dump tool: the `tools/ik` build
+alone took 1 s + 325 s (PROVISIONAL: printed in the session, not saved; file mtimes of its logs agree); the first
+`tools/ik` attempt, which also compiled ik's llama-server sources until they failed, logged `configure_s=1
+build_s=359` (`wrap.times`). 353 s is inside the task's 8-minute budget, so the step was added. Its time on a GitHub
+runner: UNKNOWN until the job runs (NOT RUN: no push from this session).
 
 ## NOT RUN
 

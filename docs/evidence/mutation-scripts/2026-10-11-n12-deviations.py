@@ -75,6 +75,8 @@ for run, cls in (("p64", T.IkP64), ("decode", T.IkDecode), ("fa16", T.IkFa16)):
 L = 10.0
 print(f"item 1 bound for GLM-5.3-Flash (swiglu_limit {L}): max |min(silu(g), L) - silu(min(g, L))| = L * sigmoid(-L) = "
       f"{L / (1 + np.exp(L)):.3e}; for the tiny model's 0.5: {0.5 / (1 + np.exp(0.5)):.3e}")
+print(f"item 1 bound on the SwiGLU output (gate factor times clamp(up), |up| <= L): L^2 * sigmoid(-L) = "
+      f"{L * L / (1 + np.exp(L)):.3e} for L = {L}; {0.25 / (1 + np.exp(0.5)):.3e} for L = 0.5")
 a = np.random.default_rng(0).standard_normal((100000, 16))
 d = np.abs(a / np.maximum(np.linalg.norm(a, axis=1, keepdims=True), 1e-5)
            - a / np.sqrt((a * a).sum(1, keepdims=True) + 1e-6)).max()

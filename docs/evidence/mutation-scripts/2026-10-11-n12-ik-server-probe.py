@@ -113,7 +113,7 @@ def show(title, code, body, layout=True):
 import atexit  # noqa: E402
 atexit.register(lambda: [stop(q) for q in STARTED])
 print("argv (substituted):", " ".join(ARGV))
-code, out = 0, subprocess.run([ARGV[0], "--version"], capture_output=True, text=True)
+code, out = 0, subprocess.run([ARGV[0], "--version"], capture_output=True, text=True, cwd=work)
 print("--version rc", out.returncode, "|", (out.stdout + out.stderr).strip().splitlines()[:2])
 p, health = start(ARGV, os.path.join(work, "server-template.log"))
 print("template argv: started" if health else f"template argv: did not become healthy (rc {p.poll()})", health)
