@@ -66,8 +66,8 @@ an f32 difference (O:8997, 9003). N17 changed the second for every caller: _onli
 difference before, which put up to 3 binary16 spacings between it and llama.cpp on mimo2's 240-cell rows (in N10's
 qwen4exp runs the one element per run that was past half a spacing is not any more; the N10 step passes as before;
 docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md). Left at the f32 level: the running sum S is computed with two
-roundings here; llama.cpp's matches an fma in 99.6 % of the mimo2 elements (PROVISIONAL reading of the same evidence),
-which changes no f16 rounding.
+roundings here; with an fma in S instead, 98.8 % to 99.7 % of the mimo2 one_chunk elements per run are bit-equal to
+llama.cpp's (93.1 % to 93.8 % as written; PROVISIONAL reading of the same evidence), which changes no f16 rounding.
 """
 import numpy as np
 
