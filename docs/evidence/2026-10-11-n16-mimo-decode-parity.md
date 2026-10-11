@@ -183,7 +183,7 @@ quantization emulated; without it every product must be off by more than TOL_OP 
   MTP block; MXFP4 GPU kernels.
 * the real MiMo-V2.6-Flash hyper-parameters: vendored after the audit, see "Real config" below; the real GGUF (header,
   tensor types) is still UNKNOWN.
-* GitHub Actions: NOT RUN (this task does not push).
+* GitHub Actions: run after the push, green (section "CI on GitHub" at the end).
 
 ## Real config (vendored after the audit by the bot, `1ce4d32`)
 
@@ -1164,3 +1164,20 @@ $ python3 -c "import yaml; ..." (YAML parse of the changed workflows)
 .github/workflows/parity-r1-pin.yml parsed; jobs ['parity', 'ik-glm5next'] ; N16 steps [('parity', 'N16 mimo2 ubatches, decode past the SWA cache, rollbacks, MTP and MXFP4 experts at the R1 pin (CPU)')]
 status: 1 changed or untracked files
 ```
+
+## CI on GitHub (head `2cd7e03`, Draft PR #11; recorded by the lead)
+
+Workflows `ci` (run 38137908331) and `parity-r1-pin` (run 38137908321) on `2cd7e03`: 14 of 14 check runs on the PR
+`completed` / `success` (GitHub API `get_check_runs`, read 2026-10-11 ~12:13Z). The N16 step in both jobs, quoted
+literally from the job logs (`get_job_logs`, jobs 114465486072 `cpu-parity` and 114465537474 `parity`):
+
+```
+2026-10-11T12:11:35.9183778Z Ran 92 tests in 10.184s
+2026-10-11T12:11:36.0147446Z ##[notice]n16-mimo2-decode @ llama.cpp ec7630a: Ran 92, skipped 0 as expected; the driver's checkout ../llama.cpp is at ec7630a
+2026-10-11T12:10:01.6423390Z Ran 92 tests in 10.148s
+2026-10-11T12:10:01.7334470Z ##[notice]n16-mimo2-decode @ llama.cpp 79e2e74: Ran 92, skipped 0 as expected; the driver's checkout ../llama.cpp is at 79e2e74
+```
+
+G1 MiMo in the same jobs: `g1-mimo @ llama.cpp ec7630a: Ran 5, skipped 0 as expected` and `g1-mimo @ llama.cpp 79e2e74:
+Ran 5, skipped 0 as expected`. The earlier sentence "GitHub Actions: NOT RUN" in "CI and unit tests" describes the state
+before the push.
