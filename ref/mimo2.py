@@ -88,7 +88,12 @@ cell (KV:410-419 @ec7630a, 428-437 @79e2e74): when head 0's ubatch wraps around 
 place it from that cell on, the cells' positions follow them, and head 0's layer keeps under those cells K/V of other
 positions. The cache records per layer the position each cell's K/V was computed for (cache["P"]); attention_layer
 reports the rows that see such a cell (attn["foreign"]): there llama.cpp follows this cell model and not the
-full-sequence oracle (docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md).
+full-sequence oracle (docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md). N21 (docs/evidence/2026-10-11-n21-mimo-mtp-
+heads-fix.md): a call of several ubatches has a second effect: head 0's later ubatches take cells that the first
+ubatch's window still needs before heads 1 .. H-1 run that ubatch; attention_layer reports such rows as attn["missing"]
+(a position of the row's window held by no cell). mtp_process(fixed=True) is the order of
+patches/llama.cpp/0001-mtp-heads-slot-replay.patch: per chunk of n_ubatch tokens every head, heads 1 .. H-1 in head
+0's cells (place(..., replay)).
 
 Precision (N17; prec=None keeps every result above bit for bit): prec = ref/fattn.py precision(kv, fa) is the cache type
 of -ctk / -ctv and the -fa flag. With an f16 cache the K and V rows are stored rounded to f16 (cpy_k / cpy_v are
@@ -362,8 +367,17 @@ def attention_layer(x, w, hp, il, pos, cache=None, slots=None, prec=None):
         # step (the MTP heads are not, module docstring and docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md)
         vis_ = visible(pos, kpos, hp["n_swa"] if swa else 0)
         foreign = vis_ & (cache["P"][il][:n][None, :] != kpos[None, :])
+        # a row whose window (max(0, p - n_swa + 1) .. p, or 0 .. p) has a position no cell holds: it attends to less
+        # than the full-sequence block (N21: a multi-ubatch call re-placed per head, docs/evidence/
+        # 2026-10-11-n21-mimo-mtp-heads-fix.md; also a rollback past positions the ring already overwrote, N16)
+        held = np.zeros(int(pos.max()) + 2, dtype=np.int64)
+        kp = kpos[(kpos >= 0) & (kpos <= pos.max())]
+        held[kp + 1] = 1
+        held = np.cumsum(held)
+        lo = np.maximum(pos - hp["n_swa"] + 1, 0) if swa else np.zeros_like(pos)
+        missing = held[pos + 1] - held[lo] < pos - lo + 1
         out.update(idxs=list(idxs), n_kv=n, foreign=foreign.any(axis=1), foreign_cells=foreign,
-                   kv_pos=cache["P"][il][:n].copy())
+                   kv_pos=cache["P"][il][:n].copy(), missing=missing)
     scale = kq_scale(hp, prec)
     n_swa, sinks = hp["n_swa"] if swa else 0, w.get("attn_sinks.weight")
     if prec and F.kv_f16(prec) and not prec.get("fa"):
@@ -455,14 +469,21 @@ def forward(tokens, W, hp, overrides=None, prec=None):
 # forward_chunk is one such ubatch; cache_truncate is llama_memory_seq_rm(0, n_keep, -1). The state carried between
 # ubatches is the KV caches alone (module docstring): the cells' positions, head, and the K / V rows.
 
-def place(cache, n):
+def place(cache, n, replay=None):
     """Cells for the next ubatch of n tokens in both caches (prepare + apply, KV:751-815, 1097-1186); returns the
-    slots {"base": [...], "swa": [...]} and the positions."""
+    slots {"base": [...], "swa": [...]} and the positions. replay: the slots of an earlier placement to re-use instead
+    of searching (N21 patch patches/llama.cpp/0001-mtp-heads-slot-replay.patch, llama_kv_cache::prepare with slot
+    replay: the recorded cells, which must all be empty now, llama_kv_cache::slot_replay_fits)."""
     p0 = len(cache["tokens"])
     pos = np.arange(p0, p0 + n)
     slots = {}
     for which in ("base", "swa"):
-        idxs = cache[which].find_slot(n)
+        if replay is None:
+            idxs = cache[which].find_slot(n)
+        else:
+            idxs = list(replay[which])
+            if len(idxs) != n or any(cache[which].pos[i] >= 0 for i in idxs):
+                raise RuntimeError(f"slot replay refused in the {which} cache: cells {idxs} for {n} tokens")
         cache[which].apply(idxs, pos)
         slots[which] = idxs
     return slots, pos
@@ -514,12 +535,12 @@ def forward_calls(tokens, W, hp, plan, n_ctx=512, n_ubatch=512, swa_size=None, p
 
 # ---------------------------------------------------------------- MTP block (nextn_predict_layers >= 1)
 
-def mtp_forward_chunk(tokens, h_prev, W, hp, cache=None, pos=None, offset=0, prec=None):
+def mtp_forward_chunk(tokens, h_prev, W, hp, cache=None, pos=None, offset=0, prec=None, replay=None):
     """graph_mtp (M:272-407) on one ubatch of the MTP context (module docstring). tokens: the ubatch's ids; h_prev
     (T, n_embd): the pre-norm hidden row paired with each token. cache: new_cache(..., mtp=True) of the MTP context
     (incremental); None: all positions 0..T-1 at once (prefill semantics, pos ignored). offset: the head,
     cparams.nextn_layer_offset (layer n_layer + offset, 0 <= offset < n_nextn as M:277-279 asserts). prec: module
-    docstring."""
+    docstring. replay: place the ubatch in these slots (place(); the N21 patch's slot replay)."""
     if not 0 <= offset < max(1, hp.get("n_nextn", 1)):
         raise ValueError(f"nextn_layer_offset {offset} out of range [0, {hp.get('n_nextn')})")
     il = hp["n_layer"] + offset
@@ -529,7 +550,7 @@ def mtp_forward_chunk(tokens, h_prev, W, hp, cache=None, pos=None, offset=0, pre
     if cache is None:
         slots, pos = None, np.arange(len(tokens))
     else:
-        slots, pos = place(cache, len(tokens))
+        slots, pos = place(cache, len(tokens), replay)
         cache["tokens"] = cache["tokens"] + tokens
     emb = w.get("nextn.embed_tokens.weight", W["token_embd.weight"])
     e = rms_norm(np.asarray(emb)[tokens], eps, w["nextn.enorm.weight"])
@@ -568,12 +589,27 @@ def mtp_ubatches(tokens, h_rows, W, hp, cache, n_ubatch, offset=0, prec=None, sn
     return outs
 
 
-def mtp_process(tokens, h_rows, W, hp, cache, n_ubatch, prec=None, snap=False):
+def mtp_process(tokens, h_rows, W, hp, cache, n_ubatch, prec=None, snap=False, fixed=False):
     """common/speculative.cpp process() for one target call on the MTP context (module docstring): returns
-    {head: [ubatch results]}. One head: a plain call. H > 1: every head after seq_rm from the call's first position."""
+    {head: [ubatch results]}. One head: a plain call. H > 1: every head after seq_rm from the call's first position.
+    fixed (N21, patches/llama.cpp/0001-mtp-heads-slot-replay.patch, process_heads_once): the call in chunks of n_ubatch
+    tokens; per chunk every head after seq_rm from the chunk's first position, heads 1 .. H-1 in the cells head 0 was
+    given (slot replay), so every head layer holds the K/V of every position under the cell that holds it."""
     n_heads = max(1, hp.get("n_nextn", 1))
     p0 = len(cache["tokens"])
     out = {}
+    if fixed and n_heads > 1:
+        out = {head: [] for head in range(n_heads)}
+        h_rows = np.asarray(h_rows, dtype=np.float64)
+        for j in range(0, len(tokens), n_ubatch):
+            rep = None
+            for head in range(n_heads):
+                cache_truncate(cache, p0 + j)
+                o = mtp_forward_chunk(tokens[j:j + n_ubatch], h_rows[j:j + n_ubatch], W, hp, cache, offset=head,
+                                      prec=prec, replay=rep)
+                rep = o["slots"]
+                out[head].append(_snap(o, cache, hp, head) if snap else o)
+        return out
     for head in range(n_heads):
         if n_heads > 1:
             cache_truncate(cache, p0)
