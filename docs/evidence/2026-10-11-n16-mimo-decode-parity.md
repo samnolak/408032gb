@@ -31,8 +31,10 @@ was printed from the pinned checkout (section "Source lines").
 ## What the pins have (CONFIRMED from the source unless labelled)
 
 * **The MTP graph exists at both pins.** `build_arch_graph` returns `graph_mtp` for `LLM_GRAPH_TYPE_DECODER_MTP`
-  (M:86-91), `graph_mtp` is M:272-407; at 79e2e74 the file differs only in the loader's NextN flags (`nextn_flags`) and
-  in naming the final hidden state (diff hunks below). The block: e = rms_norm(tok_embd[token]) * enorm, h =
+  (M:86-91), `graph_mtp` is M:272-407; at 79e2e74 the file differs in the loader's NextN flags (`nextn_flags`) and the
+  tail around h_nextn: h_nextn is emitted unconditionally and the output-row cropping moves into `crop_before_nextn` /
+  `crop_after_nextn` (hunks 104d97, 106d98, 188c180, 239c231, 244-250; diff list below; the bit-identical dumps of
+  the "Pin dump comparison" below show the move has no effect on these runs). The block: e = rms_norm(tok_embd[token]) * enorm, h =
   rms_norm(h_prev) * hnorm, eh_proj [e ; h], one attention layer (fused `attn_qkv` required, M:285), value scale, a dense
   FFN (required, M:375), the head norm from shared_head_norm, else layer_out_norm, else output_norm (M:392-394), the LM
   head. h_prev is the target's **pre-norm** last hidden state (M:244-246; GLM's h_nextn is post-norm, N9 finding 5).
@@ -49,7 +51,7 @@ was printed from the pinned checkout (section "Source lines").
   `llama_memory_seq_rm` frees every cell of a position >= p in both caches and returns true (KVI:116-117, KV:410-419,
   448).
 * **mimo2 never reads `expert_weights_scale`** (M:3-23 reads no such key; the hparams default 0 makes build_moe_ffn skip
-  the scale, src/llama-graph.cpp:2171): G1 finding 4's UNKNOWN about the real GGUF's key does not matter for llama.cpp.
+  the scale, src/llama-graph.cpp:2171@ec7630a, :2211@79e2e74): G1 finding 4's UNKNOWN about the real GGUF's key does not matter for llama.cpp.
   The value scale (`attention.value_scale`, read only if != 1, M:14-17) multiplies attn_out after W_o (M:182-185).
 * **MXFP4 on the CPU** (both pins; every cited file identical or changed only outside the cited lines, diff below):
   block_mxfp4 = 1 E8M0 byte + 16 bytes of nibbles for 32 weights, weight j in the low nibble of qs[j], j + 16 in the
@@ -139,7 +141,7 @@ quantization emulated; without it every product must be off by more than TOL_OP 
    p - n_swa + 1 .. p - 1, and a cache of C cells that has wrapped holds only the last C positions, so the depth must
    be at most C - n_swa + 1 (here 249) (PROVISIONAL derivation from the placement rule, consistent with the
    property test `test_deep_rollback_loses_the_window`). For a real MiMo-V2.6-Flash file with a 128-token window and
-   n_ubatch 512, C = 768 (PROVISIONAL: n_swa 128 is the value docs/reassessment/research/R1-models.md:41 reports for
+   n_ubatch 512, C = 768 (one sequence, n_ctx >= 640; PROVISIONAL: n_swa 128 is the value docs/reassessment/research/R1-models.md:41 reports for
    the V2.6 recipe; the GGUF value is UNKNOWN until a real header is read), far above any draft length.
 5. **MTP.** The block matches (A) and (B) in all 32 graphs of the MTP context (28 process graphs and 4 draft steps),
    including its own SWA cache wrapping at 256 (asserted), the head norm `layer_output_norm` (the middle of the
@@ -822,9 +824,10 @@ MTP dump test only, M2 also by the MTP property test.
 ## Source lines
 
 The pins, file by file (in `<S>`; every line cited above lies outside the hunks of a differing file: mimo2.cpp's hunks
-are the loader flags and the h_nextn naming; llama-kv-cache.cpp's are the attention rotation of quantized KV caches
+are the loader flags and the tail around h_nextn (h_nextn emitted unconditionally, output-row cropping moved into
+`crop_before_nextn` / `crop_after_nextn`); llama-kv-cache.cpp's are the attention rotation of quantized KV caches
 (312-364), the cell token for PLE / 2-D positions (1141), the rotation tensors (1450-1483), a PLE predecessor resolver
-(1864-1892) and the state I/O (2251-2581), none in find_slot (898-1095), apply_ubatch's placement, seq_rm (382-420),
+(1864-1892) and the state I/O (2251-2581), none in find_slot (898-1095), apply_ubatch's placement, seq_rm (382-449),
 get_n_kv (1260-1274) or the mask (1566-1716); ops.cpp's are after the soft_max lines 5896-5912; ggml-cpu.c, repack.cpp
 and ggml-quants.c change only outside the cited lines):
 
