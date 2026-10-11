@@ -1,7 +1,8 @@
 """N14 (gap 6 of docs/reassessment/CORRECTNESS.md): chat templates, tool calls and prefix stability (B3) of the vendored
 GLM-5.3-Flash and Qwen3.8-Flash-Next chat templates (third_party/hf/*-chat, pinned revisions in PIN.json).
 
-Without anything built (jinja2 only, which is in the CI image; skipped cleanly without it):
+Without anything built (jinja2 only: installed by the `deps` step of .github/workflows/ci.yml cpu-parity; the
+jinja2 classes skip cleanly where it is missing):
   VendoredFiles        the files match SHA256SUMS; the model facts of config.json quoted in the evidence
   TemplateProperties   the templates rendered the way transformers renders them (tools/chattmpl/hf_render.py):
                        prefix stability of the agent session (tools/chattmpl/analysis.py) with the template defaults
