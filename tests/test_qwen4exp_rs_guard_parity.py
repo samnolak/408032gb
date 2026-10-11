@@ -1,7 +1,7 @@
 """N20: the recurrent rollback guard (patches/llama.cpp/<pin>/0001-recurrent-rollback-guard.patch) on llama.cpp qwen4exp,
 against ref/qwen4exp.py MultiSeqContext (guard=True with QWEN4EXP_RS_GUARD=1, else the pin's own behaviour).
 
-The three runs of tools/tinygen/qwen4exp_rs_guard_plans.py go through the N19 machinery unchanged
+The four runs of tools/tinygen/qwen4exp_rs_guard_plans.py go through the N19 machinery unchanged
 (tests/test_qwen4exp_multiseq_parity.py: every graph row by row against (A) each sequence alone and (B) the cell model,
 cross-sequence leakage, the recurrent state each sequence reads, seq_rm results and positions, divergences), with the
 expectations of the plans module: a rollback onto a snapshot plane the last write did not reach is refused by the

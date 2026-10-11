@@ -6,12 +6,15 @@ tests/test_qwen4exp_rs_guard_parity.py. Same step and token format as tools/tiny
 unpatched llama.cpp does at each pin (ok_ec / ok_r1, diverge["ec"] / ["r1"]: sequence -> first call whose graph reads a
 recurrent row of another prefix) and what the guard patch does (guard_ok: the "r" steps' results in order,
 diverge["guard"], guard_log: how many of its refusals come from the patch's new plane rule, which logs "refusing a
-rollback"). The three runs cover the patch's pieces beyond N19's stale / cp_pending / cp_shared_rb runs:
+rollback"). The four runs cover the patch's pieces beyond N19's stale / cp_pending / cp_shared_rb runs:
   last_call         a rollback of exactly the tokens of the last call (plane n of an n-token ubatch is not written),
                     then the deepest exact rollbacks (n - 1 after n tokens, n_rs_seq after n_rs_seq + 1) still accepted
   extra_cell        a pending rollback applied by the extra-row copy (src/llama-graph.cpp build_rs) leaves plane 0 only:
                     a second rollback of that sequence before it decodes reads a plane of another row
   cp_pending_order  seq_cp while the source's rollback is pending, the copy decodes before the source
+  cp_extra          (4 sequences) the shared cell of such a copy applied as a moved extra cell: every sharer's pending
+                    rollback must be consumed (the patch's s_copy hunk; unpatched llama.cpp gets it right because the
+                    copy never had the index)
 A copy INTO a sequence with a pending rollback (the patch also clears that index) has no run: llama.cpp's one-stream KV
 seq_cp keeps the destination's own cells, so a caller clears the destination first (llama-server: seq_rm(dst, -1, -1)
 before seq_cp), and that whole-sequence seq_rm already resets the index; the oracle unit tests cover it
@@ -65,6 +68,18 @@ RUNS = {
         ("d", [(0, 1), (1, 1)]),
     ], doc="seq_cp while a rollback is pending, the copy decoding before the source",
         diverge={"ec": {1: 4}, "r1": {1: 4}, "guard": {}}),
+    # from the N20 audit (plan audit_cp_extra): without the s_copy hunk of the patch, the handed-over rollback of the
+    # second sharer survives the extra-row copy and seq 3 reads plane 2 of a row that holds another sequence's state
+    "cp_extra": dict(np=4, kvu=1, rs=3, ub=512, steps=[
+        ("d", [(0, 6), (1, 6, 2), (2, 6), (3, 6)]),
+        ("r", 1, 2, True, True),                          # seq 1 pending 2 (exact: 2 < 6 tokens)
+        ("x", 3),                                         # as llama-server: clear the destination, then copy
+        ("c", 1, 3),                                      # seq 3 shares seq 1's cell; with the patch both pending 2
+        ("d", [(0, 3), (2, 3)]),                          # the gather swaps the shared cell out: an extra cell whose
+                                                          # rows moved (src0 != i); the extra-row copy applies the rollback
+        ("d", [(1, 4), (2, 4), (0, 4), (3, 4)]),          # both sharers continue from the rolled-back state
+    ], doc="seq_cp of a sequence with a pending rollback, the shared cell applied as a moved extra cell",
+        diverge={"ec": {}, "r1": {}, "guard": {}}),
 }
 
 

@@ -81,6 +81,23 @@ class GuardRules(unittest.TestCase):
             rc2.seq_cp(0, 1)                                     # a source without a cell: the copy is empty
             self.assertEqual((rc2.tail[1], rc2.rs_idx[1]), (-1, 0 if guard else 2))
 
+    def test_the_extra_row_copy_consumes_every_sharers_rollback(self):
+        """N20 audit (plan cp_extra): after seq_cp both sharers hold the pending rollback; when the shared cell is an
+        extra cell whose rows moved, its plane 0 receives the rolled-back state for both, so both indices must go."""
+        rc = self.rc(True, size=4)
+        decoded(rc, [0, 1, 2, 3], 6, {s: 0 for s in range(4)})
+        self.assertTrue(rc.seq_rm(1, 4, -1))                     # seq 1 pending 2
+        self.assertTrue(rc.seq_rm(3, -1, -1))
+        rc.seq_cp(1, 3)
+        self.assertEqual((rc.tail[3], rc.rs_idx[1], rc.rs_idx[3]), (rc.tail[1], 2, 2))
+        rows = decoded(rc, [0, 2], 3, {0: 6, 2: 6})
+        c = rc.tail[1]
+        self.assertEqual((c, rc.tail[3], rc.src0[c]), (2, 2, 1), "the shared cell moved to 2, its rows are row 1")
+        self.assertEqual(rows[c - rc.head], (2, 1), "the extra row applies plane 2 of row 1")
+        self.assertEqual((rc.rs_idx[1], rc.rs_idx[3], rc.rs_n[c]), (0, 0, 1))
+        rows = decoded(rc, [1, 3], 4, {1: 4, 3: 4})              # both read plane 0 (copy on write for one of them)
+        self.assertEqual(sorted(pl for pl, _ in rows[:2]), [0, 0])
+
     def test_the_extra_row_copy_leaves_plane_0_only(self):
         for guard in (False, True):
             rc = self.rc(guard, size=3)

@@ -1041,7 +1041,8 @@ class RecurrentCells:
     refuse_shared: the R1 pin refuses a partial rollback of a cell that several sequences hold (RC:202-205@79e2e74).
     guard: the N20 patch (patches/llama.cpp/<pin>/0001-recurrent-rollback-guard.patch, both pins): rs_n[c] = the
     snapshot planes of row c hold (set by find_slot: a used cell's rows are row c outside find_slot), a rollback onto a
-    plane >= rs_n is refused, seq_cp hands the source's pending rollback to the destination; the ec7630a patch also
+    plane >= rs_n is refused, seq_cp hands the source's pending rollback to the destination, s_copy resets the pending
+    rollback of every sequence of the cell it reads for; the ec7630a patch also
     refuses a rollback of a shared cell (refuse_shared must be set with guard)."""
 
     def __init__(self, size, n_rs_seq, refuse_shared, guard=False):
@@ -1197,7 +1198,8 @@ class RecurrentCells:
 
     def s_copy(self):
         """RC:1364-1381 for i = 0 .. n-1, in that order (llm_graph_input_mem_hybrid set_input): the row cell head + i
-        reads, (plane, cell); a pending rollback of the cell's first sequence picks the plane, and is reset."""
+        reads, (plane, cell); a pending rollback of the cell's first sequence picks the plane, and is reset. guard (the N20
+        patch): the pending rollback of every sequence of the cell is reset (after seq_cp the sharers hold the same one)."""
         out = []
         for i in range(self.n):
             c = self.head + i
@@ -1205,7 +1207,8 @@ class RecurrentCells:
             if self.n_rs_seq > 0 and self.seqs[c]:
                 seq = min(self.seqs[c])
                 plane = self.rs_idx[seq]
-                self.rs_idx[seq] = 0
+                for s in (self.seqs[c] if self.guard else (seq,)):
+                    self.rs_idx[s] = 0
             out.append((plane, self.src0[c]))
         return out
 

@@ -3,11 +3,11 @@
 # on llama.cpp qwen4exp. Applies the patch to a copy of the pinned checkout (patches/llama.cpp/apply.sh, at
 # <build dir>-src, reused when it is already that copy), builds tools/dump/dump_tensors.cpp against it, runs the N2/N6
 # tiny model (tools/tinygen/qwen4exp_tiny.py, seed 0) through the nine N19 plans (tools/tinygen/qwen4exp_multiseq_plans.py)
-# and the three N20 plans (tools/tinygen/qwen4exp_rs_guard_plans.py) exactly as run_parity_qwen4exp_multiseq.sh does,
+# and the four N20 plans (tools/tinygen/qwen4exp_rs_guard_plans.py) exactly as run_parity_qwen4exp_multiseq.sh does,
 # then the tests with QWEN4EXP_RS_GUARD=1:
 #   tests.test_qwen4exp_multiseq_parity   N19's 63 dump tests; the guard changes only stale (both rollbacks refused, no
 #                                         divergence), cp_pending (no divergence) and cp_shared_rb at ec7630a (refused)
-#   tests.test_qwen4exp_rs_guard_parity   the three N20 runs (7 dump tests each) and the guard's refusal messages
+#   tests.test_qwen4exp_rs_guard_parity   the four N20 runs (7 dump tests each) and the guard's refusal messages
 #   tests.test_qwen4exp_multiseq_ref, tests.test_qwen4exp_rs_guard_ref   the oracle's own properties (numpy only)
 # QWEN4EXP_RS_GUARD_MODE=upstream builds against the checkout as given (it must not carry the patch) and runs the same
 # plans and tests without QWEN4EXP_RS_GUARD: the tests then expect the pin's own (silently wrong) behaviour.
