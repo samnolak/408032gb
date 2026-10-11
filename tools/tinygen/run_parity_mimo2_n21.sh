@@ -17,7 +17,8 @@
 #   fix/fa-mtp3        the same at the R1 default precision (-ctk f16 -ctv f16 -fa on)
 #   spec-off/<plan>    the patched common/speculative.cpp with LLAMA_SPEC_MTP_NO_SLOT_REPLAY=1 (the upstream order)
 # -> tests/test_mimo2_mtp_fix_parity.py (the fixed runs against ref/mimo2.py's fixed process and the full-sequence
-# oracle; spec runs bit for bit against the replay of the same order), tests/test_mimo2_mtp_fix_ref.py (numpy only).
+# oracle; spec runs bit for bit against the replay of the same order), tests/test_mimo2_mtp_fix_ref.py (numpy only),
+# tests/test_gguf_mtp_heads.py (tools/gguf_mtp_heads.py, the one-head workaround, on the tiny models).
 # Usage:
 #   tools/tinygen/run_parity_mimo2_n21.sh <llama.cpp checkout: @ec7630a, @79e2e74, or a copy with the patch> [build dir]
 # MIMO2_N21_WORK=<dir> keeps the artifacts in <dir> instead of a fresh temporary directory.
@@ -71,5 +72,5 @@ fi
 echo "{\"patched\": $PATCHED}" > "$WORK/n21/n21.json"
 echo "patched: $PATCHED"
 export PARITY_LLAMA_COMMIT; PARITY_LLAMA_COMMIT=$(git -C "$LLAMA" rev-parse HEAD 2>/dev/null || echo unknown)
-cd "$ROOT" && MIMO2_N21_DUMP="$WORK/n21" python3 -m unittest tests.test_mimo2_mtp_fix_parity tests.test_mimo2_mtp_fix_ref -v
+cd "$ROOT" && MIMO2_N21_DUMP="$WORK/n21" python3 -m unittest tests.test_mimo2_mtp_fix_parity tests.test_mimo2_mtp_fix_ref tests.test_gguf_mtp_heads -v
 echo "artifacts: $WORK"

@@ -35,13 +35,15 @@ on:
             tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py, tests/test_mimo2_*.py, tests/test_mxfp4_ref.py,
             tests/f16fa.py, tests/test_fattn_ref.py, tests/test_fattn_sinks_ref.py, tests/test_quant_ref.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/ik/**, tools/engines/pins.json, tools/ci/**,
-            patches/llama.cpp/**, .github/workflows/parity-r1-pin.yml]
+            patches/llama.cpp/**, tests/test_gguf_mtp_heads.py, tools/gguf_mtp_heads.py,
+            .github/workflows/parity-r1-pin.yml]
   pull_request:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
             tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py, tests/test_mimo2_*.py, tests/test_mxfp4_ref.py,
             tests/f16fa.py, tests/test_fattn_ref.py, tests/test_fattn_sinks_ref.py, tests/test_quant_ref.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/ik/**, tools/engines/pins.json, tools/ci/**,
-            patches/llama.cpp/**, .github/workflows/parity-r1-pin.yml]
+            patches/llama.cpp/**, tests/test_gguf_mtp_heads.py, tools/gguf_mtp_heads.py,
+            .github/workflows/parity-r1-pin.yml]
 concurrency:
   group: parity-r1-pin-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
