@@ -4,8 +4,8 @@
 # <work dir> holds llama-<p>-guard (patched copy, patches/llama.cpp/apply.sh), build-<p>-guard (its build),
 # build-<p>-up (build of the unpatched checkout). Steps:
 #   1 the N20 step through tools/ci/check_unittest.py, patched (as CI runs it, the copy and build dir given)
-#   2 the N20 driver in upstream mode (the unpatched checkout): the same 13 plans, the pin's own behaviour expected
-#   3 byte identity of the dumps of the 13 plans, patched vs upstream
+#   2 the N20 driver in upstream mode (the unpatched checkout): the same 13 plans (9 N19 + 4 N20), the pin's own behaviour expected
+#   3 byte identity of the dumps of the 13 plans (9 + 4), patched vs upstream
 #   4 earlier steps on the patched build through the checker: n2-qwen4exp, n6-qwen4exp-decode, n9-glm5next-decode
 #   5 the N19 step unchanged on the patched build (no QWEN4EXP_RS_GUARD): which tests fail is the guard's effect
 set -uo pipefail
@@ -41,12 +41,12 @@ echo "== 4 earlier steps on the patched build (its copy as the checkout) through
 for st in n2-qwen4exp:run_parity_qwen4exp.sh n6-qwen4exp-decode:run_parity_qwen4exp_decode.sh \
           n9-glm5next-decode:run_parity_glm5next_decode.sh; do
   s=${st%%:*}; drv=${st##*:}
-  rm -rf "$W/tmp"; mkdir -p "$W/tmp"
-  step "$s patched $P" "$W/$s-$P-guard.log" env TMPDIR="$W/tmp" GLM5NEXT_DECODE_WORK="$W/tmp/w" PYTHONPATH="$WT" \
+  rm -rf "$W/tmp-$P"; mkdir -p "$W/tmp-$P"
+  step "$s patched $P" "$W/$s-$P-guard.log" env TMPDIR="$W/tmp-$P" GLM5NEXT_DECODE_WORK="$W/tmp-$P/w" PYTHONPATH="$WT" \
     python3 "$WT/tools/ci/check_unittest.py" --step "$s" --checkout "$COPY" -- "$WT/tools/tinygen/$drv" "$COPY" "$B"
   tail -n 1 "$W/$s-$P-guard.log"
 done
-rm -rf "$W/tmp"
+rm -rf "$W/tmp-$P"
 echo "== 5 the N19 step unchanged on the patched build (QWEN4EXP_RS_GUARD unset)"
 rm -rf "$W/w19-$P-guard"
 step "n19 on the patched build $P" "$W/n19-$P-guard.log" env -u QWEN4EXP_RS_GUARD QWEN4EXP_MULTISEQ_WORK="$W/w19-$P-guard" \

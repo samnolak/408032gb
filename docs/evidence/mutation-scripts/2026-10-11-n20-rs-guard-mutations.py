@@ -3,7 +3,7 @@
 of its tests.
 
 C* mutants are real llama.cpp builds: the patched copy's src/llama-memory-recurrent.{h,cpp} is reset to the pin plus
-the patch, one hunk of the patch is disabled (C0: the whole patch reverted), dump-tensors is rebuilt, the 13 plans
+the patch, one hunk of the patch is disabled (C0: the whole patch reverted), dump-tensors is rebuilt, the 13 plans (9 N19 + 4 N20)
 (tools/tinygen/qwen4exp_multiseq_plans.py and qwen4exp_rs_guard_plans.py) are dumped again exactly as
 tools/tinygen/run_parity_qwen4exp_rs_guard.sh does, and the dump tests run with QWEN4EXP_RS_GUARD=1. At the end the
 copy is reset to the patch and rebuilt, so the build dir is the patched build again.
@@ -42,6 +42,9 @@ C_MUTANTS = [
     ("C6 seq_rm: a rollback of a shared cell accepted (the ec7630a hunk; upstream code at 79e2e74)",
      "                if (cell.seq_id.size() > 1) {\n                    return false;",
      "                if (false) {\n                    return false;"),
+    ("C7 s_copy: only the cell's first sequence's pending rollback reset (N20 audit FAIL 1)",
+     "            for (const llama_seq_id s : mem->cells[cell_idx].seq_id) {\n                if (s >= 0 && (size_t) s < mem->rs_idx.size()) {\n                    mem->rs_idx[s] = 0;",
+     "            for (const llama_seq_id s : {seq}) {\n                if (s >= 0 && (size_t) s < mem->rs_idx.size()) {\n                    mem->rs_idx[s] = 0;"),
 ]
 R = "ref/qwen4exp.py"
 T = "tests/test_qwen4exp_multiseq_parity.py"
@@ -58,6 +61,8 @@ P_MUTANTS = [
     ("P4 oracle: a ubatch cell gets 1 + n_rs_seq planes", R,
      "                self.rs_n[i] = min(n_seq_tokens, 1 + self.n_rs_seq)",
      "                self.rs_n[i] = 1 + self.n_rs_seq"),
+    ("P6 oracle: s_copy resets only the first sharer's pending rollback", R,
+     "                for s in (self.seqs[c] if self.guard else (seq,)):", "                for s in (seq,):"),
     ("P5 tests: QWEN4EXP_RS_GUARD ignored (the pin's own behaviour expected)", T,
      'GUARD = os.environ.get("QWEN4EXP_RS_GUARD") == "1"', "GUARD = False"),
     ("T1 plans: stale expected to accept both rollbacks with the guard", P19,

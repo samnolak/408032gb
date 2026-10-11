@@ -743,6 +743,154 @@ llama-ec7630a: ec7630a640789c393694fb194f1bbbf0369fc62d, 0 changed files
 3794	                        }
 == speculative-simple ignores its partial seq_rm result: examples/speculative-simple/speculative-simple.cpp:331-331@79e2e74
 331	            llama_memory_seq_rm(llama_get_memory(ctx_tgt), seq_id, n_past, -1);
+== CUDA delta-net snapshot slots: ggml/src/ggml-cuda/gated_delta_net.cu:154-158@79e2e74
+154	        if constexpr (keep_rs_t) {
+155	            // snapshot slot mapping: slot 0 = most recent state, slot s = s tokens back.
+156	            // When n_tokens < K only slots 0..n_tokens-1 are written; older slots are caller-owned.
+157	            const int target_slot = (int) n_tokens - 1 - t;
+158	            if (target_slot >= 0 && target_slot < K) {
+== split_seq: one sequence set per ubatch, up to n_ubatch tokens: src/llama-batch.cpp:774-813@79e2e74
+774	llama_ubatch llama_batch_allocr::split_seq(uint32_t n_ubatch) {
+775	    // find the first unused token
+776	    uint32_t cur_idx = 0;
+777	    while (cur_idx < used.size() && used[cur_idx]) {
+778	        ++cur_idx;
+779	    }
+780	
+781	    // we are done
+782	    if (cur_idx >= used.size()) {
+783	        return {};
+784	    }
+785	
+786	    // this is the starting sequence set
+787	    // we allow adding tokens only if their sequence set is a subset of the current sequence set
+788	    auto cur_seq_set = seq_set[cur_idx];
+789	
+790	    std::vector<int32_t> idxs;
+791	
+792	    while (true) {
+793	        idxs.push_back(cur_idx);
+794	
+795	        used[cur_idx] = true;
+796	        ++n_used;
+797	
+798	        if (idxs.size() >= n_ubatch) {
+799	            break;
+800	        }
+801	
+802	        do {
+803	            ++cur_idx;
+804	        } while (cur_idx < get_n_tokens() && (used[cur_idx] || ((cur_seq_set & seq_set[cur_idx]) != seq_set[cur_idx])));
+805	
+806	        if (cur_idx == get_n_tokens()) {
+807	            break;
+808	        }
+809	
+810	        cur_seq_set = seq_set[cur_idx];
+811	    }
+812	
+813	    return ubatch_add(idxs, 1, true);
+== embeddings (output_all) set per batch from the batched slot's task: tools/server/server-context.cpp:3215-3215@79e2e74
+3215	            llama_set_embeddings(ctx_tgt, slot_batched->need_embd());
+== need_embd: decision tasks with markers / order: tools/server/server-task.h:215-224@79e2e74
+215	    bool need_embd() const {
+216	        switch (type) {
+217	            case SERVER_TASK_TYPE_EMBEDDING:
+218	            case SERVER_TASK_TYPE_RERANK:
+219	                return true;
+220	            case SERVER_TASK_TYPE_DECISION:
+221	                return !decision.markers.empty() || !decision.order.empty();
+222	            default:
+223	                return false;
+224	        }
+== slots batch together only with the same task type: tools/server/server-context.cpp:473-484@79e2e74
+473	    bool can_batch_with(server_slot & other_slot) const {
+474	        GGML_ASSERT(task);
+475	
+476	        // a joint decision head reads the whole batch
+477	        if (!task->decision.order.empty() || !other_slot.task->decision.order.empty()) {
+478	            return false;
+479	        }
+480	
+481	        return task->type == other_slot.task->type
+482	            && inp_embd.size() == other_slot.inp_embd.size()
+483	            && are_lora_equal(lora, other_slot.lora);
+484	    }
+== main-repo sidecars only for a requested type: common/arg.cpp:396-399@79e2e74
+396	    opts.download_mtp    = spec_type_draft_mtp;
+397	    opts.download_eagle3 = spec_type_draft_eagle3;
+398	    opts.download_dflash = spec_type_draft_dflash;
+399	    opts.download_dspark = spec_type_draft_dspark;
+== speculative type inferred from a draft model: common/arg.cpp:546-573@79e2e74
+546	    // infer the speculative type from the sidecar shipped by the draft repo when none is requested
+547	    if (spec_types_is_default(params)) {
+548	        if (!plan_spec.mtp.local_path.empty()) {
+549	            params.speculative.types = { COMMON_SPECULATIVE_TYPE_DRAFT_MTP };
+550	            plan_spec.dspark = {};
+551	            plan_spec.dflash = {};
+552	            plan_spec.eagle3 = {};
+553	        } else if (!plan_spec.dspark.local_path.empty()) {
+554	            // dspark outranks dflash, its sidecar carries the extra Markov head
+555	            params.speculative.types = { COMMON_SPECULATIVE_TYPE_DRAFT_DSPARK };
+556	            plan_spec.dflash = {};
+557	            plan_spec.eagle3 = {};
+558	        } else if (!plan_spec.dflash.local_path.empty()) {
+559	            params.speculative.types = { COMMON_SPECULATIVE_TYPE_DRAFT_DFLASH };
+560	            plan_spec.eagle3 = {};
+561	        } else if (!plan_spec.eagle3.local_path.empty()) {
+562	            params.speculative.types = { COMMON_SPECULATIVE_TYPE_DRAFT_EAGLE3 };
+563	        }
+564	    }
+565	
+566	    // infer the speculative type from the draft GGUF metadata when none is requested
+567	    // note: reads only the first split - sharded drafts need an explicit --spec-type
+568	    if (spec_types_is_default(params) && !params.speculative.draft.mparams.path.empty()) {
+569	        const auto types_gguf = common_speculative_types_from_gguf(params.speculative.draft.mparams.path);
+570	        if (!types_gguf.empty()) {
+571	            params.speculative.types = types_gguf;
+572	        }
+573	    }
+== -hfd draft repo: common/arg.cpp:3995-4000@79e2e74
+3995	        {"--spec-draft-hf", "-hfd", "-hfrd", "--hf-repo-draft"}, "<user>/<model>[:quant]",
+3996	        "Same as --hf-repo, but for the draft model (default: unused)",
+3997	        [](common_params & params, const std::string & value) {
+3998	            params.speculative.draft.mparams.hf_repo = value;
+3999	        }
+4000	    ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SPEC_DRAFT_HF_REPO"));
+== -md draft model: common/arg.cpp:4276-4282@79e2e74
+4276	        {"--spec-draft-model", "-md", "--model-draft"}, "FNAME",
+4277	        "draft model for speculative decoding (default: unused)",
+4278	        [](common_params & params, const std::string & value) {
+4279	            params.speculative.draft.mparams.path = value;
+4280	            params.speculative.draft.mparams.hf_file = value; // will be used if --spec-draft-hf is set
+4281	        }
+4282	    ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI, LLAMA_EXAMPLE_IMATRIX}).set_env("LLAMA_ARG_SPEC_DRAFT_MODEL"));
+== presets with a draft model: common/arg.cpp:4652-4676@79e2e74
+4652	    add_opt(common_arg(
+4653	        {"--fim-qwen-7b-spec"},
+4654	        string_format("use Qwen 2.5 Coder 7B + 0.5B draft for speculative decoding (note: can download weights from the internet)"),
+4655	        [](common_params & params) {
+4656	            params.model.hf_repo = "ggml-org/Qwen2.5-Coder-7B-Q8_0-GGUF";
+4657	            params.model.hf_file = "qwen2.5-coder-7b-q8_0.gguf";
+4658	            params.speculative.draft.mparams.hf_repo = "ggml-org/Qwen2.5-Coder-0.5B-Q8_0-GGUF";
+4659	            params.speculative.draft.mparams.hf_file = "qwen2.5-coder-0.5b-q8_0.gguf";
+4660	            params.port = 8012;
+4661	            params.n_ubatch = 1024;
+4662	            params.n_batch = 1024;
+4663	            params.n_ctx = 0;
+4664	            params.n_cache_reuse = 256;
+4665	        }
+4666	    ).set_examples({LLAMA_EXAMPLE_SERVER}));
+4667	
+4668	    add_opt(common_arg(
+4669	        {"--fim-qwen-14b-spec"},
+4670	        string_format("use Qwen 2.5 Coder 14B + 0.5B draft for speculative decoding (note: can download weights from the internet)"),
+4671	        [](common_params & params) {
+4672	            params.model.hf_repo = "ggml-org/Qwen2.5-Coder-14B-Q8_0-GGUF";
+4673	            params.model.hf_file = "qwen2.5-coder-14b-q8_0.gguf";
+4674	            params.speculative.draft.mparams.hf_repo = "ggml-org/Qwen2.5-Coder-0.5B-Q8_0-GGUF";
+4675	            params.speculative.draft.mparams.hf_file = "qwen2.5-coder-0.5b-q8_0.gguf";
+4676	            params.port = 8012;
 == ec7630a seq_rm rollback rule (no shared-cell refusal): src/llama-memory-recurrent.cpp:200-215@ec7630a
 200	            // partial rollback via per-token snapshot index (bounded by n_rs_seq)
 201	            if (0 < p0 && p0 <= cell.pos && p1 > cell.pos) {
