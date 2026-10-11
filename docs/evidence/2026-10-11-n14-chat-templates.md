@@ -13,8 +13,9 @@ only that substitution. No GPU, no performance claims.
 1. **Rendering, CONFIRMED (section 3).** llama-server's own Jinja engine (`--jinja --chat-template-file`, `POST
    /apply-template`) renders both vendored templates byte for byte like jinja2 configured as transformers 5.16.0 does,
    for system + user, multi-turn, tool calls (parallel, nested objects, numbers, booleans, null, non-ASCII), tool results,
-   a `tools` list, `reasoning_content`, `add_generation_prompt` true and false, and every switch the templates read
-   (switches on the reasoning, mixed-reasoning and agent-session conversations) —
+   a `tools` list, `reasoning_content`, `add_generation_prompt` true and false, and every reasoning switch
+   (`reasoning_effort`, `enable_thinking`, `clear_thinking`/`preserve_thinking`, on the reasoning, mixed-reasoning and
+   agent-session conversations; `add_vision_id` and image/video content NOT RUN) —
    with three exceptions, all reproduced by the tests:
    (a) **GLM, a llama.cpp engine bug:** a `{% set %}` inside a `{% for %}` body survives into the next iteration in
    llama.cpp's engine (`common/jinja/runtime.cpp:485,601-618@79e2e74`: one `scope` for all iterations); the GLM template
@@ -45,7 +46,8 @@ only that substitution. No GPU, no performance claims.
    server fell back to `prompt − 4 − n_ubatch` (1420 / 2246). Cost: the whole previous round (every assistant turn, tool
    result and its reasoning since the previous user message) is processed again at each new user message.
 4. **Full re-prefill, CONFIRMED live (section 5):** changing `reasoning_effort` between two requests of one session
-   (both templates put it at the very start: GLM line 3, Qwen lines 46-56, 80-85; shared prefix 40 / 46 bytes) and, on
+   (both templates put it at the very start: GLM line 3, Qwen lines 46-56 and 58-60 (with tools) / 80-85 (without);
+   shared prefix 40 / 46 bytes) and, on
    Qwen, adding a tool (the tools are in the first system block; shared 1748 bytes) gave `cache_n 0` and `forcing full
    prompt re-processing due to lack of cache data`. Toggling `enable_thinking` on Qwen changes byte 19 (PROVISIONAL that it
    forces a full re-prefill: same mechanism, not run live). GLM ignores `enable_thinking` entirely (finding 9).
@@ -83,7 +85,8 @@ only that substitution. No GPU, no performance claims.
    silently: `medium` gives `Max`) and `clear_thinking`; it does **not** read `enable_thinking` — `--reasoning off`,
    `chat_template_kwargs.enable_thinking=false` and `reasoning_effort: "none"` (which llama-server maps to
    `enable_thinking=false`, `tools/server/server-common.cpp:1417-1426`) leave the prompt unchanged and still end in
-   `<|assistant|><think>`. Qwen reads `enable_thinking` (false → `<think>\n\n</think>\n\n`, no reasoning instructions),
+   `<|assistant|><think>` (the `--reasoning off` server and the body `reasoning_effort: "none"` were added to the render
+   section after the audit: `same_as_server_default=True` on every GLM row, `False` on every Qwen row, section 12). Qwen reads `enable_thinking` (false → `<think>\n\n</think>\n\n`, no reasoning instructions),
    `reasoning_effort` (`xhigh` default, `medium` = no instructions, `low`; anything else → exception), `preserve_thinking`
    and `add_vision_id`. Neither template injects a date: no `strftime_now`, `datetime`, `date_string` (llama.cpp passes
    `datetime` / `date_string`, `common/chat.cpp:1052-1060`, unused). The R1 example `EXTRA_BODY` `{"chat_template_kwargs":
@@ -121,8 +124,9 @@ the survivor is an equivalent mutation (section 10).
 Why a bytes-only vocabulary: with N11's `--text-vocab` (merges `" a".." z"`, `"\n\n"`) a grammar-forced turn may be
 sampled as different tokens than the same bytes tokenize to in the next prompt; an exploratory run on those models
 reused only up to `prompt − 4` at every request even where the text extended exactly (the generated tokens differed
-from the re-tokenized ones). That measures BPE, not the template; with one byte per token the live numbers are the
-template's (exploratory run not kept; the committed driver uses the bytes-only models).
+from the re-tokenized ones) — PROVISIONAL: exploratory run, its output was not kept. That would measure BPE, not the
+template; with one byte per token the live numbers are the template's (the committed driver uses the bytes-only
+models).
 
 ## 2. Method
 
@@ -237,8 +241,9 @@ autoparser`, Qwen `Using specialized template: Qwen3-Coder` (harness stderr with
 `<|im_start|>assistant\n<think>\n\n</think>\n\n`.
 
 Live (log lines 149-386; tokens = bytes): with defaults every request reuses `cache_n = held` (GLM 2080, 2642, 3235,
-3542, 3704, 3946; Qwen 2929, 3508, 4123, 4449, 4650, 4946), and new checkpoints appear only at the end of each prompt and
-at the last user message (GLM 1853, Qwen 2649 in request 0). Preserve off: request 5 `extends False`, GLM `restored
+3542, 3704, 3946; Qwen 2929, 3508, 4123, 4449, 4650, 4946), and new checkpoints appear only at `prompt − 4 − n_ubatch`,
+`prompt − 4`, at the held end of the previous turn, and at the last user message (GLM 1420/1853/1932, Qwen
+2246/2649/2758 in request 0). Preserve off: request 5 `extends False`, GLM `restored
 context checkpoint (pos_min = 1931, pos_max = 1931, n_tokens = 1932…)` then `erased invalidated` for the 8 later ones,
 `cache_n 1932 prompt_n 1624`; Qwen `n_tokens = 2649`, `cache_n 2649 prompt_n 1790`. `--ctx-checkpoints 4`: `erasing
 context checkpoint too close to an earlier one` (`server-context.cpp:2524-2541`: when the list is full, checkpoints of
@@ -414,6 +419,8 @@ M4 (GBNF newline escape removed) survives as expected: a GBNF string literal acc
 
 ## 11. NOT RUN
 
+- Qwen's `add_vision_id` switch and image/video content parts.
+
 - Token-level effects with the real tokenizers (section 8 request); the real models; GPU; any timing.
 - The Unsloth GGUF's embedded chat template (R1 uses it) — not available here.
 - llama.cpp's own `test-chat` target (the harness calls the same `common` functions instead).
@@ -423,6 +430,152 @@ M4 (GBNF newline escape removed) survives as expected: a GBNF string literal acc
   `tool_choice: none` and a custom grammar).
 - Sessions long enough (> 8192 tokens per user round, > 32 checkpoints) to exercise the eviction rule at default
   settings (section 6 used `--ctx-checkpoints 4` instead).
+
+## 12. After the audit of `90970d0` (evidence-auditor, 2026-10-11)
+
+The auditor reproduced the runs of this file at `90970d0` and reported 1 FAIL (in CORRECTNESS.md) and 7 MINOR. Changes:
+the gap-6 status line in CORRECTNESS.md (FAIL: GLM "one tool added" restored checkpoint 1420, not a full re-prefill);
+finding 9 now backed by a run (`0400f95`: render variant `effort_none` — body `reasoning_effort: "none"` — and a server
+started with `--reasoning off`, each row with `same_as_server_default`, asserted by the test); "every switch" narrowed to
+the reasoning switches (`add_vision_id` NOT RUN); Qwen's reasoning-instruction lines with tools (58-60); the request-0
+checkpoints listed in full (section 6); the exploratory `--text-vocab` run labelled PROVISIONAL (section 1); jinja2 added
+to the `deps` step of `ci.yml` `cpu-parity` (`f17c71c`; before, the jinja2-only tests of the module would have skipped
+there); `vendor-hf-branch.yml` passes the branch name through `env` (`2fb151c`).
+
+`tools/chattmpl/run_n14.sh` at `0400f95`: render section, the two new switch lines and the tests; then the diff against
+Appendix A with server timestamps, server log lines, test times and the work-directory name masked (nothing
+else changed):
+
+```
+$ bash tools/chattmpl/run_n14.sh <S>/llama.cpp <S>/llama.cpp/build-cpu <S>/n14/n11src/tools/tinygen <S>/n14/final3
+...
+render glm: 51/72 byte-equal (server vs jinja2)
+  default reasoning_mixed agp=True first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+  default reasoning_mixed agp=False first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+  default reasoning_empty agp=True first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+  default reasoning_empty agp=False first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+  default tools_ends_with_assistant agp=True first_diff=3688 server="plits on ','. The test passes.‖" jinja2="plits on ','. The test passes.‖<|assistant|><think>"
+  effort_low reasoning_mixed agp=True first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+  effort_low reasoning_mixed agp=False first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+  effort_low reasoning_empty agp=True first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+  effort_low reasoning_empty agp=False first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+  effort_high reasoning_mixed agp=True first_diff=116 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+  effort_high reasoning_mixed agp=False first_diff=116 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+  effort_high reasoning_empty agp=True first_diff=116 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+  effort_high reasoning_empty agp=False first_diff=116 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+  effort_medium reasoning_mixed agp=True first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+  effort_medium reasoning_mixed agp=False first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+  effort_medium reasoning_empty agp=True first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+  effort_medium reasoning_empty agp=False first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+  effort_none reasoning_mixed agp=True first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+  effort_none reasoning_mixed agp=False first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+  effort_none reasoning_empty agp=True first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+  effort_none reasoning_empty agp=False first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+  effort_none reasoning agp=True equal_to_jinja2=True same_as_server_default=True
+  effort_none reasoning agp=False equal_to_jinja2=True same_as_server_default=True
+  effort_none reasoning_mixed agp=True equal_to_jinja2=False same_as_server_default=True
+  effort_none reasoning_mixed agp=False equal_to_jinja2=False same_as_server_default=True
+  effort_none reasoning_empty agp=True equal_to_jinja2=False same_as_server_default=True
+  effort_none reasoning_empty agp=False equal_to_jinja2=False same_as_server_default=True
+  effort_none agent_session agp=True equal_to_jinja2=True same_as_server_default=True
+  effort_none agent_session agp=False equal_to_jinja2=True same_as_server_default=True
+  server_flag_reasoning_off reasoning agp=True equal_to_jinja2=True same_as_server_default=True
+  server_flag_reasoning_off agent_session agp=True equal_to_jinja2=True same_as_server_default=True
+  log (default): 0.00.156.349 W srv          init: chat template supports preserving reasoning, it is enabled by default (may use more tokens, disable via --no-reasoning-preserve)
+  log (server_flag_reasoning_off): 0.00.147.383 W srv          init: chat template supports preserving reasoning, it is enabled by default (may use more tokens, disable via --no-reasoning-preserve)
+render qwen: 62/72 byte-equal (server vs jinja2)
+  default tools_ends_with_assistant agp=True first_diff=4624 server="plits on ','. The test passes.‖" jinja2="plits on ','. The test passes.‖<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  default tools_ends_with_assistant agp=False first_diff=4624 server="plits on ','. The test passes.‖" jinja2="plits on ','. The test passes.‖<|im_end|>\n"
+  effort_high reasoning agp=True server_error=RuntimeError: HTTP 500 {"error": {"code": 500, "message": "\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵ {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.", "type": "server_error"}} | jinja2_error=TemplateError: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.
+  effort_high reasoning agp=False server_error=RuntimeError: HTTP 500 {"error": {"code": 500, "message": "\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵ {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.", "type": "server_error"}} | jinja2_error=TemplateError: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.
+  effort_high reasoning_mixed agp=True server_error=RuntimeError: HTTP 500 {"error": {"code": 500, "message": "\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵ {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.", "type": "server_error"}} | jinja2_error=TemplateError: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.
+  effort_high reasoning_mixed agp=False server_error=RuntimeError: HTTP 500 {"error": {"code": 500, "message": "\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵ {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.", "type": "server_error"}} | jinja2_error=TemplateError: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.
+  effort_high reasoning_empty agp=True server_error=RuntimeError: HTTP 500 {"error": {"code": 500, "message": "\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵ {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.", "type": "server_error"}} | jinja2_error=TemplateError: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.
+  effort_high reasoning_empty agp=False server_error=RuntimeError: HTTP 500 {"error": {"code": 500, "message": "\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵ {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.", "type": "server_error"}} | jinja2_error=TemplateError: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.
+  effort_high agent_session agp=True server_error=RuntimeError: HTTP 500 {"error": {"code": 500, "message": "\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵ {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.", "type": "server_error"}} | jinja2_error=TemplateError: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.
+  effort_high agent_session agp=False server_error=RuntimeError: HTTP 500 {"error": {"code": 500, "message": "\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵ {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.", "type": "server_error"}} | jinja2_error=TemplateError: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.
+  effort_none reasoning agp=True equal_to_jinja2=True same_as_server_default=False
+  effort_none reasoning agp=False equal_to_jinja2=True same_as_server_default=False
+  effort_none reasoning_mixed agp=True equal_to_jinja2=True same_as_server_default=False
+  effort_none reasoning_mixed agp=False equal_to_jinja2=True same_as_server_default=False
+  effort_none reasoning_empty agp=True equal_to_jinja2=True same_as_server_default=False
+  effort_none reasoning_empty agp=False equal_to_jinja2=True same_as_server_default=False
+  effort_none agent_session agp=True equal_to_jinja2=True same_as_server_default=False
+  effort_none agent_session agp=False equal_to_jinja2=True same_as_server_default=False
+  server_flag_reasoning_off reasoning agp=True equal_to_jinja2=True same_as_server_default=False
+  server_flag_reasoning_off agent_session agp=True equal_to_jinja2=True same_as_server_default=False
+  log (default): 0.00.064.927 W srv          init: chat template supports preserving reasoning, it is enabled by default (may use more tokens, disable via --no-reasoning-preserve)
+  log (default): 0.00.609.684 W srv    operator(): got exception: {"error":{"code":500,"message":"\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵        {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n                                           ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.","type":"server_error"}}
+  log (default): 0.00.611.251 W srv    operator(): got exception: {"error":{"code":500,"message":"\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵        {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n                                           ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.","type":"server_error"}}
+  log (default): 0.00.612.928 W srv    operator(): got exception: {"error":{"code":500,"message":"\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵        {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n                                           ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.","type":"server_error"}}
+  log (default): 0.00.614.199 W srv    operator(): got exception: {"error":{"code":500,"message":"\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵        {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n                                           ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.","type":"server_error"}}
+  log (default): 0.00.615.607 W srv    operator(): got exception: {"error":{"code":500,"message":"\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵        {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n                                           ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.","type":"server_error"}}
+  log (default): 0.00.617.042 W srv    operator(): got exception: {"error":{"code":500,"message":"\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵        {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n                                           ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.","type":"server_error"}}
+  log (default): 0.00.618.886 W srv    operator(): got exception: {"error":{"code":500,"message":"\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵        {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n                                           ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.","type":"server_error"}}
+  log (default): 0.00.621.414 W srv    operator(): got exception: {"error":{"code":500,"message":"\n------------\nWhile executing CallExpression at line 49, column 28 in source:\n...', 'low') %}↵        {{- raise_exception('Unexpected reasoning effort ' ~ reason...\n                                           ^\nError: Jinja Exception: Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.","type":"server_error"}}
+  log (server_flag_reasoning_off): 0.00.078.428 W srv          init: chat template supports preserving reasoning, it is enabled by default (may use more tokens, disable via --no-reasoning-preserve)
+...
+prefix glm switch effort_none: {"shared_bytes": 4068, "prompt_bytes": 4068, "at": "_response><|assistant|><think>‖"}
+prefix qwen switch effort_none: {"shared_bytes": 19, "prompt_bytes": 5093, "at": "<|im_start|>system\n‖# Tools\n\nYou have access to the following function"}
+...
+test_prompt_cache_reuse (tests.test_chat_templates.LiveB3.test_prompt_cache_reuse) ... ok
+test_parse_and_round_trip (tests.test_chat_templates.ParseHarness.test_parse_and_round_trip) ... ok
+test_render_server_vs_jinja2 (tests.test_chat_templates.ServerRender.test_render_server_vs_jinja2) ... ok
+test_defaults_prefix_stable_in_agent_loop (tests.test_chat_templates.TemplateProperties.test_defaults_prefix_stable_in_agent_loop) ... ok
+test_dropping_past_reasoning_breaks_at_new_user_message (tests.test_chat_templates.TemplateProperties.test_dropping_past_reasoning_breaks_at_new_user_message) ... ok
+test_glm_ignores_enable_thinking (tests.test_chat_templates.TemplateProperties.test_glm_ignores_enable_thinking) ... ok
+test_glm_loop_scope_jinja2 (tests.test_chat_templates.TemplateProperties.test_glm_loop_scope_jinja2) ... ok
+test_history_breaks_default (tests.test_chat_templates.TemplateProperties.test_history_breaks_default) ... ok
+test_no_date_injection (tests.test_chat_templates.TemplateProperties.test_no_date_injection) ... ok
+test_qwen_enable_thinking_false (tests.test_chat_templates.TemplateProperties.test_qwen_enable_thinking_false) ... ok
+test_reasoning_effort_values (tests.test_chat_templates.TemplateProperties.test_reasoning_effort_values) ... ok
+test_glm_config_facts (tests.test_chat_templates.VendoredFiles.test_glm_config_facts) ... ok
+test_qwen_config_facts (tests.test_chat_templates.VendoredFiles.test_qwen_config_facts) ... ok
+test_sha256sums (tests.test_chat_templates.VendoredFiles.test_sha256sums) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 43.601s
+$ # both logs with <S> substituted and the work directory renamed (sed 's|/final2|/finalX|', 's|/final3|/finalX|')
+$ diff <(grep -v '^0\.\|log: \|log (\|^exit 0$' appendixA.log | sed -E 's/[0-9]+\.[0-9]+s$/Ts/') \
+       <(grep -v '^0\.\|log: \|log (' run-0400f95.log | sed -E 's/[0-9]+\.[0-9]+s$/Ts/')
+10c10
+< render glm: 45/62 byte-equal (server vs jinja2)
+---
+> render glm: 51/72 byte-equal (server vs jinja2)
+28c28,42
+< render qwen: 52/62 byte-equal (server vs jinja2)
+---
+>   effort_none reasoning_mixed agp=True first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+>   effort_none reasoning_mixed agp=False first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+>   effort_none reasoning_empty agp=True first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3<|assistant|><think>' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3<|assistant|><think>'
+>   effort_none reasoning_empty agp=False first_diff=115 server='<|user|>u2<|assistant|><think>‖R1</think>a2<|user|>u3' jinja2='<|user|>u2<|assistant|><think>‖</think>a2<|user|>u3'
+>   effort_none reasoning agp=True equal_to_jinja2=True same_as_server_default=True
+>   effort_none reasoning agp=False equal_to_jinja2=True same_as_server_default=True
+>   effort_none reasoning_mixed agp=True equal_to_jinja2=False same_as_server_default=True
+>   effort_none reasoning_mixed agp=False equal_to_jinja2=False same_as_server_default=True
+>   effort_none reasoning_empty agp=True equal_to_jinja2=False same_as_server_default=True
+>   effort_none reasoning_empty agp=False equal_to_jinja2=False same_as_server_default=True
+>   effort_none agent_session agp=True equal_to_jinja2=True same_as_server_default=True
+>   effort_none agent_session agp=False equal_to_jinja2=True same_as_server_default=True
+>   server_flag_reasoning_off reasoning agp=True equal_to_jinja2=True same_as_server_default=True
+>   server_flag_reasoning_off agent_session agp=True equal_to_jinja2=True same_as_server_default=True
+> render qwen: 62/72 byte-equal (server vs jinja2)
+38a53,62
+>   effort_none reasoning agp=True equal_to_jinja2=True same_as_server_default=False
+>   effort_none reasoning agp=False equal_to_jinja2=True same_as_server_default=False
+>   effort_none reasoning_mixed agp=True equal_to_jinja2=True same_as_server_default=False
+>   effort_none reasoning_mixed agp=False equal_to_jinja2=True same_as_server_default=False
+>   effort_none reasoning_empty agp=True equal_to_jinja2=True same_as_server_default=False
+>   effort_none reasoning_empty agp=False equal_to_jinja2=True same_as_server_default=False
+>   effort_none agent_session agp=True equal_to_jinja2=True same_as_server_default=False
+>   effort_none agent_session agp=False equal_to_jinja2=True same_as_server_default=False
+>   server_flag_reasoning_off reasoning agp=True equal_to_jinja2=True same_as_server_default=False
+>   server_flag_reasoning_off agent_session agp=True equal_to_jinja2=True same_as_server_default=False
+43a68
+> prefix glm switch effort_none: {"shared_bytes": 4068, "prompt_bytes": 4068, "at": "_response><|assistant|><think>‖"}
+65a91
+> prefix qwen switch effort_none: {"shared_bytes": 19, "prompt_bytes": 5093, "at": "<|im_start|>system\n‖# Tools\n\nYou have access to the following function"}
+```
 
 ## Appendix A. `tools/chattmpl/run_n14.sh` at `1a95c5c`, full output
 
