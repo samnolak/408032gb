@@ -103,3 +103,20 @@ d() {  # d <file> <a,b @ec7630a> <a,b @79e2e74>
 d ggml/src/ggml-cpu/ops.cpp 8843,9592 8842,9591
 d src/llama-kv-cache.cpp 1566,1716 1569,1719
 d common/speculative.cpp 1340,1747 1401,1828
+# after the audit of N17 (M1, M2, M3): why chain_heads is true for mimo2 (ctx_other is dropped for it), the other pin's
+# lines of the citations in the new files, and the CPU vector files the emulation cites
+p "$R1" common/speculative.cpp 2619,2619
+p "$EC" common/speculative.cpp 2535,2535
+p "$R1" src/llama-context.cpp 147,166
+p "$EC" src/llama-context.cpp 144,163
+p "$R1" src/llama-context.cpp 4590,4592
+p "$EC" src/llama-context.cpp 4493,4495
+p "$EC" common/speculative.cpp 1424,1424
+p "$EC" common/speculative.cpp 1522,1522
+p "$R1" common/speculative.cpp 1586,1586
+d common/speculative.cpp 1733,1746 1814,1827
+d src/llama-kv-cache.cpp 410,419 428,437
+d src/llama-kv-cache.cpp 1328,1361 1348,1381
+for f in ggml/src/ggml-cpu/vec.cpp ggml/src/ggml-cpu/vec.h ggml/src/ggml-cpu/simd-mappings.h; do
+  cmp "$EC/$f" "$R1/$f" && echo "--- cmp $f @$(git -C "$EC" rev-parse --short HEAD) @$(git -C "$R1" rev-parse --short HEAD): byte-identical"
+done

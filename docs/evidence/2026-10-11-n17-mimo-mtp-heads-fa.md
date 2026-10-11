@@ -44,8 +44,13 @@ lines below are identical in content (section "Source lines").
   **Both pins run offsets 1 and 2** (CONFIRMED by the runs below: graphs named `mtp_*-7` and `mtp_*-8`).
 * **Who drives several heads.** `common_speculative_impl_draft_mtp`: `n_mtp_layers = max(1, n_layer_nextn)` (SP:1378
   @ec7630a, 1439 @79e2e74), `chain_heads = n_mtp_layers > 1 && !is_mem_shared`, and with chain_heads the draft length is
-  capped at the number of heads (SP:1420-1425 @ec7630a, 1481-1486 @79e2e74). llama-server calls it (`process()` after
-  every target decode, `draft()`, `accept()`; SC:3044, 3747, 3964 @ec7630a, 3404, 4232, 4471 @79e2e74).
+  capped at the number of heads (SP:1420-1425 @ec7630a, 1481-1486 @79e2e74). `is_mem_shared` is false for mimo2:
+  `common_speculative_init_result` sets `cparams.ctx_other = ctx_tgt` (SP:2619 @79e2e74, 2535 @ec7630a), but
+  `llama_context` keeps `ctx_other` only for GEMMA4_ASSISTANT / EAGLE3 / DFLASH (`src/llama-context.cpp:147-166`
+  @79e2e74, `144-163` @ec7630a), so `llama_get_ctx_other(ctx_dft)` (`src/llama-context.cpp:4590-4592` @79e2e74,
+  `4493-4495` @ec7630a: `return ctx->get_cparams().ctx_other`) is nullptr and `chain_heads` is true. llama-server calls
+  it (`draft()`, `process()` after every target decode, `accept()`; SC:3044, 3747, 3964 @ec7630a, 3404, 4232, 4471
+  @79e2e74).
 * **process() (every target batch):** each token k of the batch is paired with the target's h_nextn row k-1, the first
   with the pending row (SP:1519-1529 @ec7630a, 1583-1593 @79e2e74); then **for head = 0 .. H-1:
   `llama_memory_seq_rm(mtp, seq, first position of the batch, -1)`, `llama_set_nextn_layer_offset(head)`, decode the
@@ -72,7 +77,7 @@ server are documented in its header: process calls mark every row as an output (
 before the output crop, M:378 @79e2e74, do not depend on it) and the token after a rejection or a draft is taken from
 `DUMP_TOKENS` (teacher-forced) rather than sampled.
 
-## 2. Runs
+## 2. Runs (counts CONFIRMED by the driver output, 7.2 / 7.3)
 
 Model `n17.gguf` = `tools/tinygen/mimo2_tiny.py --fused-qkv --sinks swa --value-scale 0.75 --mtp-layers 3` (seed 0): the
 N16 trunk (6 layers, global 0 and 5, SWA 1-4 with window 8, 4 query heads, KV heads 1 / 2, K head 24, V head 16, RoPE on
@@ -91,7 +96,7 @@ fused attn_qkv, sinks, dense FFN, eh_proj / enorm / hnorm, layer_output_norm). `
 | fa/rollback | n17 | f16, FA on | 64 | N16's `240, 1 x 16, 4, r2, 1 x 6, 12, r10, 1 x 34` | 62 | rollbacks inside and across the window at f16 / FA |
 | fa/hd192 | n17hd | f16, FA on | 512 | `64, 1 x 16` | 17 | K 192 / V 128: the AVX2 SIMD loops of the f16 dot, scale and mad (DK, DV >= 32) |
 
-## 3. Method
+## 3. Method (CONFIRMED by the test sources at `9a95535` and their output, 7.3 to 7.5; tolerances as cited)
 
 As N16 (and N10 for the precision): every graph is compared row by row with (A) the full-sequence oracle (for the MTP
 heads: `mtp_forward_chunk(final tokens, offset=k)` fed by the full target oracle's h, process rows whose position is
@@ -117,6 +122,9 @@ Tolerances: f32 runs 1e-4 normwise (N16); f16 / FA: 1e-4 for what layer 0 comput
 16 U16 = 7.8e-3 from there on (N10's tolerance, same justification), exact for gathers, the store and the pairing.
 
 ## 4. Findings (CONFIRMED by the literal outputs below unless labelled)
+
+O lines are @ec7630a; at 79e2e74 the flash-attention code is identical one line lower (7.11 diff); `vec.cpp`, `vec.h`
+and `simd-mappings.h` (`ggml/src/ggml-cpu/`) are byte-identical at both pins (`cmp`, 7.11).
 
 1. **llama.cpp equals the cell-accurate oracle everywhere, at both pins: 70/70 through the CI checker at ec7630a and
    at 79e2e74.** Worst f32 MTP error 1.32e-06 (`mtp_Qcur` of head 2); the f16 / FA runs within 2.10e-03 (max |got - want| / max |want|,
@@ -214,7 +222,7 @@ Tolerances: f32 runs 1e-4 normwise (N16); f16 / FA: 1e-4 for what layer 0 comput
 * MXFP4 (or any quantized) MTP block; `nextn.embed_tokens` / `shared_head_*` tensors (fallbacks checked, as N16).
 * GitHub Actions: NOT RUN (the branch is not pushed in this task).
 
-## 6. Where llama.cpp and an oracle disagree, and why
+## 6. Where llama.cpp and an oracle disagree, and why (sizes CONFIRMED, 7.2 probes and 7.3 test output; root causes as labelled)
 
 | where | against | size | root cause | status |
 |---|---|---|---|---|
@@ -2339,4 +2347,146 @@ identical (151 lines)
 >                 if (dp.result_q) {
 >                     dp.result_q->emplace_back(cur_p->data, cur_p->data + cur_p->size);
 >                 }
+--- 79e2e74 common/speculative.cpp:2619,2619
+cparams.ctx_other = ctx_tgt;
+--- ec7630a common/speculative.cpp:2535,2535
+cparams.ctx_other = ctx_tgt;
+--- 79e2e74 src/llama-context.cpp:147,166
+cparams.ctx_other = nullptr;
+
+// TODO: more generic
+if (model.arch == LLM_ARCH_GEMMA4_ASSISTANT) {
+if (params.ctx_other == nullptr) {
+// TODO: change from runtime_error to llama_exception to avoid printing error message
+throw std::runtime_error("Gemma4Assistant requires ctx_other to be set (this warning is normal during memory fitting)");
+}
+
+cparams.ctx_other = params.ctx_other;
+}
+
+if (model.arch == LLM_ARCH_EAGLE3 || model.arch == LLM_ARCH_DFLASH) {
+if (model.tok_embd == nullptr || model.output == nullptr) {
+if (params.ctx_other == nullptr) {
+throw std::runtime_error(model.arch_name() + " requires ctx_other to be set (this warning is normal during memory fitting)");
+}
+cparams.ctx_other = params.ctx_other;
+}
+}
+--- ec7630a src/llama-context.cpp:144,163
+cparams.ctx_other = nullptr;
+
+// TODO: more generic
+if (model.arch == LLM_ARCH_GEMMA4_ASSISTANT) {
+if (params.ctx_other == nullptr) {
+// TODO: change from runtime_error to llama_exception to avoid printing error message
+throw std::runtime_error("Gemma4Assistant requires ctx_other to be set (this warning is normal during memory fitting)");
+}
+
+cparams.ctx_other = params.ctx_other;
+}
+
+if (model.arch == LLM_ARCH_EAGLE3 || model.arch == LLM_ARCH_DFLASH) {
+if (model.tok_embd == nullptr || model.output == nullptr) {
+if (params.ctx_other == nullptr) {
+throw std::runtime_error(model.arch_name() + " requires ctx_other to be set (this warning is normal during memory fitting)");
+}
+cparams.ctx_other = params.ctx_other;
+}
+}
+--- 79e2e74 src/llama-context.cpp:4590,4592
+llama_context * llama_get_ctx_other(struct llama_context * ctx) {
+return ctx->get_cparams().ctx_other;
+}
+--- ec7630a src/llama-context.cpp:4493,4495
+llama_context * llama_get_ctx_other(struct llama_context * ctx) {
+return ctx->get_cparams().ctx_other;
+}
+--- ec7630a common/speculative.cpp:1424,1424
+this->params.n_max = std::min(this->params.n_max, n_mtp_layers);
+--- ec7630a common/speculative.cpp:1522,1522
+const int32_t idx = batch.add(batch_in.tokens[k].id, batch_in.tokens[k].pos[0], seq_id, false);
+--- 79e2e74 common/speculative.cpp:1586,1586
+const int32_t idx = batch.add(batch_in.tokens[k].id, batch_in.tokens[k].pos[0], seq_id, false);
+--- diff common/speculative.cpp:1733,1746 @ec7630a common/speculative.cpp:1814,1827 @79e2e74
+identical (14 lines)
+--- diff src/llama-kv-cache.cpp:410,419 @ec7630a src/llama-kv-cache.cpp:428,437 @79e2e74
+identical (10 lines)
+--- diff src/llama-kv-cache.cpp:1328,1361 @ec7630a src/llama-kv-cache.cpp:1348,1381 @79e2e74
+identical (34 lines)
+--- cmp ggml/src/ggml-cpu/vec.cpp @ec7630a @79e2e74: byte-identical
+--- cmp ggml/src/ggml-cpu/vec.h @ec7630a @79e2e74: byte-identical
+--- cmp ggml/src/ggml-cpu/simd-mappings.h @ec7630a @79e2e74: byte-identical
+```
+
+## 8. After the audit of `0352df4` (MINORs M1 to M5 and two nits)
+
+Changes: M1, M3, M4, M5 in this file (section 1 "Who drives several heads", the pin note at the start of section 4, the
+labels of the headings of sections 2, 3 and 6) and in `docs/reassessment/CORRECTNESS.md` (the N17 block: "строки на
+одну меньше"); M2: the other pin's lines of the citations in `tests/test_mimo2_mtp_heads_parity.py`,
+`tests/test_mimo2_heads_ref.py`, `tests/test_mimo2_f16fa_parity.py`, `ref/mimo2.py` and the comments of
+`tools/dump/dump_tensors.cpp`; nits: `ref/fattn.py` cites VC:345, 362, 365-367 (the AVX2 path: np = 0, the leftover loop)
+for the dot of heads under 32 wide instead of VC:373 (the build without GGML_SIMD; the same sum), also in N10's
+paragraph of that docstring (flagged: an N10 citation corrected, no code change); `test_head0_reads_foreign_kv` now
+asserts the foreign positions 257..263 and the 11 rows it prints. Every new citation is printed in 7.11 (the lines
+under "after the audit"). The dump tool's change is comments only: its comment-stripped source is the same as at
+`0352df4` (md5 below); it was rebuilt at both pins and the N17 step run again, with the same output as in 7.3 apart from
+timings and the work directory. The 19 mutation anchors of `2026-10-11-n17-mutations.py` are all still unique on the
+edited files (checked with the script's own list, not rerun).
+
+```
+$ cat <S>/n17/minors-check.sh
+#!/usr/bin/env bash
+# N17 audit MINORs: the dump tool's code is unchanged (comments only: comment-stripped source compared with HEAD's),
+# rebuilt at both pins, and the N17 step at both pins through the checker on the working tree with the MINOR edits.
+set -uo pipefail
+S=<S>
+WT=/home/user/wt-n17
+cd $S/n17/cwd
+echo "worktree HEAD $(git -C $WT rev-parse --short HEAD); changed files: $(git -C $WT status --short | wc -l)"
+git -C $WT show HEAD:tools/dump/dump_tensors.cpp > $S/n17/dt_old.cpp
+echo "comment-stripped dump_tensors.cpp, HEAD vs working tree:"
+for f in $S/n17/dt_old.cpp $WT/tools/dump/dump_tensors.cpp; do g++ -fpreprocessed -dD -E -P $f 2>/dev/null | md5sum; done
+for p in ec r1; do
+  if [ $p = ec ]; then L=$S/llama-ec7630a; else L=$S/llama.cpp; fi
+  t0=$(date +%s)
+  cmake --build $S/n17/build-$p -j4 --target dump-tensors > $S/n17/rebuild-$p.log 2>&1
+  echo "rebuild $p rc=$? $(( $(date +%s) - t0 )) s; $(grep -c 'dump_tensors.cpp' $S/n17/rebuild-$p.log) dump_tensors.cpp compile lines"
+  rm -rf $S/n17/m-$p
+  t0=$(date +%s)
+  MIMO2_N17_WORK=$S/n17/m-$p python3 $WT/tools/ci/check_unittest.py --step n17-mimo2-mtp-heads-fa --checkout $L -- \
+    $WT/tools/tinygen/run_parity_mimo2_n17.sh $L $S/n17/build-$p > $S/n17/m-$p.log 2>&1
+  echo "n17 $p wrapper_rc=$? wall_s=$(( $(date +%s) - t0 ))"
+  tail -n 1 $S/n17/m-$p.log
+  grep -h "rows reading foreign" $S/n17/m-$p.log | head -2
+  rm -rf $S/n17/m-$p
+done
+$ bash <S>/n17/minors-check.sh > <S>/n17/minors-check.out 2>&1; cat <S>/n17/minors-check.out
+worktree HEAD 0352df4; changed files: 9
+comment-stripped dump_tensors.cpp, HEAD vs working tree:
+189ed4fec50b519ea89879002d346e2b  -
+189ed4fec50b519ea89879002d346e2b  -
+rebuild ec rc=0 4 s; 1 dump_tensors.cpp compile lines
+n17 ec wrapper_rc=0 wall_s=48
+::notice::n17-mimo2-mtp-heads-fa @ llama.cpp ec7630a: Ran 70, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+mtp3: head-0 rows reading foreign K/V: 8 graphs, positions [257, 258, 259, 260, 261, 262, 263]; worst kqv_out vs (A) 2.053e+00, logits 4.039e-01
+fa/mtp3: head-0 rows reading foreign K/V: 8 graphs, positions [257, 258, 259, 260, 261, 262, 263]; worst kqv_out vs (A) 2.052e+00, logits 4.039e-01
+rebuild r1 rc=0 6 s; 1 dump_tensors.cpp compile lines
+n17 r1 wrapper_rc=0 wall_s=60
+::notice::n17-mimo2-mtp-heads-fa @ llama.cpp 79e2e74: Ran 70, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+mtp3: head-0 rows reading foreign K/V: 8 graphs, positions [257, 258, 259, 260, 261, 262, 263]; worst kqv_out vs (A) 2.053e+00, logits 4.039e-01
+fa/mtp3: head-0 rows reading foreign K/V: 8 graphs, positions [257, 258, 259, 260, 261, 262, 263]; worst kqv_out vs (A) 2.052e+00, logits 4.039e-01
+$ cd <S>/n17; for p in ec r1; do echo "== $p"; diff <(sed -e 's/in [0-9.]*s/in Xs/; s/\/m-'$p'/\/work-'$p'/g' m-$p.log) <(sed -e 's/in [0-9.]*s/in Xs/' final-wrapped-$p.log) && echo "identical apart from timings and the work directory"; done
+== ec
+identical apart from timings and the work directory
+== r1
+identical apart from timings and the work directory
+$ python3 -m unittest tests.test_mimo2_heads_ref tests.test_fattn_sinks_ref tests.test_fattn_ref
+Ran 28 tests in 0.588s
+
+OK
+$ LLAMA_CPP_GGUF_PY=$S/llama-ec7630a/gguf-py python3 -m unittest discover -s tests
+rc=0
+Ran 1026 tests in 136.403s
+
+OK (skipped=491)
 ```
