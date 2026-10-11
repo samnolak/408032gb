@@ -89,6 +89,22 @@ class LlamaTokPaths(unittest.TestCase):
             t = T.LlamaTok("../build-tok/bin/llama-tokenize", "../vocab-glm.gguf", d)
             self.assertEqual(t.binary, os.path.abspath("../build-tok/bin/llama-tokenize"))
             self.assertEqual(t.model, os.path.abspath("../vocab-glm.gguf"))
+        # a relative work directory: the -f file must be found from inside it (fake binary prints the ids of a file
+        # it can open, fails otherwise, like llama-tokenize)
+        with tempfile.TemporaryDirectory() as d:
+            fake = os.path.join(d, "fake-tokenize")
+            with open(fake, "w") as f:
+                f.write("#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = -f ] && { [ -r \"$2\" ] || exit 3; }; shift; done\n"
+                        "echo '[1, 2]'\n")
+            os.chmod(fake, 0o755)
+            cwd = os.getcwd()
+            os.chdir(d)
+            try:
+                t = T.LlamaTok(fake, "m.gguf", os.path.join("out", "tok-glm"))
+                self.assertTrue(os.path.isabs(t.workdir))
+                self.assertEqual(t("hello"), [1, 2])
+            finally:
+                os.chdir(cwd)
 
 
 class Expectations:

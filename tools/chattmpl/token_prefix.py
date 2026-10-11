@@ -85,7 +85,9 @@ class LlamaTok:
         # absolute: the subprocess runs in workdir, a relative path would resolve there (N23 round 2: the first CI
         # run passed ../build-tok/bin/llama-tokenize and every llama call failed with FileNotFoundError)
         self.binary, self.model = os.path.abspath(binary), os.path.abspath(model)
-        self.workdir, self.cache = workdir, {}
+        # the work directory too: the text files are written there and passed to -f from inside it (round 2b: the
+        # second CI run used --out tok-out and llama-tokenize could not open tok-out/tok-glm/<sha>.txt)
+        self.workdir, self.cache = os.path.abspath(workdir), {}
         os.makedirs(workdir, exist_ok=True)
 
     def __call__(self, text):
@@ -226,6 +228,7 @@ def main():
     ap.add_argument("--vocab-qwen")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
+    a.out = os.path.abspath(a.out)
     os.makedirs(a.out, exist_ok=True)
     toks = {"hf": {}, "llama": {}}
     if a.hf_glm:

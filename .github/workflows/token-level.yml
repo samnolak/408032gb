@@ -117,13 +117,18 @@ jobs:
         run: |
           G=$(python3 -c "import sys; sys.path.insert(0, 'scripts'); import hf_lfs_fetch as h; print(h.path_for('third_party/hf/glm-5.3-flash-tokenizer/PIN.json', 'tokenizer.json'))")
           Q=$(python3 -c "import sys; sys.path.insert(0, 'scripts'); import hf_lfs_fetch as h; print(h.path_for('third_party/hf/qwen3.8-flash-next-tokenizer/PIN.json', 'tokenizer.json'))")
+          # fails the job (no false green): token_prefix.py exit status, its JSON output and the parity lines
+          rc=0
           python3 tools/chattmpl/token_prefix.py --hf-glm "$G" --hf-qwen "$Q" --llama-tokenize "$(realpath ../build-tok/bin/llama-tokenize)" \
-            --vocab-glm "$(realpath ../vocab-glm.gguf)" --vocab-qwen "$(realpath ../vocab-qwen.gguf)" --out tok-out > summary.txt 2>&1 \
-            || echo "::error::token_prefix.py failed: $(tail -c 600 summary.txt | tr '\n' ' ')"
+            --vocab-glm "$(realpath ../vocab-glm.gguf)" --vocab-qwen "$(realpath ../vocab-qwen.gguf)" --out "$PWD/tok-out" > summary.txt 2>&1 \
+            || { echo "::error::token_prefix.py failed: $(tail -c 600 summary.txt | tr '\n' ' ')"; rc=1; }
+          [ -s tok-out/token-prefix.json ] || { echo "::error::tok-out/token-prefix.json missing or empty"; rc=1; }
+          if grep -q '^  DIFF ' summary.txt; then echo "::error::hf and llama.cpp ids differ (parity DIFF lines in summary.txt)"; rc=1; fi
           echo "::notice::tokenizer.json sha256: $(sha256sum "$G" "$Q" | tr '\n' ' ')"
           # at most 10 notices per step: chunks of 40 lines, newlines encoded
           split -l 40 summary.txt chunk.
           for c in chunk.*; do echo "::notice::$(sed 's/%/%25/g' "$c" | awk '{printf "%s%%0A", $0}')"; done
+          exit $rc
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && steps.pins.outputs.ready == 'true' }}
         with:
