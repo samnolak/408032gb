@@ -10,9 +10,12 @@ References: llama.cpp `ec7630a640789c393694fb194f1bbbf0369fc62d` (AGENTS.md pin)
 `dump-tensors` with `GGML_NATIVE=OFF` (AVX2 and F16C on, AVX-512 off: CMakeCache below; the sandbox CPU has AVX-512,
 the build does not use it). "O" = ggml/src/ggml-cpu/ops.cpp, "LG" = src/llama-graph.cpp, "M" =
 src/llama-memory-hybrid-idx.cpp, at ec7630a unless "@79e2e74" is written; every cited line was printed from the pinned
-checkout (section "Source lines").
+checkout (section "Source lines"). `<scratch>` in commands and outputs stands for the session's scratch directory
+(`/tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad`).
 
-Part A (gap 3) is below; part B (gap 2, quantized weights) follows it.
+Part A (gap 3) is below; part B (gap 2, quantized weights) follows it. The fixes after the evidence audit of `bd715da`
+(2 FAIL, 13 MINOR) are made in place; the last section lists them, with the outputs behind them and the corrections
+to commit messages that cannot be amended.
 
 ## Part A: `-ctk f16 -ctv f16 -fa on` (gap 3)
 
@@ -87,7 +90,8 @@ Tolerances (U16 = 2^-11, the unit roundoff of binary16):
   anywhere: 2.947e-3 = 6.0 U16 (glm5-next, 79e2e74, kda_scan_out of layer 9), a margin of 2.6.
 * QSA / DSA selections and MoE expert sets: equal, or a valid top-k within TOL of the oracle's own scores, replayed and
   counted (N6 / N9 keep 1e-6 and never replay experts).
-* cache: exact store; >= 50 % equal per quantity (measured >= 0.83).
+* cache: exact store; >= 50 % equal per quantity (measured >= 0.82: lowest 8730/10608 = 0.823, glm5-next rollback,
+  indexer pooled key, 79e2e74; next 9195/11136 = 0.826, decode, same pin).
 
 ### Findings (CONFIRMED by the literal outputs below unless labelled)
 
@@ -101,8 +105,10 @@ Tolerances (U16 = 2^-11, the unit roundoff of binary16):
    V accumulator in f16; at 64 rows and more the tiled path is f32 over f16 K / V. On llama.cpp's own inputs
    ref/fattn.py reproduces both: one_chunk with at most one element per graph and layer more than half a binary16
    spacing off (`1/8192` elements, the rest within half a spacing; glm5-next within 0.078 of the one-spacing bound),
-   tiled to 1.3e-7 normwise. The same inputs through a float64 attention (the f32 contract) differ by 5e-4 to 9e-4
-   normwise (first probe, below). `-fa on` with an f32 cache rounds K / V as well (LG:2660-2666).
+   tiled to 1.3e-7 (qwen4exp) / 2.1e-7 (glm5-next) in max|err| / max|want| (the two `fa_tiled` rows, printed under
+   the driver output). The same inputs through a float64 attention (the f32 contract) differ by 4.7e-4 to 9.2e-4 in
+   the same metric on the one_chunk graphs (first probe, below). `-fa on` with an f32 cache rounds K / V as well
+   (LG:2660-2666).
 3. **`-ctk f16` also rounds the indexer caches** (k-pool raw keys and pooled keys, glm5-next key | gate | pooled), not
    only K / V or the MLA latent: the cache tensors are f16 (`ggml_type` in the dumps) and every stored element equals
    f16 (round to nearest even) of llama.cpp's own pre-store value (9472 qwen4exp / 9984 glm5-next elements per run, 0
@@ -111,34 +117,66 @@ Tolerances (U16 = 2^-11, the unit roundoff of binary16):
    follows the smallest change of its inputs, the oracle's attention output differs from llama.cpp's by a noise of
    about one spacing even with every rounding site modelled: qwen4exp 2-norm 1e-5 to 4e-5 (99 % of the elements
    within half a spacing), glm5-next 3.1e-4 to 3.6e-4 in the one_chunk runs (67 % to 72 %) where upstream f32 errors
-   are larger (KDA, mHC). The plain f32 oracle is 3.2x to 25x further away (2-norm, both models, both pins; about
-   1000x in the two runs where it flips an expert); the test requires 2x.
-5. **N7 finding 7 explained: one MoE near-tie flip.** llama.cpp at f16 / FA against llama.cpp at f32 / no FA (same
-   model, tokens, call plan; `2026-10-10-n10-logprob-probe.py`): qwen4exp max |d log-softmax| 2.8e-4, glm5-next
-   2.7e-3 (pf64) to 1.15e-2 with no discrete choice changed, and **0.603** in ec7630a ub16 / ub10, where exactly one
-   MoE decision flipped (layer 7, position 60: experts {4, 5} vs {5, 7}) and everything after it follows (MoE layers
-   9 and 10, the DSA selection of layer 11 at position 60). That is the size of N7's 0.416 to 0.86. The flipped
-   decision is a near-tie: margin 7.7e-5 between the 2nd and 3rd expert in the plain f32 oracle, 2.9e-6 in the
-   precision-aware one, which llama.cpp then flips; the test replays it (`moe experts: tie replays = 1`) and the rest of
-   the run matches within TOL. No DSA / QSA selection flipped on its own: the only selection difference is downstream
-   of the MoE flip (13 glm5-next selections per run are exact ties at score 0.0: all heads' relu zero, their order is
-   ggml_top_k's, not precision). Margin probe (`2026-10-10-n10-margin-probe.py`): f16 / FA moves glm5-next's MoE
-   selection margins by a median 2.5e-5 to 4.9e-5 (max 1.7e-3), qwen4exp's by 6.4e-7 to 1.4e-6 (max 2.3e-5); 6 of 704
-   glm5-next and 19 of 512 qwen4exp MoE decisions have a margin below 1e-3. PROVISIONAL bound from these (margins
-   uniform near 0 at that density): about 2e-4 to 4e-4 flips per glm5-next MoE decision, so about one flip in a
-   288-token run of 11 MoE layers (N7's 256-token prompt + 32 steps), and about 0.1 for qwen4exp (8 MoE layers).
-   Whether real GLM-5.3-Flash weights have that margin density: UNKNOWN (R2.1 / K2 must measure it).
-6. **Attribution** (the head, normwise, against the plain f32 oracle; first table of each run): glm5-next 3.3e-3 at
-   f32 / FA on and 3.5e-3 at 79e2e74 f16 / FA on, but 0.19 wherever the MoE flip happens (ec7630a with an f16 cache:
-   f16 / FA on, f16 / FA off); qwen4exp 1.4e-4 to 1.9e-4 in every configuration that rounds anything. At ec7630a, f32 / FA on leaves ub16 and
-   ub10 of glm5-next untouched (the gather path has no flash attention and the cache is f32).
+   are larger (KDA, mHC). The plain f32 oracle is 3.1x to 25x further away (2-norm, both models, both pins; about
+   1000x in the two runs where it flips an expert); the test requires 2x. The smallest ratio, 3.147 (glm5-next
+   rollback at 79e2e74: 1.139e-3 plain / 3.619e-4 aware), is only 1.57 times that requirement.
+5. **N7 finding 7: a MoE near-tie flip; N7's 0.416 compared answers to two different prompts.** Three parts, labelled
+   separately.
+   (a) N10's own runs; as an explanation of N7: PROVISIONAL (a mechanism of the right size, shown at ec7630a on N10's
+   64-token sequence). llama.cpp at f16 / FA against llama.cpp at f32 / no FA (same model, tokens, call plan;
+   `2026-10-10-n10-logprob-probe.py`): qwen4exp max |d log-softmax| 2.8e-4, glm5-next 2.7e-3 (pf64) to 1.15e-2 with
+   no discrete choice changed, and 0.603 in ec7630a ub16 / ub10, where exactly one MoE decision flipped (layer 7,
+   position 60: experts {4, 5} vs {5, 7}) and everything after it follows (MoE layers 9 and 10, the DSA selection of
+   layer 11 at position 60). The flipped decision is a near-tie: margin 7.720e-5 between the 2nd and 3rd expert in the
+   plain f32 oracle (scores 0.542651102 / 0.542573903), 2.907e-6 in the precision-aware one (0.542607057 /
+   0.542604150), which llama.cpp then flips (`2026-10-10-n10-moe-margin-probe.py`, output in the last section); the
+   test replays it (`moe experts: tie replays = 1`) and the rest of the run matches within TOL. At 79e2e74 the same
+   runs flip nothing (max 1.15e-2). No DSA / QSA selection flipped on its own: the only selection difference is
+   downstream of the MoE flip (13 glm5-next selections per run are exact ties at score 0.0: all heads' relu zero, their
+   order is ggml_top_k's, not precision).
+   (b) N7's own run, traced at 79e2e74 afterwards (`2026-10-10-n10-n7-trace.py`, output in the last section;
+   CONFIRMED by that output unless labelled). dump-tensors with N7's model and result files, the server's flags and
+   call plan (a prompt as n - 4 and 4 tokens, then one token per call) and the answers teacher-forced reproduces N7's
+   server log-probs within 6.2e-7, with the same greedy tokens. N7's 0.416 (step 0) and 0.86 compare the cold answers
+   to two different 256-token prompts: each configuration's prompt holds its own first answer (`check_prefix_extend`),
+   the two first answers differ from token 13, so the prompts differ at 18 positions from position 213. From the dumps:
+   0.416 between the two prompts, 1.5e-3 between the precisions on the same prompt, with all 32 greedy tokens equal.
+   The precision does change the first answer (one 200-token prompt): the greedy token first differs at step 13,
+   where |d log-softmax| jumps from 7.6e-3 (step 12) to 0.54. The only discrete choice that differs at or before that
+   position, besides the last layer's DSA selection at prompt row 45 (whose effect stays in that row: 0.396 there,
+   1.9e-3 in rows 44 and 46), is the MoE set of layer 8 at that position: {0, 5} at f32 by a margin of 1.4e-5 in
+   llama.cpp's own selection scores (0.592112362 / 0.592098176), {3, 5} at the defaults. That this flip causes the
+   token change is the direct reading, not proven by forcing the f32 expert set into the defaults run (PROVISIONAL).
+   Whether the prompt-row DSA difference is a near tie or an exact tie: UNKNOWN (not traced).
+   (c) Expected flips: PROVISIONAL estimate. Margin probe (`2026-10-10-n10-margin-probe.py`): f16 / FA moves
+   glm5-next's MoE selection margins by a median 2.5e-5 to 4.9e-5 (max 1.7e-3, leaving out ec7630a ub16, whose later
+   decisions follow its flip), qwen4exp's by 6.4e-7 to 1.4e-6 (max 2.3e-5); 6 of 704 glm5-next and 19 of 512 qwen4exp
+   MoE decisions have a margin below 1e-3. Assumptions: (i) the margins near 0 are spread uniformly at the density seen
+   below 1e-3; (ii) N7's model and prompt have the same margin density and margin changes as these runs. Flips per
+   decision = density x change of the margin; per 288-token run (N7's 256-token prompt + 32 steps: 288 x 11 MoE layers
+   = 3168 glm5-next decisions, 288 x 8 = 2304 qwen4exp decisions). With the median change: glm5-next 6/704 per 1e-3 x
+   2.5e-5 .. 4.9e-5 x 3168 = 0.68 .. 1.32; qwen4exp 19/512 per 1e-3 x 6.4e-7 .. 1.4e-6 x 2304 = 0.055 .. 0.12. An
+   expected count needs the mean, and the largest change (1.7e-3) is 35 to 68 times those medians: the mean |change|
+   is 1.8 to 2.7 times the median (glm5-next 4.4e-5 .. 1.2e-4, qwen4exp 1.5e-6 .. 3.1e-6) and gives 1.24 .. 3.16 and
+   0.13 .. 0.27; only a decrease of the margin can flip a decision, and the mean decrease (mean of max(0, -change):
+   glm5-next 2.1e-5 .. 5.8e-5, qwen4exp 6.7e-7 .. 1.4e-6) gives 0.59 .. 1.56 and 0.057 .. 0.12
+   (`2026-10-10-n10-moe-margin-probe.py`, runs without a flip and ec7630a ub16 upstream of its flip). N7's trace has one
+   MoE flip in each traced sequence that no earlier difference explains (the first answer: layer 8 at position 212;
+   the gate's 256-token prompt: layer 6 at prompt position 236, margin 4.3e-5 at f32), consistent with these
+   estimates. Whether real GLM-5.3-Flash weights have that margin density: UNKNOWN (R2.1 / K2 must measure it).
+6. **Attribution** (the head, normwise, against the plain f32 oracle: the head rows (layer -1) of the per-layer
+   tables under "Other precision configurations"). glm5-next at ec7630a: 3.3e-3 at f32 / FA on; 0.19 at f16 / FA on
+   and at f16 / FA off (the runs with the MoE flip, ub10 / ub16). glm5-next at 79e2e74: 3.5e-3 at f16 / FA on and at
+   f32 / FA on, 2.3e-3 at f16 / FA off. f32 / FA off: 1.7e-5 (ec7630a), 1.6e-5 (79e2e74). qwen4exp, the same at both
+   pins: 1.9e-4 with FA on (either cache type), 1.4e-4 at f16 / FA off, 1.3e-6 at f32 / FA off. At ec7630a, f32 / FA on
+   leaves ub16 and ub10 of glm5-next untouched (the gather path has no flash attention and the cache is f32).
 7. **Mutation check** (literal output below): ec7630a 14/14 caught, 79e2e74 13/14; the miss (T2, no tie replay) is a
    mutant of a mechanism the 79e2e74 runs do not exercise (no near-tie flips there). A first round with the earlier
-   test version caught 12/14 and 11/14: removing the f16 store from the oracle (O1) was caught only by a property
-   test, the qwen4exp indexer-key rounding (O6) and a 2^-9 error in one latent the tiled attention read (D4) not at
-   all. Fixes: the cache test compares llama.cpp's cache with the rows the oracle stored (not with its own
-   re-rounding) and asserts the share per quantity; `F16Mixin.close` had replaced explicit op-level tolerances
-   (1e-5) by TOL. The table below is the second round on the committed code.
+   test version caught 12/14 and 11/14 (not pasted, output not kept): removing the f16 store from the oracle (O1)
+   was caught only by a property test, the qwen4exp indexer-key rounding (O6) and a 2^-9 error in one latent the
+   tiled attention read (D4) not at all. Fixes: the cache test compares llama.cpp's cache with the rows the oracle
+   stored (not with its own re-rounding) and asserts the share per quantity; `F16Mixin.close` had replaced explicit
+   op-level tolerances (1e-5) by TOL. The table below is the second round on the committed code.
 
 ### Not covered (gap 3)
 
@@ -312,13 +350,24 @@ $ sed -n "765,768p;772,774p;793,797p;906,907p" src/models/qwen4exp.cpp
         ggml_build_forward_expand(gf, mctx_cur->cpy_v(ctx0, v_cur, v_idxs, il));
 ```
 
-At 79e2e74 (`cd <scratch>/llama.cpp`; the two diffs compare the pins):
+The CPU flash-attention code from `one_chunk` through the end of the dispatcher, and `build_attn_mha`, at both pins
+(in `<scratch>`):
 
 ```
-$ diff <(sed -n "/static void ggml_compute_forward_flash_attn_ext_f16_one_chunk/,/^void ggml_compute_forward_flash_attn_ext(/p" <ec7630a>/ggml/src/ggml-cpu/ops.cpp) <(same @79e2e74) && echo FA-IDENTICAL
+$ fa() { awk '/^static void ggml_compute_forward_flash_attn_ext_f16_one_chunk\(/{p=1} p{print} p && /^void ggml_compute_forward_flash_attn_ext\(/{d=1} d && /^}/{exit}' "$1"/ggml/src/ggml-cpu/ops.cpp; }
+$ mha() { awk '/^ggml_tensor \* llm_graph_context::build_attn_mha\(/{p=1} p{print} p && /^}/{exit}' "$1"/src/llama-graph.cpp; }
+$ for c in llama-ec7630a llama.cpp; do echo "$c: fa() $(fa $c | wc -l) lines, first: $(fa $c | head -n 1) dispatcher at line $(fa $c | grep -n '^void ggml_compute_forward_flash_attn_ext(' | cut -d: -f1), last: $(fa $c | tail -n 1); mha() $(mha $c | wc -l) lines, last: $(mha $c | tail -n 1)"; done
+llama-ec7630a: fa() 750 lines, first: static void ggml_compute_forward_flash_attn_ext_f16_one_chunk( dispatcher at line 735, last: }; mha() 140 lines, last: }
+llama.cpp: fa() 750 lines, first: static void ggml_compute_forward_flash_attn_ext_f16_one_chunk( dispatcher at line 735, last: }; mha() 140 lines, last: }
+$ diff <(fa llama-ec7630a) <(fa llama.cpp) && echo FA-IDENTICAL
 FA-IDENTICAL
-$ diff <(build_attn_mha @ec7630a) <(build_attn_mha @79e2e74) && echo MHA-IDENTICAL
+$ diff <(mha llama-ec7630a) <(mha llama.cpp) && echo MHA-IDENTICAL
 MHA-IDENTICAL
+```
+
+At 79e2e74 (`cd <scratch>/llama.cpp`):
+
+```
 $ sed -n "1060p;1074,1078p" src/models/glm5-next.cpp   # @79e2e74: mask path only
         sel = build_kpool_select(cur, qr, kq_mask, layer, mctx_hyb, inp_kpool, il);
 
@@ -330,7 +379,10 @@ $ sed -n "1060p;1074,1078p" src/models/glm5-next.cpp   # @79e2e74: mask path onl
 
 ### Driver at the R1 default precision, both pins
 
-Literal, on HEAD `27cbb25` (code as committed; the later commits change docstrings and docs only). Cut from each
+Literal, on HEAD `27cbb25` (code as committed). Later commits also changed ref/ code (`1ace96f` and `6f16284` write
+the products as `w.T`, numerically unchanged for F32 arrays); the part-A tables of the reruns on `6585325`
+(`final2-<pin>-run_parity_f16fa.sh.log`, section "Final runs") are identical to the ones below (`diff` in the last
+section). Cut from each
 log: the first three lines (`CMAKE_BUILD_TYPE=Release`, two `wrote .../*.gguf`), the per-test lines of
 `unittest -v`, the first table of each model (one row per run and component: 320 rows qwen4exp, 550 / 542
 glm5-next; its four largest rows are shown under "largest errors"), the `tie replays = 0` summary rows, the
@@ -583,6 +635,18 @@ decode   kda_scan_out [full]                                            9    11 
 decode   kda_scan_out [chunk]                                           9    11  2.947e-03  8.034e-03
 decode   kda_scan_out (first row, reads the carried state) [full]       9    11  2.947e-03  8.034e-03
 decode   kda_scan_out (first row, reads the carried state) [chunk]      9    11  2.947e-03  8.034e-03
+```
+
+The two `fa_tiled` rows of the cut first tables that finding 2 cites, with the table headers (ec7630a log):
+
+```
+$ sed -n "141,142p;225p;694,695p;818p" <scratch>/n10/final-ec.log
+qwen4exp, llama.cpp ec7630a, -ctk f16 -ctv f16 -fa on: worst error per run and component (rel = max|got-want| / max|want|) against the precision-aware oracle (asserted) and the plain f32 oracle (recorded only)
+run      component                                                  layer graph  rel aware    rel f32
+pf64     flash attention op (fa_tiled, own inputs)                      7     0  1.343e-07        nan
+glm5-next, llama.cpp ec7630a, -ctk f16 -ctv f16 -fa on: worst error per run and component (rel = max|got-want| / max|want|) against the precision-aware oracle (asserted) and the plain f32 oracle (recorded only)
+run      component                                                  layer graph  rel aware    rel f32
+pf64     flash attention op (fa_tiled, own inputs)                      7     0  2.103e-07        nan
 ```
 
 ### Other precision configurations (tests only, on dumps of the same driver with `PARITY_KV` / `PARITY_FA`)
@@ -928,7 +992,7 @@ dequantized weights (`gguf.quants.dequantize` of the pin's gguf-py) and the CPU 
 |---|---|---|
 | which tensors llama-quantize quantizes | 2-D and 3-D tensors whose name ends in `weight`, except `*_norm.weight`, `ffn_gate_inp`, `ssm_conv1d*`, `indexer.k_proj` / `indexer.q_proj` and, for glm5-next only, `hc_*`, the indexer (`indexer.attn_q_b`, `indexer.attn_k`, `indexer.proj`, `indexer_compressor_*`), `ssm_f_a/f_b/g_a/g_b`, `ssm_beta`, `attn_kv_a_mqa`, `attn_k_b`, `attn_v_b`. The qwen4exp PLE gammas `ple_norm_{key,query,conv}.weight` match none of these (the name has `_norm_key.weight`, not `_norm.weight`): they are quantized | src/llama-quant.cpp:287-346 (`_norm.weight` :300, glm5-next :333-346) |
 | the row-length rule | a row (ne0) not divisible by the target's block falls back: Q4_K -> Q5_0, Q5_K -> Q5_1, Q6_K -> Q8_0 (block 32), then F16 if still not divisible; QK_K = 256 | src/llama-quant.cpp:390-439 (:396, 416-418, 429, 438); ggml/src/ggml-common.h:89 |
-| what the CPU does with the activations of a quantized product | `mul_mat` / `mul_mat_id` convert src1 row by row with the `from_float` of the weight type's `vec_dot_type`: F16 -> F16 (round to nearest even), Q8_0 / Q4_0 / Q5_0 / IQ4_NL / MXFP4 -> Q8_0 (32-blocks, scale stored as f16), Q4_1 / Q5_1 -> Q8_1, k-quants and IQ* -> Q8_K (256-blocks, f32 scale); the integer block dots are then scaled in f32. So the product equals the dot of the dequantized weight with the **dequantized activation**, up to f32 rounding of the block scaling and sums | ggml/src/ggml-cpu/ggml-cpu.c:1278-1279, 1360-1371, 1624, 1637; type traits :215-410 (:225, 243, 263, 275, 314, 324, 330) |
+| what the CPU does with the activations of a quantized product | `mul_mat` / `mul_mat_id` convert src1 row by row with the `from_float` of the weight type's `vec_dot_type`: F16 -> F16 (round to nearest even), Q8_0 / Q4_0 / Q5_0 / IQ4_NL / MXFP4 -> Q8_0 (32-blocks, scale stored as f16), Q4_1 / Q5_1 -> Q8_1, k-quants and IQ* -> Q8_K (256-blocks, f32 scale); the integer block dots are then scaled in f32. So the product equals the dot of the dequantized weight with the **dequantized activation**, up to f32 rounding of the block scaling and sums | ggml/src/ggml-cpu/ggml-cpu.c:1278-1279, 1360-1371 (mul_mat), 1631-1640 (mul_mat_id, the conversion at :1637; :1620-1629 is an `#if 0` branch); type traits :215-410 (:225, 243, 263, 275, 314, 324, 330) |
 | Q8_0 activations on this build | the AVX2 `quantize_row_q8_0`: d = amax/127 stored as f16, id = 127/amax, round to nearest even; not the scalar `quantize_row_q8_0_ref` (id = 1/d, `roundf`). The tests tell the two apart (mutant Q2 below) | ggml/src/ggml-cpu/arch/x86/quants.c:302-398 (:331-337, 343); ggml/src/ggml-quants.c:276-298 |
 | Q8_K activations | `quantize_row_q8_K` = `quantize_row_q8_K_ref` on x86: iscale = -127/max (max: the first element of largest abs), `nearest_int` (round to nearest even), d = 1/iscale in f32. The repacked Q4_K path (AVX2, rows a multiple of 8) quantizes four rows at a time with `ggml_quantize_mat_q8_K_4x8` (iscale = +-127/amax), the remaining rows with `from_float`, and its `mul_mat_id` every row with `from_float`: the same values, since q and d change sign together | x86 quants.c:505-507; ggml-quants.c:2768-2805, 621-626; ggml/src/ggml-cpu/repack.cpp:5006-5010, 4697-4705, 4839-4841; arch/x86/repack.cpp:290-512 (:382-388) |
 | repacking | on by default for Q4_K weights with ne1 % 8 == 0 on AVX2 (here 7.12 MiB of the Q4_K_M qwen4exp model in a `CPU_REPACK` buffer); off with `-nr` / `--no-repack`. Q8_0, Q5_K, Q6_K are not repacked on x86 (their branches need NEON, or RISC-V vectors for Q8_0) | repack.cpp:5006-5010 (Q4_K), 5050-5126 (Q5_K, Q6_K, Q8_0); common/arg.cpp:2421-2428; buffer sizes below |
@@ -1012,7 +1076,7 @@ Tolerances (written out in the test docstrings):
    pins; the glm5-next Q4_K_M rows differ in the third digit (the dumps differ, finding 5).
 2. **The activation quantization is the effect to model, not the weights alone.** Without it (dequantized weights only,
    the reference CORRECTNESS.md proposed) the same products are off by 2.6e-4 to 5.8e-2 normwise (qwen4exp) and 1.8e-3
-   to 1.5e-2 (glm5-next): scaled >= 5.5e-5 in every graph and >= 8.6e-4 in some graph of every run, at least 230 times
+   to 1.5e-2 (glm5-next): scaled >= 5.5e-5 in every graph and >= 8.5e-4 in some graph of every run, at least 230 times
    the worst emulated scaled error (2.4e-7). llama.cpp quantizes every activation row to 8 bits (Q8_0 or Q8_K) or to f16 before a quantized or
    F16 product; F32 weights (routers, indexer projections, shared-expert gate) leave it f32 (there the two oracles
    coincide exactly).
@@ -1032,7 +1096,8 @@ Tolerances (written out in the test docstrings):
    model that is all (the Q8_0 activation quantization of `attn_out` absorbs the f32 differences, every later tensor is
    bit-identical), in Q4_K_M 9555 of 19336 tensors differ (a Q8_K block rounds differently somewhere and the difference
    travels on); the per-product checks pass on both.
-6. **A whole-model 1e-4 comparison is not possible on quantized weights; per product (or statistics) is.** The
+6. **A whole-model 1e-4 comparison is not possible on quantized weights; per product (or statistics) is** (PROVISIONAL:
+   shown on tiny random-weight models only). The
    whole oracle from the token ids on the pf64 run (probe below): with the activation quantization emulated, layer
    outputs drift from 8e-8 (layer 0) to 3.8e-2 (layer 7) in Q8_0 and from 8e-6 to 3.8e-2 in Q4_K_M; logits 4.4e-2 and
    3.2e-2; greedy tokens 64/64 and 63/64; 1 and 2 MoE expert sets differ (oracle margins 1.3e-3, 4.0e-3, 9.4e-4: not
@@ -1060,8 +1125,10 @@ Tolerances (written out in the test docstrings):
    14 mutants, the same Q1-Q6, G1-G3, T1, D1-D4) caught 14/14 at both pins as well (not pasted; the code changed after
    it).
 10. **CI time** (PROVISIONAL, local wall times on this 4-core sandbox, other agents' processes running): the driver takes
-   58 s to 1 min 21 s with `dump-tensors` already built (it is, by the earlier steps of both jobs); building the
-   `llama-quantize` target added 28 s here. About 1.5 to 2 min more for `cpu-parity` and for `parity-r1-pin`.
+   57 s to 1 min 21 s with `dump-tensors` already built (it is, by the earlier steps of both jobs); configuring with
+   `-DG0_QUANTIZE=ON` and building the `llama-quantize` target on top of it took 0.3 s + 3.7 s (timed build in the
+   last section; an earlier "28 s" had no command behind it and is withdrawn). About 1 to 1.5 min more for
+   `cpu-parity` and for `parity-r1-pin`.
 
 ### Not covered (gap 2)
 
@@ -1074,17 +1141,20 @@ Tolerances (written out in the test docstrings):
   so the values cannot change (PROVISIONAL, from the source).
 * Quantized MTP blocks, quantized KV cache: NOT RUN. Whole-model statistical parity (KLD / top-1) on quantized tiny
   models: NOT RUN.
-* GPU: NOT RUN. CUDA quantizes activations for its quantized products differently (q8_1 tiles for MMQ / MMVQ): UNKNOWN
-  here, not read.
+* GPU: NOT RUN. How the CUDA backend treats the activations of its quantized products: UNKNOWN (its code was not read
+  here).
 * Real weights: NOT RUN.
 
 
 ### Literal outputs (part B)
 
-Generators: the default outputs before and after `--quant-dims` (sha256, first 16 hex digits; "before" = the file at the parent commit of the change, gguf-py of ec7630a):
+Generators: the default outputs before and after `--quant-dims` (sha256, first 16 hex digits; "before" = the file at
+the parent commit of the change, "after" = the working tree; gguf-py of ec7630a; run from the repository root, rerun
+for the audit with the literal commands):
 
 ```
-$ for a in "" --mtp "--seed 3" ["--arch glm5next"]; do <before>.py b.gguf $a; <after>.py a.gguf $a; ...; done
+$ T=<scratch>/n10/gencheck; git show 3ab7049^:tools/tinygen/qwen4exp_tiny.py > $T/qwen4exp_tiny.py; git show 8baad48^:tools/tinygen/glm5next_tiny.py > $T/glm5next_tiny.py; export PYTHONPATH=<scratch>/llama-ec7630a/gguf-py
+$ for g in qwen4exp_tiny glm5next_tiny; do for a in "" --mtp "--seed 3" "--arch glm5next"; do [ "$g$a" = "qwen4exp_tiny--arch glm5next" ] && continue; python3 $T/$g.py $T/b.gguf $a >/dev/null; python3 tools/tinygen/$g.py $T/a.gguf $a >/dev/null; echo "$g.py $a: before $(sha256sum < $T/b.gguf | cut -c1-16) after $(sha256sum < $T/a.gguf | cut -c1-16)"; done; done
 qwen4exp_tiny.py : before 0fe7442121108a67 after 0fe7442121108a67
 qwen4exp_tiny.py --mtp: before 23bf70ffd45b0a45 after 23bf70ffd45b0a45
 qwen4exp_tiny.py --seed 3: before eb04bf4fd733eaa0 after eb04bf4fd733eaa0
@@ -1353,10 +1423,10 @@ $ dump-tensors -m <work-r1>/Q4_K_M/model.gguf ... -lv 4 --no-repack 2>&1 | grep 
 I load_tensors:   CPU_Mapped model buffer size =    10.72 MiB
 ```
 
-Pins: the source files of part B at ec7630a and 79e2e74:
+Pins: the source files of part B at ec7630a and 79e2e74 (in `<scratch>`; the loop rerun literally for the audit):
 
 ```
-$ for f in ...; do diff -q llama-ec7630a/$f llama.cpp/$f ...; done
+$ for f in ggml/src/ggml-cpu/ggml-cpu.c ggml/src/ggml-cpu/arch/x86/quants.c ggml/src/ggml-cpu/arch/x86/repack.cpp ggml/src/ggml-cpu/repack.cpp ggml/src/ggml-quants.c ggml/src/ggml-cpu/binary-ops.cpp ggml/src/ggml-cpu/unary-ops.cpp ggml/src/ggml-cpu/llamafile/sgemm.cpp src/llama-quant.cpp tools/quantize/quantize.cpp gguf-py/gguf/quants.py ggml/src/ggml-common.h; do if diff -q llama-ec7630a/$f llama.cpp/$f >/dev/null; then echo "same      $f"; else echo "differs   $f ($(diff llama-ec7630a/$f llama.cpp/$f | grep -c '^[<>]') changed lines; hunks: $(diff llama-ec7630a/$f llama.cpp/$f | grep -E '^[0-9]' | tr '\n' ' '))"; fi; done
 differs   ggml/src/ggml-cpu/ggml-cpu.c (4 changed lines; hunks: 1308c1308 1387c1387 )
 same      ggml/src/ggml-cpu/arch/x86/quants.c
 same      ggml/src/ggml-cpu/arch/x86/repack.cpp
@@ -1409,12 +1479,16 @@ static ggml_type tensor_type_fallback(quantize_state_impl & qs, const ggml_tenso
             return_type = GGML_TYPE_F16;
 $ grep -n "define QK_K" ggml/src/ggml-common.h
 89:#define QK_K 256
-$ sed -n "1278,1279p;1371p;1624p;1637p" ggml/src/ggml-cpu/ggml-cpu.c   # vec_dot_type of src0, its from_float, the src1 conversion (mul_mat; mul_mat_id)
+$ sed -n "1278,1279p;1371p;1620p;1630p;1637,1639p;1643p" ggml/src/ggml-cpu/ggml-cpu.c   # vec_dot_type of src0, its from_float, the src1 conversion of mul_mat (1371) and of mul_mat_id (1637-1639, the #else branch; 1620-1629 is #if 0)
     enum ggml_type           const vec_dot_type         = type_traits_cpu[src0->type].vec_dot_type;
     ggml_from_float_t        const from_float           = type_traits_cpu[vec_dot_type].from_float;
                         from_float((const float *) src1_row, wdata_row, ne10_block_size);
-                    from_float((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11),
+#if 0
+#else
                     from_float((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11 + ne10_block_start*bs*nb10),
+                               (void *)               (wdata + i13*nbw3 + i12*nbw2 + i11*nbw1 + ne10_block_start*nbw0),
+                               (ne10_block_end - ne10_block_start) * bs);
+#endif
 $ sed -n "225p;243p;263p;275p;314p;324p;330p" ggml/src/ggml-cpu/ggml-cpu.c   # vec_dot_type of F16, Q4_0, Q5_0, Q8_0, Q4_K, Q5_K, Q6_K
         .vec_dot_type             = GGML_TYPE_F16,
         .vec_dot_type             = GGML_TYPE_Q8_0,
@@ -1527,7 +1601,7 @@ static inline float op_sigmoid(float x) {
 }
 ```
 
-Driver, ec7630a (`time QUANT_WORK=<scratch>/n10/qw-ec tools/tinygen/run_parity_quant.sh <llama.cpp> <scratch>/n10/build-ec`; cut: the 99 verbose `... ok` lines of unittest -v, and the tables, which follow):
+Driver, ec7630a (`time QUANT_WORK=<scratch>/n10/qw-ec tools/tinygen/run_parity_quant.sh <llama.cpp> <scratch>/n10/build-ec`; cut: the first three lines (`CMAKE_BUILD_TYPE=Release` and the two `wrote <scratch>/n10/qw-ec/...-f32.gguf` lines of the generators), the 99 verbose `... ok` lines of unittest -v, and the tables, which follow):
 
 ```
 Q8_0 pf64: 1 graphs, 1 calls
@@ -1555,7 +1629,7 @@ user	1m49.223s
 sys	0m42.115s
 ```
 
-Driver, 79e2e74 (`time QUANT_WORK=<scratch>/n10/qw-r1 tools/tinygen/run_parity_quant.sh <llama.cpp> <scratch>/n10/build-r1`; cut: the 99 verbose `... ok` lines of unittest -v, and the tables, which follow):
+Driver, 79e2e74 (`time QUANT_WORK=<scratch>/n10/qw-r1 tools/tinygen/run_parity_quant.sh <llama.cpp> <scratch>/n10/build-r1`; cut: the first three lines (`CMAKE_BUILD_TYPE=Release` and the two `wrote <scratch>/n10/qw-r1/...-f32.gguf` lines of the generators), the 99 verbose `... ok` lines of unittest -v, and the tables, which follow):
 
 ```
 Q8_0 pf64: 1 graphs, 1 calls
@@ -2510,4 +2584,251 @@ r1 run_parity_qwen4exp.sh: rc=0 Ran 17 tests in 0.311s OK real 0m1.569s
 r1 run_parity_qwen4exp_decode.sh: rc=0 Ran 54 tests in 3.210s OK real 0m17.691s 
 r1 run_parity_glm5next_decode.sh: rc=0 Ran 58 tests in 5.445s OK real 0m17.412s 
 r1 run_parity_f16fa.sh: rc=0 Ran 170 tests in 19.988s OK real 0m28.136s 
+```
+
+## Audit of `bd715da`: what changed, and the outputs behind it
+
+The evidence-auditor checked HEAD `bd715da` and reported 2 FAIL and 13 MINOR (its report is not in the repository).
+Fixed in place above unless said otherwise:
+
+| item | what was wrong | fix |
+|---|---|---|
+| FAIL 1 | part A finding 5, CORRECTNESS.md and the message of `1ce215b` presented "N7 finding 7 explained" as CONFIRMED, from a flip seen only at ec7630a on N10's 64-token sequence; N7's run at 79e2e74 was not traced | finding 5 split: (a) PROVISIONAL as an explanation of N7; (b) N7's run traced at 79e2e74 (below); (c) the estimate. CORRECTNESS.md: "вероятное объяснение ... (PROVISIONAL: ...)" |
+| FAIL 2 | the margins 7.7e-5 / 2.9e-6 were in no pasted output | `2026-10-10-n10-moe-margin-probe.py` (`ea9bb9e`), output below |
+| MINOR 3 | "3.2x (docstring 3.3x) to 25x" | 3.1x in finding 4 and in tests/f16fa.py (`92640dc`); the minimum, 3.147, is 1.57 times the 2x rule |
+| MINOR 4 | "measured >= 0.83" (also in the message of `27cbb25`) | >= 0.82 (8730/10608 = 0.823) |
+| MINOR 5 | "tiled to 1.3e-7 normwise", "5e-4 to 9e-4" | 1.3e-7 / 2.1e-7 (rows printed under the part A driver output), 4.7e-4 to 9.2e-4 |
+| MINOR 6 | ">= 8.6e-4" | >= 8.5e-4 (the summary shows 8.57e-04) |
+| MINOR 7 | attribution values not given per pin | per pin, part A finding 6 |
+| MINOR 8 | "the later commits change docstrings and docs only" is stale (`1ace96f`, `6f16284` change ref/ code) | replaced by the `diff` of the tables of the reruns on `6585325` against the pasted ones (below) |
+| MINOR 9 | first part A mutation round (12/14, 11/14) not marked as unpasted | "not pasted, output not kept" |
+| MINOR 10 | ggml-cpu.c:1624 lies inside `#if 0` (line 1620) | :1631-1640 (conversion at :1637) in the part B table, the printed source lines and ref/quant.py (`22b98f3`) |
+| MINOR 11 | the part B driver blocks cut their first three lines without saying so | named in both cut notes |
+| MINOR 12 | flip "bound" from the median change, no arithmetic | arithmetic, both assumptions, called an estimate, plus the mean-based numbers (below) |
+| MINOR 13 | "llama-quantize target added 28 s" without a command | timed build below (0.3 s + 3.7 s); the 28 s is withdrawn; CI estimate now 1 to 1.5 min |
+| MINOR 14 | CORRECTNESS.md "дают те же значения", "невозможна в принципе", the part B finding 6 heading | "в пределах TOL_OP" (with the 4 hc_gate rows); PROVISIONAL (tiny random models only) |
+| MINOR 15 | paraphrased commands (FA / build_attn_mha diff, generator loop, pin file loop), a CUDA statement labelled UNKNOWN, timings in the message of `af850ad` | the commands rerun literally and pasted (the FA range now runs through the end of the dispatcher); the GPU line says UNKNOWN only; `af850ad` below |
+
+Corrections to commit messages that cannot be amended (published history is not rewritten):
+* `1ce215b` says "N7 finding 7 traced to one MoE near-tie flip (0.60 log-prob)". That commit had traced the mechanism
+  on N10's own ec7630a ub16 / ub10 runs only, not N7's run: as an explanation of N7 it was PROVISIONAL. N7's run was
+  traced later (below): N7's 0.416 / 0.86 compare answers to two different prompts; on one shared prompt the first
+  changed token coincides with a MoE near-tie flip (margin 1.4e-5); causation PROVISIONAL.
+* `27cbb25` says "measured >= 0.83 per quantity": the pasted minimum is 8730/10608 = 0.823, so ">= 0.82".
+* `af850ad` says "the driver took 46 s at ec7630a and 57 s at 79e2e74 (dumps + 169 tests)" with no label and no pasted
+  output; those logs were not kept, so the two times are unsupported (PROVISIONAL at best). 169 was the test count at
+  `af850ad` (tests/test_fattn_ref.py had 10 tests; `27cbb25` added the mm16 bound property test, hence 170). Pasted
+  driver times are in "Final runs" (29 s / 35 s on `8ca21dc`, 45 s / 28 s on `6585325`) and below (26 s).
+
+### MoE margins of both oracles (FAIL 2, MINOR 12)
+
+`2026-10-10-n10-moe-margin-probe.py` at `ea9bb9e` on the part A dumps (full output; the ec7630a ub16 statistics are
+printed for all decisions and for those upstream of its flip; "per 288-token run" multiplies by 288 x the MoE layers):
+
+```
+$ for P in ec r1; do W=<scratch>/n10/work-$P; L=$([ $P = ec ] && echo <scratch>/llama-ec7630a || echo <scratch>/llama.cpp); C=$(git -C $L rev-parse HEAD); echo "== $P ($C)"; for run in pf64 ub16 decode; do for m in glm5next qwen4exp; do env GLM5NEXT_F16FA_DUMP=$W/g GLM5NEXT_F16FA_GGUF=$W/glm5next.gguf QWEN4EXP_F16FA_DUMP=$W/q QWEN4EXP_F16FA_GGUF=$W/qwen4exp.gguf LLAMA_CPP_GGUF_PY=$L/gguf-py PARITY_LLAMA_COMMIT=$C python3 docs/evidence/mutation-scripts/2026-10-10-n10-moe-margin-probe.py test_${m}_f16fa_parity $run; done; done; done
+== ec (ec7630a640789c393694fb194f1bbbf0369fc62d)
+glm5next pf64: llama.cpp's expert sets equal both oracles' in every MoE row
+glm5next pf64 MoE decisions, all: 704, margin < 1e-3 in 6 (density 8.523e+00 per unit margin); |delta| median 2.513e-05, mean 4.589e-05; mean max(0, -delta) 2.169e-05
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 2.142e-04, 3.911e-04, 1.849e-04; per 288-token run (3168 decisions): 0.678, 1.239, 0.586
+qwen4exp pf64: llama.cpp's expert sets equal both oracles' in every MoE row
+qwen4exp pf64 MoE decisions, all: 512, margin < 1e-3 in 19 (density 3.711e+01 per unit margin); |delta| median 6.440e-07, mean 1.501e-06; mean max(0, -delta) 6.718e-07
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 2.390e-05, 5.571e-05, 2.493e-05; per 288-token run (2304 decisions): 0.055, 0.128, 0.057
+glm5next ub16 g3 L7 pos 60: llama.cpp [4, 5]
+    plain oracle set [5, 7]; best 3: 5 0.636859144, 7 0.542651102, 4 0.542573903; margin k/k+1 7.720e-05
+    aware oracle set [4, 5]; best 3: 5 0.636834430, 7 0.542607057, 4 0.542604150; margin k/k+1 2.907e-06
+glm5next ub16 g3 L9 pos 63: llama.cpp [0, 4]
+    plain oracle set [2, 4]; best 3: 4 0.854913337, 2 0.745875502, 0 0.740778189; margin k/k+1 5.097e-03
+    aware oracle set [0, 4]; best 3: 4 0.855884856, 0 0.746365081, 2 0.744510807; margin k/k+1 1.854e-03
+glm5next ub16 g3 L10 pos 60: llama.cpp [1, 5]
+    plain oracle set [0, 5]; best 3: 5 0.803054855, 0 0.686082640, 1 0.673542288; margin k/k+1 1.254e-02
+    aware oracle set [1, 5]; best 3: 5 0.819654653, 1 0.685716157, 0 0.674361116; margin k/k+1 1.136e-02
+glm5next ub16 MoE decisions, all: 704, margin < 1e-3 in 6 (density 8.523e+00 per unit margin); |delta| median 2.533e-05, mean 4.611e-04; mean max(0, -delta) 2.191e-04
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 2.159e-04, 3.930e-03, 1.867e-03; per 288-token run (3168 decisions): 0.684, 12.449, 5.916
+glm5next ub16 MoE decisions, upstream of the first llama.cpp / plain difference (pos 60, L7): 667, margin < 1e-3 in 6 (density 8.996e+00 per unit margin); |delta| median 2.450e-05, mean 4.362e-05; mean max(0, -delta) 2.133e-05
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 2.204e-04, 3.924e-04, 1.919e-04; per 288-token run (3168 decisions): 0.698, 1.243, 0.608
+qwen4exp ub16: llama.cpp's expert sets equal both oracles' in every MoE row
+qwen4exp ub16 MoE decisions, all: 512, margin < 1e-3 in 19 (density 3.711e+01 per unit margin); |delta| median 1.436e-06, mean 3.133e-06; mean max(0, -delta) 1.439e-06
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 5.329e-05, 1.163e-04, 5.341e-05; per 288-token run (2304 decisions): 0.123, 0.268, 0.123
+glm5next decode: llama.cpp's expert sets equal both oracles' in every MoE row
+glm5next decode MoE decisions, all: 704, margin < 1e-3 in 6 (density 8.523e+00 per unit margin); |delta| median 3.801e-05, mean 1.035e-04; mean max(0, -delta) 5.009e-05
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 3.240e-04, 8.817e-04, 4.269e-04; per 288-token run (3168 decisions): 1.026, 2.793, 1.352
+qwen4exp decode: llama.cpp's expert sets equal both oracles' in every MoE row
+qwen4exp decode MoE decisions, all: 512, margin < 1e-3 in 19 (density 3.711e+01 per unit margin); |delta| median 1.436e-06, mean 3.133e-06; mean max(0, -delta) 1.439e-06
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 5.329e-05, 1.163e-04, 5.341e-05; per 288-token run (2304 decisions): 0.123, 0.268, 0.123
+== r1 (79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6)
+glm5next pf64: llama.cpp's expert sets equal both oracles' in every MoE row
+glm5next pf64 MoE decisions, all: 704, margin < 1e-3 in 6 (density 8.523e+00 per unit margin); |delta| median 2.513e-05, mean 4.589e-05; mean max(0, -delta) 2.169e-05
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 2.142e-04, 3.911e-04, 1.849e-04; per 288-token run (3168 decisions): 0.678, 1.239, 0.586
+qwen4exp pf64: llama.cpp's expert sets equal both oracles' in every MoE row
+qwen4exp pf64 MoE decisions, all: 512, margin < 1e-3 in 19 (density 3.711e+01 per unit margin); |delta| median 6.440e-07, mean 1.501e-06; mean max(0, -delta) 6.718e-07
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 2.390e-05, 5.571e-05, 2.493e-05; per 288-token run (2304 decisions): 0.055, 0.128, 0.057
+glm5next ub16: llama.cpp's expert sets equal both oracles' in every MoE row
+glm5next ub16 MoE decisions, all: 704, margin < 1e-3 in 6 (density 8.523e+00 per unit margin); |delta| median 4.909e-05, mean 1.170e-04; mean max(0, -delta) 5.785e-05
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 4.184e-04, 9.970e-04, 4.930e-04; per 288-token run (3168 decisions): 1.325, 3.159, 1.562
+qwen4exp ub16: llama.cpp's expert sets equal both oracles' in every MoE row
+qwen4exp ub16 MoE decisions, all: 512, margin < 1e-3 in 19 (density 3.711e+01 per unit margin); |delta| median 1.436e-06, mean 3.133e-06; mean max(0, -delta) 1.439e-06
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 5.329e-05, 1.163e-04, 5.341e-05; per 288-token run (2304 decisions): 0.123, 0.268, 0.123
+glm5next decode: llama.cpp's expert sets equal both oracles' in every MoE row
+glm5next decode MoE decisions, all: 704, margin < 1e-3 in 6 (density 8.523e+00 per unit margin); |delta| median 4.909e-05, mean 1.170e-04; mean max(0, -delta) 5.785e-05
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 4.184e-04, 9.970e-04, 4.930e-04; per 288-token run (3168 decisions): 1.325, 3.159, 1.562
+qwen4exp decode: llama.cpp's expert sets equal both oracles' in every MoE row
+qwen4exp decode MoE decisions, all: 512, margin < 1e-3 in 19 (density 3.711e+01 per unit margin); |delta| median 1.436e-06, mean 3.133e-06; mean max(0, -delta) 1.439e-06
+    expected flips per decision (density x median |delta|, x mean |delta|, x mean decrease): 5.329e-05, 1.163e-04, 5.341e-05; per 288-token run (2304 decisions): 0.123, 0.268, 0.123
+```
+
+### N7's glm5-next measurement, traced at 79e2e74 (FAIL 1)
+
+`<scratch>/n7/final` holds the artifacts of N7's own `tools/srvcheck/run_n7.sh` run in this session's scratch
+directory (the model and the result files of the gate and the defaults). N7's report script (branch
+`claude/n7-server-hybrid-cpu`) prints from them the same prefix_extend numbers as N7's attribution table (`isolation`
+depends on request timing, N7 finding 8):
+
+```
+$ git -C /home/user/408032gb show claude/n7-server-hybrid-cpu:tools/srvcheck/n7_report.py > <scratch>/n10/n7_report.py; git -C /home/user/408032gb rev-parse --short claude/n7-server-hybrid-cpu
+090ca71
+$ python3 <scratch>/n10/n7_report.py attr "gate f32 fa-off=<scratch>/n7/final/glm5next-gate.json" "defaults (f16 fa-on)=<scratch>/n7/final/glm5next-defaults.json"
+config                 extend      isolation   determin.   mtp         | cold 256-token prompt vs the first run: first differing token, |d| at step 0, max |d| up to it
+gate f32 fa-off        7.15e-06    4.53e-05    0           5.72e-06    | 32, 0, 0
+defaults (f16 fa-on)   0.0267      0.00223     0           2.86e-06    | 3, 0.416, 0.86
+$ sha256sum <scratch>/n7/final/glm5next.gguf | cut -c1-16
+26c83267fe1a7588
+```
+
+The trace (`2026-10-10-n10-n7-trace.py` at `ea9bb9e`; dump-tensors of `<scratch>/n10/build-r1`, i.e. tools/dump at
+this branch and llama.cpp 79e2e74; full output):
+
+```
+$ python3 docs/evidence/mutation-scripts/2026-10-10-n10-n7-trace.py <scratch>/llama.cpp <scratch>/n10/build-r1 <scratch>/n7/final <scratch>/n10/n7trace
+llama.cpp 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6
+model glm5next.gguf sha256 26c83267fe1a7588
+N7 first answers (200-token prompt): gate [14, 20, 12, 22, 24, 71, 56, 4, 72, 1, 27, 45, 3, 49, 6, 20, 14, 26, 20, 8, 27, 5, 47, 35, 66, 3, 31, 27, 86, 79, 26, 20]
+                                  defaults [14, 20, 12, 22, 24, 71, 56, 4, 72, 1, 27, 45, 3, 60, 9, 9, 13, 18, 57, 18, 32, 66, 7, 72, 60, 3, 16, 6, 84, 86, 86, 57]
+  first differing answer token: 13; n_prompt of the cold requests: gate 256, defaults 256; the two 256-token prompts differ at 18 positions, the first at 213
+run F-f32: rc=0, 231 tokens, calls 196 + 4 + 31 x 1, 33 graphs; log: flash_attn            = disabled | size =    0.19 MiB (  1024 cells,   3 layers,  1/1 seqs), K (f32):    0.19 MiB, V (f32):    0.00 MiB
+run F-defaults: rc=0, 231 tokens, calls 196 + 4 + 31 x 1, 33 graphs; log: flash_attn            = auto -> resolve_fused_ops: Flash Attention enabled | size =    0.09 MiB (  1024 cells,   3 layers,  1/1 seqs), K (f16):    0.09 MiB, V (f16):    0.00 MiB
+run C-f32: rc=0, 287 tokens, calls 252 + 4 + 31 x 1, 33 graphs; log: flash_attn            = disabled | size =    0.19 MiB (  1024 cells,   3 layers,  1/1 seqs), K (f32):    0.19 MiB, V (f32):    0.00 MiB
+run C-defaults: rc=0, 287 tokens, calls 252 + 4 + 31 x 1, 33 graphs; log: flash_attn            = auto -> resolve_fused_ops: Flash Attention enabled | size =    0.09 MiB (  1024 cells,   3 layers,  1/1 seqs), K (f16):    0.09 MiB, V (f16):    0.00 MiB
+run D-defaults: rc=0, 287 tokens, calls 252 + 4 + 31 x 1, 33 graphs; log: flash_attn            = auto -> resolve_fused_ops: Flash Attention enabled | size =    0.09 MiB (  1024 cells,   3 layers,  1/1 seqs), K (f16):    0.09 MiB, V (f16):    0.00 MiB
+dump log-softmax against N7's server answers (steps with the same history):
+  F-f32      vs server gate first answer, steps 0..31: max |d log-prob| 4.145e-07, greedy tokens equal: True
+  F-defaults vs server defaults first answer, steps 0..13: max |d log-prob| 4.720e-07, greedy tokens equal: True
+  C-f32      vs server gate cold answer, steps 0..31: max |d log-prob| 3.866e-07, greedy tokens equal: True
+  D-defaults vs server defaults cold answer, steps 0..31: max |d log-prob| 6.225e-07, greedy tokens equal: True
+F: defaults vs f32 on the same tokens: max |d log-softmax| over the prompt rows 3.963e-01; per answer step: step 0 4.841e-03 (top-5 metric 3.781e-03), max 8.644e-01 at step 14 (top-5 metric max 2.230e-01); greedy tokens differing at steps [13]
+   |d log-softmax| (top-5 metric) at answer steps 11..14: 2.311e-03 (7.571e-04), 7.561e-03 (3.021e-03), 5.390e-01 (2.129e-01), 8.644e-01 (1.535e-01)
+   discrete choices differing: 5 of 3234 (MoE 3, DSA 2)
+     DSA L11 pos 45 (step prompt)
+     MoE L8 pos 212 (step 13): [3, 5] vs [0, 5]
+         defaults best 3: 5 0.738602042, 3 0.592229307, 0 0.591996372; margin k/k+1 2.329e-04
+         f32      best 3: 5 0.738993406, 0 0.592112362, 3 0.592098176; margin k/k+1 1.419e-05
+     DSA L11 pos 213 (step 14)
+     MoE L11 pos 213 (step 14): [2, 3] vs [3, 4]
+         defaults best 3: 3 0.905007362, 2 0.752237499, 4 0.732558370; margin k/k+1 1.968e-02
+         f32      best 3: 3 0.965025306, 4 0.728959799, 2 0.719995439; margin k/k+1 8.964e-03
+     MoE L11 pos 216 (step 17): [4, 6] vs [5, 6]
+         defaults best 3: 6 0.761538148, 4 0.754464030, 5 0.750848055; margin k/k+1 3.616e-03
+         f32      best 3: 6 0.756014228, 5 0.754426003, 4 0.750228286; margin k/k+1 4.198e-03
+   |d log-softmax| at the rows before / at / after the first differing position 45: 1.422e-03, 1.950e-03, 3.963e-01, 1.884e-03, 2.080e-03
+C: defaults vs f32 on the same tokens: max |d log-softmax| over the prompt rows 5.708e-01; per answer step: step 0 2.208e-03 (top-5 metric 1.536e-03), max 3.705e-02 at step 1 (top-5 metric max 2.703e-02); greedy tokens differing at steps []
+   discrete choices differing: 9 of 4018 (MoE 4, DSA 5)
+     DSA L11 pos 45 (step prompt)
+     MoE L6 pos 236 (step prompt): [2, 4] vs [0, 4]
+         defaults best 3: 4 0.820880175, 2 0.697785676, 0 0.697748780; margin k/k+1 3.690e-05
+         f32      best 3: 4 0.820875108, 0 0.697795033, 2 0.697751999; margin k/k+1 4.303e-05
+     DSA L11 pos 236 (step prompt)
+     MoE L11 pos 236 (step prompt): [3, 4] vs [3, 5]
+         defaults best 3: 3 0.724158525, 4 0.697842836, 5 0.647290945; margin k/k+1 5.055e-02
+         f32      best 3: 3 0.852849245, 5 0.724245429, 4 0.630384922; margin k/k+1 9.386e-02
+     MoE L10 pos 237 (step prompt): [5, 7] vs [3, 7]
+         defaults best 3: 7 0.763391912, 5 0.599261105, 3 0.589686275; margin k/k+1 9.575e-03
+         f32      best 3: 7 0.769476354, 3 0.612948060, 4 0.579834938; margin k/k+1 3.311e-02
+     DSA L11 pos 237 (step prompt)
+     MoE L11 pos 237 (step prompt): [0, 4] vs [4, 7]
+         defaults best 3: 4 0.825402200, 0 0.602771640, 7 0.597106338; margin k/k+1 5.665e-03
+         f32      best 3: 4 0.804646969, 7 0.582000673, 0 0.540430784; margin k/k+1 4.157e-02
+     DSA L11 pos 238 (step prompt)
+     ... 1 more
+   |d log-softmax| at the rows before / at / after the first differing position 45: 1.422e-03, 1.950e-03, 3.963e-01, 1.884e-03, 2.080e-03
+N7's step-0 number from the dumps (top-5 metric): C-f32 vs D-defaults (each configuration's own prompt) 4.160e-01; C-defaults vs C-f32 (the same prompt) 1.536e-03
+```
+
+Reading (CONFIRMED by the output unless labelled): the dumps reproduce the server (max |d log-prob| <= 6.2e-7 on
+every step with a shared history, same greedy tokens), so the reconstruction of prompt, tail, flags and call plan
+holds. The two 256-token prompts differ at 18 positions; N7's step-0 number is 0.416 between them and 1.5e-3 on one
+prompt. Run F (the first answer, one prompt): the first greedy difference is step 13 (position 212), where the only
+discrete difference at or before it apart from the last layer's DSA row 45 is the MoE set of layer 8 at position 212,
+margin 1.419e-5 at f32; |d log-softmax| 7.561e-3 at step 12, 0.539 at step 13. Run C (the gate's 256-token prompt):
+the defaults flip layer 6's MoE set at prompt position 236 (margin 4.303e-5 at f32, 3.690e-5 the other way at the
+defaults), with later layers and positions following; by step 0 the difference has shrunk to 2.2e-3 and no greedy
+token changes in 32 steps. Causation of the token change by the flip: PROVISIONAL (no forced-expert replay).
+
+### Part A tables of the reruns on `6585325` against the pasted ones (MINOR 8)
+
+The pasted part A tables are `2026-10-10-n10-extract-tables.py` of `final-<pin>.log` (HEAD `27cbb25`); the reruns on
+`6585325` ("Final runs") wrote `final2-<pin>-run_parity_f16fa.sh.log`. From the repository root:
+
+```
+$ X=docs/evidence/mutation-scripts/2026-10-10-n10-extract-tables.py
+$ for p in ec r1; do diff <(python3 $X <scratch>/n10/final-$p.log) <(python3 $X <scratch>/n10/final2-$p-run_parity_f16fa.sh.log); echo "$p: diff rc=$?, $(python3 $X <scratch>/n10/final-$p.log | wc -l) table lines"; done
+ec: diff rc=0, 111 table lines
+r1: diff rc=0, 97 table lines
+```
+
+### Timed build of `llama-quantize` on top of `dump-tensors` (MINOR 13)
+
+In the ec7630a build directory (`<build-ec>` = `<scratch>/n10/build-ec`, tools/g0 of `6585325`; dump-tensors and its
+libraries already built), from the repository root, the target's two objects and two outputs removed first; the
+driver's own two cmake commands (tools/tinygen/run_parity_quant.sh:25-27), timed:
+
+```
+$ rm -f <build-ec>/quantize/CMakeFiles/llama-quantize.dir/main.cpp.o <build-ec>/quantize/CMakeFiles/llama-quantize-impl.dir/quantize.cpp.o <build-ec>/quantize/llama-quantize <build-ec>/quantize/libllama-quantize-impl.so
+$ time cmake -S tools/g0 -B <build-ec> -DLLAMA_CPP_DIR=<scratch>/llama-ec7630a -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF -DG0_QUANTIZE=ON >/dev/null
+CMAKE_BUILD_TYPE=Release
+
+real	0m0.301s
+user	0m0.213s
+sys	0m0.065s
+$ time cmake --build <build-ec> -j"$(nproc)" --target dump-tensors llama-quantize | tail -n 4   # nproc = 4
+[ 97%] Built target llama-quantize-impl
+[ 98%] Building CXX object quantize/CMakeFiles/llama-quantize.dir/main.cpp.o
+[100%] Linking CXX executable llama-quantize
+[100%] Built target llama-quantize
+
+real	0m3.686s
+user	0m3.170s
+sys	0m0.626s
+```
+
+### After the fixes: run_parity_f16fa.sh at one pin, and the tests touched
+
+The f16fa driver at 79e2e74 on the code of `ea9bb9e` (the later commits change docs only), its tables against the
+pasted ones (from the repository root):
+
+```
+$ ( time F16FA_WORK=<scratch>/n10/rerun-r1 tools/tinygen/run_parity_f16fa.sh <scratch>/llama.cpp <scratch>/n10/build-r1 ) > <scratch>/n10/audit-f16fa-r1.log 2>&1; echo rc=$?; grep -E "^(Ran|OK|FAILED)|^real" <scratch>/n10/audit-f16fa-r1.log; X=docs/evidence/mutation-scripts/2026-10-10-n10-extract-tables.py; diff <(python3 $X <scratch>/n10/final-r1.log) <(python3 $X <scratch>/n10/audit-f16fa-r1.log); echo "diff rc=$?"
+rc=0
+Ran 170 tests in 20.000s
+OK
+real	0m25.547s
+diff rc=0
+```
+
+The property tests of ref/fattn.py and ref/quant.py, the f16fa tests (tests/f16fa.py changed, docstring only) on the
+existing ec7630a dumps of part A, and the quantized-weight tests (ref/quant.py changed, docstring only) on the
+existing ec7630a artifacts of part B (`qw2-ec`, the run on `6585325`):
+
+```
+$ git log --oneline -n 1
+ea9bb9e [parity-qa] mutation-scripts: N10 MoE margin probe (both oracles' scores, mean margin change) and N7 trace at 79e2e74
+$ python3 -m unittest tests.test_fattn_ref tests.test_quant_ref 2>&1 | tail -n 3
+Ran 22 tests in 0.058s
+
+OK
+$ W=<scratch>/n10/work-ec; QWEN4EXP_F16FA_DUMP=$W/q QWEN4EXP_F16FA_GGUF=$W/qwen4exp.gguf GLM5NEXT_F16FA_DUMP=$W/g GLM5NEXT_F16FA_GGUF=$W/glm5next.gguf LLAMA_CPP_GGUF_PY=<scratch>/llama-ec7630a/gguf-py PARITY_LLAMA_COMMIT=ec7630a640789c393694fb194f1bbbf0369fc62d python3 -m unittest tests.test_qwen4exp_f16fa_parity tests.test_glm5next_f16fa_parity tests.test_fattn_ref 2>&1 | grep -E "^(Ran|OK|FAILED)"
+Ran 170 tests in 20.673s
+OK
+$ W=<scratch>/n10/qw2-ec; QWEN4EXP_QUANT_DUMP=$W GLM5NEXT_QUANT_DUMP=$W/glm5next LLAMA_CPP_GGUF_PY=<scratch>/llama-ec7630a/gguf-py PARITY_LLAMA_COMMIT=ec7630a640789c393694fb194f1bbbf0369fc62d python3 -m unittest tests.test_qwen4exp_quant_parity tests.test_glm5next_quant_parity tests.test_quant_ref 2>&1 | grep -E "^(Ran|OK|FAILED)"
+Ran 99 tests in 44.192s
+OK
 ```
