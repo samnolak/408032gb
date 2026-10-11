@@ -15,6 +15,10 @@
 # tools/engines/pins.json the steps fail until the new counts are reviewed and added there.
 # N16 (gap 12): mimo2 (MiMo) several ubatches, decode past the 256-cell SWA cache, rollbacks, the MTP block and MXFP4
 # routed experts (MXFP4_MOE by the pin's llama-quantize), tools/tinygen/run_parity_mimo2_decode.sh.
+# N19 (gap 10): qwen4exp several sequences in one context (one KV stream and one per sequence), seq_cp, seq_rm and
+# rollback edges; the pins differ on purpose in two places (ec7630a: shared cells re-pool every k-pool, a rollback of a
+# shared recurrent cell is accepted; 79e2e74: one pooled row per rep cell, that rollback refused),
+# tools/tinygen/run_parity_qwen4exp_multiseq.sh.
 # CPU only, tiny random-weight models.
 name: parity-r1-pin
 on:
@@ -65,6 +69,8 @@ jobs:
         run: python3 tools/ci/check_unittest.py --step n10-quant --checkout ../llama.cpp -- tools/tinygen/run_parity_quant.sh ../llama.cpp ../build-tools
       - name: N16 mimo2 ubatches, decode past the SWA cache, rollbacks, MTP and MXFP4 experts at the R1 pin (CPU)
         run: python3 tools/ci/check_unittest.py --step n16-mimo2-decode --checkout ../llama.cpp -- tools/tinygen/run_parity_mimo2_decode.sh ../llama.cpp ../build-tools
+      - name: N19 qwen4exp several sequences, seq_cp, seq_rm and rollback edges at the R1 pin (CPU)
+        run: python3 tools/ci/check_unittest.py --step n19-qwen4exp-multiseq --checkout ../llama.cpp -- tools/tinygen/run_parity_qwen4exp_multiseq.sh ../llama.cpp ../build-tools
   ik-glm5next:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

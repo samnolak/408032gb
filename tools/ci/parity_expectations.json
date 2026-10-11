@@ -150,6 +150,21 @@
         }
       }
     },
+    "n19-qwen4exp-multiseq": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_qwen4exp_multiseq.sh",
+      "modules": ["tests.test_qwen4exp_multiseq_parity", "tests.test_qwen4exp_multiseq_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 72, "skipped": [],
+          "source": "N19 run, docs/evidence/2026-10-11-n19-qwen4exp-multiseq.md (9 runs x 7 dump tests + 9 multiseq_ref)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 72, "skipped": [],
+          "source": "N19 run, docs/evidence/2026-10-11-n19-qwen4exp-multiseq.md (9 runs x 7 dump tests + 9 multiseq_ref)"
+        }
+      }
+    },
     "gguf-audit": {
       "pin": "llama.cpp",
       "driver": "inline in ci.yml: the pinned gguf-py through LLAMA_CPP_GGUF_PY",
