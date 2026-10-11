@@ -813,6 +813,74 @@ class Analyzer(HubCase):
         self.assertIn("tiny OK", out)
 
 
+import vocab_gguf as V  # noqa: E402
+
+TOKENIZE_BIN = os.environ.get("LLAMA_TOKENIZE_BIN")
+
+
+def _bytes_to_unicode():
+    """GPT-2's byte -> printable character map (the byte-level BPE alphabet)."""
+    bs = list(range(ord("!"), ord("~") + 1)) + list(range(ord("¡"), ord("¬") + 1)) + \
+        list(range(ord("®"), ord("ÿ") + 1))
+    cs, n = bs[:], 0
+    for b in range(256):
+        if b not in bs:
+            bs.append(b)
+            cs.append(256 + n)
+            n += 1
+    return dict(zip(bs, map(chr, cs)))
+
+
+def bpe_header(arch="glm5next", pre="glm4"):
+    """A GLM-like split shard header with a byte-level BPE vocabulary: <unk> <s> </s>, the 256 bytes, and one merge
+    "h e" -> "he" (id 259), so llama.cpp tokenizes "hehe" to [259, 259]."""
+    b2u = _bytes_to_unicode()
+    toks = ["<unk>", "<s>", "</s>"] + [b2u[b] for b in range(256)] + ["he"]
+    kv = arch_kv(arch, extra=[("tokenizer.ggml.model", G.T_STRING, "gpt2"), ("tokenizer.ggml.pre", G.T_STRING, pre),
+                              ("tokenizer.ggml.tokens", G.T_ARRAY, (G.T_STRING, toks)),
+                              ("tokenizer.ggml.token_type", G.T_ARRAY, (G.T_INT32, [3, 3, 3] + [1] * 257)),
+                              ("tokenizer.ggml.merges", G.T_ARRAY, (G.T_STRING, ["h e"])),
+                              ("tokenizer.ggml.bos_token_id", G.T_UINT32, 1),
+                              ("tokenizer.ggml.eos_token_id", G.T_UINT32, 2),
+                              ("tokenizer.ggml.add_bos_token", G.T_BOOL, False),
+                              ("split.no", G.T_UINT16, 0), ("split.count", G.T_UINT16, 6),
+                              ("split.tensors.count", G.T_INT32, 3)])
+    b, off = make_gguf(kv, TENSORS[:3])
+    return b[:off]
+
+
+class VocabOnly(unittest.TestCase):
+    def test_vocab_only_file_keeps_the_tokenizer_bytes_and_renames_the_arch(self):
+        hdr = bpe_header()
+        h = G.parse(hdr)
+        out = V.build(hdr, arch="glm5-next")
+        h2 = G.parse(out)
+        self.assertEqual((h2.n_tensors, h2.data_offset), (0, len(out)))
+        self.assertEqual(h2.get("general.architecture"), "glm5-next")
+        self.assertEqual(h2.get("glm5-next.block_count"), 4)
+        self.assertEqual([e["key"] for e in h2.kv if e["key"].startswith("split.")], [])
+        for k in ("tokenizer.ggml.tokens", "tokenizer.ggml.merges", "tokenizer.ggml.pre", "tokenizer.ggml.token_type"):
+            s1, t1 = next(e["span"] for e in h.kv if e["key"] == k)
+            s2, t2 = next(e["span"] for e in h2.kv if e["key"] == k)
+            self.assertEqual(hdr[s1:t1], out[s2:t2], k)
+        self.assertEqual(G.parse(V.build(hdr)).get("general.architecture"), "glm5next")
+
+    @unittest.skipUnless(TOKENIZE_BIN, "set LLAMA_TOKENIZE_BIN=<llama.cpp build>/bin/llama-tokenize")
+    def test_llama_tokenize_runs_on_the_vocab_only_file(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            for arch, ok in (("glm5-next", True), (None, False)):
+                p = os.path.join(d, f"v-{arch}.gguf")
+                with open(p, "wb") as f:
+                    f.write(V.build(bpe_header(), arch=arch))
+                r = subprocess.run([TOKENIZE_BIN, "-m", p, "-p", "hehe", "--ids", "--log-disable"], cwd=d,
+                                   capture_output=True, text=True, timeout=120)
+                if ok:
+                    self.assertEqual((r.returncode, r.stdout.strip()), (0, "[259, 259]"), r.stderr[-2000:])
+                else:
+                    self.assertNotEqual(r.returncode, 0)       # the pins do not know "glm5next"
+
+
 @unittest.skipUnless(_src_pins(), "llama.cpp sources at the pins: LLAMA_CPP_GGUF_PY's checkout at ec7630a and/or "
                                   "LLAMA_CPP_SRC_79E2E74")
 class BranchAnchors(unittest.TestCase):
