@@ -1,0 +1,1 @@
+{"repo": "XiaomiMiMo/MiMo-V2.6-Flash-MOPD", "revision": "main", "files": ["chat_template.jinja", "tokenizer_config.json", "special_tokens_map.json", "generation_config.json", "config.json", "tokenizer.json", "configuration_mimo_v2_flash.py", "modeling_mimo_v2_flash.py"]}
