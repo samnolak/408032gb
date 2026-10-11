@@ -21,13 +21,38 @@
 //                  context exports h_nextn (llama_set_embeddings_nextn(ctx, true, false)), and after every target
 //                  call a second context of type LLAMA_CONTEXT_TYPE_MTP processes the same tokens at the same
 //                  positions, token k paired with the target h_nextn row k-1 (the first token of a call with the
-//                  last row of the previous call, zeros at the start). No rollback in this mode.
+//                  last row of the previous call, zeros at the start).
 //                  Its dumps go to <DUMP_DIR>/mtp/ (same layout), with logits.bin, h_in.bin (the h row fed with
 //                  every MTP token), h_nextn.bin (the MTP output rows) and manifest.json; <DUMP_DIR>/h_nextn.bin
 //                  holds the target rows.
-//   DUMP_MTP_DRAFT n = after the plan, n greedy draft steps of the MTP context: step 1 feeds the target's greedy
-//                  token after the last position with the last target h_nextn row, step j > 1 the argmax of step
-//                  j-1's MTP logits at the next position with step j-1's MTP h_nextn row.
+//                  Several MTP heads (N17; nextn_predict_layers = H > 1, common/speculative.cpp chain_heads,
+//                  lines 1482, 1598-1621, 1700-1708, 1767-1777 @79e2e74, the same code at 1421, 1534-1557, 1623-1631,
+//                  1686-1696 @ec7630a): every target call is processed by every head h = 0..H-1 in turn, each after
+//                  llama_memory_seq_rm(mtp, 0, first position of the call, -1) and llama_set_nextn_layer_offset(h),
+//                  all with the target's h rows; the offset is set back to 0 afterwards.
+//                  Plan steps in this mode (DUMP_CALLS): "<n>" as above; "r<n>" rolls back both contexts by n positions
+//                  the way llama-server rejects a draft (common_memory::seq_rm on the target and the MTP memory,
+//                  tools/server/server-context.cpp:4505 @79e2e74, 3998 @ec7630a) and pairs the next token with the
+//                  target row of the new last position (common_speculative accept(), speculative.cpp:1824-1826
+//                  @79e2e74, 1743-1745 @ec7630a); n must be smaller than the last call (the server keeps at least its
+//                  first token); "d<n>" drafts at the current position with the next token of DUMP_TOKENS as the
+//                  target's sampled token (not consumed: the next call feeds it), n steps (H > 1: at most H,
+//                  speculative.cpp:1485 @79e2e74, 1424 @ec7630a), then llama_memory_seq_rm(mtp, 0, position, -1) as the
+//                  server does after drafting (server-context.cpp:3423 @79e2e74, 3063 @ec7630a).
+//                  Draft steps (common/speculative.cpp draft()): one head: step 1 the token with the pending target row
+//                  at the position, step j > 1 the argmax of step j-1 at the next position with step j-1's MTP h_nextn
+//                  row. H > 1: step j runs head j-1 on the whole draft prefix (the token, then drafts 1..j-1 at the
+//                  following positions) after llama_memory_seq_rm(mtp, 0, position, -1), the rows paired with the
+//                  pending target row, then the h_nextn row each earlier step output at its last position; only the
+//                  last row is an output (speculative.cpp:1700-1708, 1767-1777 @79e2e74). Greedy (p_min 0, the default,
+//                  common/common.h:333 @79e2e74). Process calls mark every row as an output (the server marks none,
+//                  speculative.cpp:1586 @79e2e74, 1522 @ec7630a) so their logits and h rows can be compared; the
+//                  block's tensors before the output crop (mimo2.cpp:378 @79e2e74) do not depend on it.
+//                  The MTP manifest records per call its kind (process | draft | rollback | seq_rm, the last the
+//                  server's removal after a "d" draft), head, tokens, out0 (first row in logits.bin / h_nextn.bin) and
+//                  outputs (the output batch indices).
+//   DUMP_MTP_DRAFT n = after the plan, a draft of n steps as "d<n>", from the target's greedy token after the last
+//                  position (argmax of the last target logits).
 //   DUMP_MTP_NO_RESERVE 1 = skip the scheduler re-reserve after llama_set_embeddings_nextn (see main()); at
 //                  @ec7630a the first MTP graph then crashes in ggml_gallocr_init_tensor (kept to reproduce it).
 //   Several sequences (N19, opt-in; a plan that uses none of these steps behaves exactly as before). Run with
@@ -94,6 +119,7 @@ struct DumpState {
     // per-graph mode
     bool per_graph = false;
     std::string first_node;      // name of the first node ever asked: marks the start of every graph
+    bool new_call = false;       // MTP context: the next node asked starts a graph (heads name their nodes by layer)
     int graph = -1;              // index of the graph being computed
     int call  = -1;              // index of the llama_process call in progress
     std::vector<GraphInfo> graphs;
@@ -125,8 +151,9 @@ static std::string graph_dir(const DumpState & st) {
 static bool dump_cb(struct ggml_tensor * t, bool ask, void * ud) {
     auto * st = static_cast<DumpState *>(ud);
     if (ask && st->per_graph) {
-        if (st->graph < 0 || (st->first_node == t->name && st->graphs[st->graph].n_asked > 0)) {
-            if (st->graph < 0) st->first_node = t->name;
+        if (st->graph < 0 || st->new_call || (st->first_node == t->name && st->graphs[st->graph].n_asked > 0)) {
+            if (st->graph < 0 || st->new_call) st->first_node = t->name;
+            st->new_call = false;
             st->graph++;
             st->graphs.push_back(GraphInfo{st->call, 0, 0});
             st->seen.clear();
@@ -179,12 +206,16 @@ struct PartRec {                 // several-sequence mode: one sequence's tokens
 };
 
 struct CallRec {
-    std::string kind = "decode"; // decode | rollback (target); process | draft (MTP context); seq_rm | seq_cp
+    std::string kind = "decode"; // decode | rollback (target); process | draft | rollback | seq_rm (MTP context);
+                                 // seq_rm | seq_cp (several-sequence mode)
     int  n        = 0;    // tokens decoded, or positions rolled back
     int  pos0     = 0;    // first position decoded, or the position the sequence was cut at
-    int  tok0     = 0;    // index into DUMP_TOKENS of the first token decoded
+    int  tok0     = 0;    // index into DUMP_TOKENS of the first token decoded (MTP: first row of h_in.bin)
     int  g0 = -1, g1 = -1; // graphs [g0, g1) computed by this call
     std::vector<int> tokens; // MTP calls: the token ids fed
+    int  head     = -1;   // MTP calls: nextn_layer_offset
+    int  out0     = -1;   // MTP calls: first row of logits.bin / h_nextn.bin
+    std::vector<int> outputs; // MTP calls: batch indices of the output rows
     // several-sequence mode only (multi = true)
     bool multi    = false;
     std::vector<PartRec> parts;
@@ -238,6 +269,12 @@ static void write_manifest(const DumpState & st, const std::vector<CallRec> & ca
                    << ",\"ok\":" << (r.ok ? "true" : "false");
             }
             mf << ",\"pos_min\":" << json_ints(r.pos_min) << ",\"pos_max\":" << json_ints(r.pos_max);
+        }
+        if (r.head >= 0) mf << ",\"head\":" << r.head;
+        if (r.out0 >= 0) {
+            mf << ",\"out0\":" << r.out0 << ",\"outputs\":[";
+            for (size_t i = 0; i < r.outputs.size(); ++i) mf << (i ? "," : "") << r.outputs[i];
+            mf << "]";
         }
         mf << "}";
     }
@@ -352,6 +389,10 @@ int main(int argc, char ** argv) {
     const int n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(model));
     const int n_ubatch = (int) llama_n_ubatch(ctx);
     const int n_embd_out = mtp ? llama_model_n_embd_out(model) : 0;
+    // common/speculative.cpp: n_mtp_layers = max(1, n_layer_nextn), chain_heads = n_mtp_layers > 1 && !is_mem_shared
+    // (1439, 1482 @79e2e74; 1378, 1421 @ec7630a); the MTP context here never shares the target's memory
+    const int n_heads = mtp ? std::max(1, (int) llama_model_n_layer_nextn(model)) : 0;
+    const bool chain = n_heads > 1;
     std::ofstream lo(st.dir + "/logits.bin", std::ios::binary);
     std::ofstream h_tgt_out, mtp_lo, mtp_h_in, mtp_h_out;
     if (mtp) {
@@ -364,34 +405,93 @@ int main(int argc, char ** argv) {
     common_batch batch(ctx);
     std::vector<float> pending(n_embd_out, 0.0f);   // MTP: target row paired with the next call's first token
     std::vector<float> last_logits(n_vocab, 0.0f);  // target logits of the last decoded token
-    int n_mtp_rows = 0;
+    std::map<int, std::vector<float>> h_at;         // MTP: the target h_nextn row of every position decoded
+    int n_mtp_rows = 0, n_mtp_out = 0, last_call_n = 0;
 
-    // run tokens[tok0 .. tok0+n) at positions pos0.. through the MTP context, each with its h row
+    // run ids at positions pos0.. through the MTP context under head `head`, each with its h row; outputs: the batch
+    // indices that are outputs (empty = all)
     auto mtp_call = [&](const std::string & kind, const std::vector<int> & ids, int pos0,
-                        const std::vector<const float *> & h_rows) -> bool {
+                        const std::vector<const float *> & h_rows, int head, std::vector<int> outputs) -> bool {
+        if (outputs.empty()) {
+            for (int k = 0; k < (int) ids.size(); ++k) outputs.push_back(k);
+        }
         common_batch mb(mtp_ctx.get());
         for (size_t k = 0; k < ids.size(); ++k) {
-            const int32_t idx = mb.add((llama_token) ids[k], (llama_pos) (pos0 + (int) k), 0, true);
+            const bool out = std::find(outputs.begin(), outputs.end(), (int) k) != outputs.end();
+            const int32_t idx = mb.add((llama_token) ids[k], (llama_pos) (pos0 + (int) k), 0, out);
             mb.set_embd(idx, llama_embd{h_rows[k], 1, (size_t) n_embd_out});
             mtp_h_in.write(reinterpret_cast<const char *>(h_rows[k]), (std::streamsize) n_embd_out * sizeof(float));
         }
         CallRec rec;
         rec.kind = kind; rec.n = (int) ids.size(); rec.pos0 = pos0; rec.tok0 = n_mtp_rows; rec.tokens = ids;
+        rec.head = head; rec.out0 = n_mtp_out; rec.outputs = outputs;
         st_mtp.call = (int) mtp_calls.size();
+        st_mtp.new_call = true;
         rec.g0 = st_mtp.graph + 1;
         if (llama_process(mtp_ctx.get(), LLAMA_PROCESS_TYPE_DECODE, mb.get())) {
             LOG_ERR("MTP decode failed\n");
             return false;
         }
         rec.g1 = st_mtp.graph + 1;
-        for (int i = 0; i < rec.n; ++i) {
+        for (const int i : outputs) {
             mtp_lo.write(reinterpret_cast<const char *>(llama_get_logits_ith(mtp_ctx.get(), i)),
                          (std::streamsize) n_vocab * sizeof(float));
             mtp_h_out.write(reinterpret_cast<const char *>(llama_get_embeddings_nextn_ith(mtp_ctx.get(), i)),
                             (std::streamsize) n_embd_out * sizeof(float));
         }
         n_mtp_rows += rec.n;
+        n_mtp_out += (int) outputs.size();
         mtp_calls.push_back(rec);
+        return true;
+    };
+
+    // common/speculative.cpp process(): one head, or every head after seq_rm from the call's first position
+    auto mtp_process = [&](const std::vector<int> & ids, int pos0, const std::vector<const float *> & h_rows) -> bool {
+        if (!chain) return mtp_call("process", ids, pos0, h_rows, 0, {});
+        for (int head = 0; head < n_heads; ++head) {
+            llama_memory_seq_rm(llama_get_memory(mtp_ctx.get()), 0, pos0, -1);
+            llama_set_nextn_layer_offset(mtp_ctx.get(), head);
+            if (!mtp_call("process", ids, pos0, h_rows, head, {})) return false;
+        }
+        llama_set_nextn_layer_offset(mtp_ctx.get(), 0);
+        return true;
+    };
+
+    // common/speculative.cpp draft() for one sequence, greedy: id_last at pos0 with the pending row
+    auto mtp_draft = [&](int id_last, int pos0, int n_req) -> bool {
+        const int n_max = chain ? std::min(n_req, n_heads) : n_req;
+        std::vector<std::vector<float>> chain_h = {pending};
+        std::vector<int> result, ids = {id_last};
+        std::vector<std::vector<float>> rows = {pending};
+        std::vector<int> outs = {0};
+        int pos_call = pos0;
+        for (int i = 0; i < n_max; ++i) {
+            if (chain) {
+                llama_memory_seq_rm(llama_get_memory(mtp_ctx.get()), 0, pos0, -1);
+                llama_set_nextn_layer_offset(mtp_ctx.get(), i);
+            }
+            std::vector<const float *> h_rows;
+            for (const auto & r : rows) h_rows.push_back(r.data());
+            if (!mtp_call("draft", ids, pos_call, h_rows, chain ? i : 0, outs)) return false;
+            const int last = outs.back();
+            const int id = argmax(llama_get_logits_ith(mtp_ctx.get(), last), n_vocab);
+            const float * hn = llama_get_embeddings_nextn_ith(mtp_ctx.get(), last);
+            result.push_back(id);
+            if ((int) result.size() >= n_max) break;
+            if (chain) {           // the whole prefix again under the next head, rows from the chain
+                chain_h.emplace_back(hn, hn + n_embd_out);
+                ids = {id_last};
+                ids.insert(ids.end(), result.begin(), result.end());
+                rows = chain_h;
+                outs = {(int) ids.size() - 1};
+            } else {               // the new token alone at the next position with this step's h row
+                ids = {id};
+                rows = {std::vector<float>(hn, hn + n_embd_out)};
+                outs = {0};
+                pos_call = pos0 + i + 1;
+            }
+        }
+        if (chain) llama_set_nextn_layer_offset(mtp_ctx.get(), 0);
         return true;
     };
 
@@ -417,6 +517,7 @@ int main(int argc, char ** argv) {
             return false;
         }
         calls.push_back(rec);
+        last_call_n = n;
         if (mtp) {
             // common/speculative.cpp:1511-1529: token k pairs with the target row k-1, the first with the pending row
             std::vector<std::vector<float>> rows(n);
@@ -425,11 +526,12 @@ int main(int argc, char ** argv) {
             for (int i = 0; i < n; ++i) {
                 const float * h = llama_get_embeddings_nextn_ith(ctx, i);
                 rows[i].assign(h, h + n_embd_out);
+                h_at[pos0 + i] = rows[i];
                 h_tgt_out.write(reinterpret_cast<const char *>(h), (std::streamsize) n_embd_out * sizeof(float));
                 ids[i] = std::atoi(toks[tok0 + i].c_str());
             }
             for (int i = 0; i < n; ++i) h_rows[i] = i == 0 ? pending.data() : rows[i - 1].data();
-            if (!mtp_call("process", ids, pos0, h_rows)) return false;
+            if (!mtp_process(ids, pos0, h_rows)) return false;
             pending = rows[n - 1];
         }
         return true;
@@ -560,8 +662,12 @@ int main(int argc, char ** argv) {
         for (const auto & step : plan) {
             if (step[0] == 'r') {
                 const int n = std::atoi(step.c_str() + 1);
-                if (mtp) { LOG_ERR("DUMP_MTP does not support rollback steps\n"); return 1; }
                 if (n <= 0 || n > pos) { LOG_ERR("bad rollback step '%s' at pos %d\n", step.c_str(), pos); return 1; }
+                if (mtp && n >= last_call_n) {
+                    LOG_ERR("DUMP_MTP: rollback '%s' must keep a token of the last call (%d tokens)\n", step.c_str(),
+                            last_call_n);
+                    return 1;
+                }
                 pos -= n;
                 if (!llama_memory_seq_rm(llama_get_memory(ctx), 0, pos, -1)) {
                     LOG_ERR("llama_memory_seq_rm(0, %d, -1) refused a rollback of %d\n", pos, n);
@@ -571,6 +677,37 @@ int main(int argc, char ** argv) {
                 rec.kind = "rollback"; rec.n = n; rec.pos0 = pos; rec.tok0 = ti;
                 rec.g0 = rec.g1 = st.graph + 1;
                 calls.push_back(rec);
+                if (mtp) {
+                    // llama-server: common_speculative_accept (pending = the target row of the last kept position),
+                    // then common_memory::seq_rm on both contexts
+                    if (!llama_memory_seq_rm(llama_get_memory(mtp_ctx.get()), 0, pos, -1)) {
+                        LOG_ERR("MTP: llama_memory_seq_rm(0, %d, -1) refused\n", pos);
+                        return 1;
+                    }
+                    pending = h_at.at(pos - 1);
+                    CallRec mrec;
+                    mrec.kind = "rollback"; mrec.n = n; mrec.pos0 = pos; mrec.tok0 = n_mtp_rows;
+                    mrec.g0 = mrec.g1 = st_mtp.graph + 1;
+                    mtp_calls.push_back(mrec);
+                }
+                last_call_n = 0;
+                continue;
+            }
+            if (step[0] == 'd') {
+                const int n = std::atoi(step.c_str() + 1);
+                if (!mtp || n <= 0 || ti >= (int) toks.size()) {
+                    LOG_ERR("bad draft step '%s' (needs DUMP_MTP and a next token)\n", step.c_str());
+                    return 1;
+                }
+                if (!mtp_draft(std::atoi(toks[ti].c_str()), pos, n)) return 1;
+                if (!llama_memory_seq_rm(llama_get_memory(mtp_ctx.get()), 0, pos, -1)) {
+                    LOG_ERR("MTP: llama_memory_seq_rm(0, %d, -1) after the draft refused\n", pos);
+                    return 1;
+                }
+                CallRec mrec;
+                mrec.kind = "seq_rm"; mrec.n = 0; mrec.pos0 = pos; mrec.tok0 = n_mtp_rows;
+                mrec.g0 = mrec.g1 = st_mtp.graph + 1;
+                mtp_calls.push_back(mrec);
                 continue;
             }
             const int n = std::atoi(step.c_str());
@@ -584,18 +721,8 @@ int main(int argc, char ** argv) {
     std::ofstream(st.dir + "/logits.json") << "{\"n_tokens\":" << n_decoded << ",\"n_vocab\":" << n_vocab << "}\n";
 
     if (mtp && n_draft > 0) {
-        // common/speculative.cpp draft() for a single MTP head: the target's token after the prompt with the last
-        // target row, then each greedy draft token at the next position with the MTP's own h_nextn row
-        int id = argmax(last_logits.data(), n_vocab);
-        std::vector<float> h = pending;
-        for (int j = 0; j < n_draft; ++j) {
-            std::vector<const float *> h_rows = {h.data()};
-            if (!mtp_call("draft", {id}, pos + j, h_rows)) return 1;
-            const float * l = llama_get_logits_ith(mtp_ctx.get(), 0);
-            const float * hn = llama_get_embeddings_nextn_ith(mtp_ctx.get(), 0);
-            h.assign(hn, hn + n_embd_out);
-            id = argmax(l, n_vocab);
-        }
+        // common/speculative.cpp draft(): the target's greedy token after the last position with the last target row
+        if (!mtp_draft(argmax(last_logits.data(), n_vocab), pos, n_draft)) return 1;
     }
     if (mtp) {
         mtp_lo.close(); mtp_h_in.close(); mtp_h_out.close(); h_tgt_out.close();

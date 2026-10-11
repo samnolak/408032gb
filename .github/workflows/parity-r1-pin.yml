@@ -15,6 +15,8 @@
 # tools/engines/pins.json the steps fail until the new counts are reviewed and added there.
 # N16 (gap 12): mimo2 (MiMo) several ubatches, decode past the 256-cell SWA cache, rollbacks, the MTP block and MXFP4
 # routed experts (MXFP4_MOE by the pin's llama-quantize), tools/tinygen/run_parity_mimo2_decode.sh.
+# N17: mimo2's three MTP heads (nextn_layer_offset 0-2 chained like common/speculative.cpp, drafts and rejections) and
+# the R1 default precision of mimo2 (f16 caches, CPU flash attention with sinks), tools/tinygen/run_parity_mimo2_n17.sh.
 # N19 (gap 10): qwen4exp several sequences in one context (one KV stream and one per sequence), seq_cp, seq_rm and
 # rollback edges; the pins differ on purpose in three places (ec7630a: shared cells re-pool every k-pool, a rollback of a
 # shared recurrent cell is accepted, padded entries of indexer_pool_k_new share one cell; 79e2e74: one pooled row per rep
@@ -26,13 +28,13 @@ on:
   push:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
             tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py, tests/test_mimo2_*.py, tests/test_mxfp4_ref.py,
-            tests/f16fa.py, tests/test_fattn_ref.py, tests/test_quant_ref.py,
+            tests/f16fa.py, tests/test_fattn_ref.py, tests/test_fattn_sinks_ref.py, tests/test_quant_ref.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/ik/**, tools/engines/pins.json, tools/ci/**,
             .github/workflows/parity-r1-pin.yml]
   pull_request:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
             tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py, tests/test_mimo2_*.py, tests/test_mxfp4_ref.py,
-            tests/f16fa.py, tests/test_fattn_ref.py, tests/test_quant_ref.py,
+            tests/f16fa.py, tests/test_fattn_ref.py, tests/test_fattn_sinks_ref.py, tests/test_quant_ref.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/ik/**, tools/engines/pins.json, tools/ci/**,
             .github/workflows/parity-r1-pin.yml]
 concurrency:
@@ -69,6 +71,8 @@ jobs:
         run: python3 tools/ci/check_unittest.py --step n10-quant --checkout ../llama.cpp -- tools/tinygen/run_parity_quant.sh ../llama.cpp ../build-tools
       - name: N16 mimo2 ubatches, decode past the SWA cache, rollbacks, MTP and MXFP4 experts at the R1 pin (CPU)
         run: python3 tools/ci/check_unittest.py --step n16-mimo2-decode --checkout ../llama.cpp -- tools/tinygen/run_parity_mimo2_decode.sh ../llama.cpp ../build-tools
+      - name: N17 mimo2 three MTP heads and the R1 default precision (-ctk f16 -ctv f16 -fa on) at the R1 pin (CPU)
+        run: python3 tools/ci/check_unittest.py --step n17-mimo2-mtp-heads-fa --checkout ../llama.cpp -- tools/tinygen/run_parity_mimo2_n17.sh ../llama.cpp ../build-tools
       - name: N19 qwen4exp several sequences, seq_cp, seq_rm and rollback edges at the R1 pin (CPU)
         run: python3 tools/ci/check_unittest.py --step n19-qwen4exp-multiseq --checkout ../llama.cpp -- tools/tinygen/run_parity_qwen4exp_multiseq.sh ../llama.cpp ../build-tools
   ik-glm5next:
