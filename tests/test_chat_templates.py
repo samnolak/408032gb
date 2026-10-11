@@ -173,7 +173,7 @@ def expected_render_difference(name, row):
         # --prefill-assistant (default on): a trailing assistant message is continued, not closed
         return (name == "qwen") or row["add_generation_prompt"]
     if name == "glm" and row["case"] in ("reasoning_mixed", "reasoning_empty") and row["variant"] in (
-            "default", "effort_low", "effort_high", "effort_medium"):
+            "default", "effort_low", "effort_high", "effort_medium", "effort_none"):
         return LEAK in row["server"].replace("\u2016", "")  # the snippet marks the first differing byte
     if name == "qwen" and row["variant"] == "effort_high":
         return "HTTP 500" in (row.get("server_error") or "") and "Unexpected reasoning effort high" in (
@@ -191,7 +191,15 @@ class ServerRender(unittest.TestCase):
             self.assertEqual(unexpected, [], name)
             # every expected difference occurred
             n_diff = sum(1 for r in res["rows"] if not r["equal"])
-            self.assertEqual(n_diff, {"glm": 17, "qwen": 10}[name], name)
+            self.assertEqual(n_diff, {"glm": 21, "qwen": 10}[name], name)
+            # thinking switched off (body reasoning_effort "none", server --reasoning off): GLM's template does not
+            # read enable_thinking, so its prompt stays the default one; Qwen's changes
+            off = [r for r in res["rows"] if "same_as_server_default" in r]
+            self.assertEqual(len(off), 10, name)
+            for r in off:
+                self.assertEqual(r["same_as_server_default"], name == "glm", (name, r))
+                if r["case"] in ("reasoning", "agent_session"):
+                    self.assertTrue(r["equal"], (name, r))
 
 
 @unittest.skipUnless(HAVE_SERVER and HARNESS, SKIP_SERVER + " and CHATTMPL_HARNESS")

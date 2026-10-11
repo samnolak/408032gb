@@ -56,6 +56,9 @@ VARIANTS = {
         "effort_low": ({"reasoning_effort": "low"}, None, {"reasoning_effort": "low"}),
         "effort_high": ({"reasoning_effort": "high"}, None, {"reasoning_effort": "high"}),
         "effort_medium": ({"reasoning_effort": "medium"}, None, {"reasoning_effort": "medium"}),
+        # "none" is not passed to the template: llama-server sets enable_thinking=false instead
+        # (tools/server/server-common.cpp:1420-1422), so the jinja2 side is enable_thinking=False
+        "effort_none": ({"enable_thinking": False}, None, {"reasoning_effort": "none"}),
     },
     "qwen": {
         "default": ({}, None, None),
@@ -64,6 +67,7 @@ VARIANTS = {
         "effort_low": ({"reasoning_effort": "low"}, None, {"reasoning_effort": "low"}),
         "effort_medium": ({"reasoning_effort": "medium"}, None, {"reasoning_effort": "medium"}),
         "effort_high": ({"reasoning_effort": "high"}, None, {"reasoning_effort": "high"}),
+        "effort_none": ({"enable_thinking": False}, None, {"reasoning_effort": "none"}),
     },
 }
 
@@ -116,9 +120,30 @@ def try_render(fn, msgs, agp):
         return None, "%s: %s" % (type(e).__name__, " ".join(str(e).split())[:600])
 
 
+SERVER_FLAG_RUNS = [  # (row variant, extra server flags, variant of VARIANTS whose jinja2 kwargs it must equal)
+    ("server_flag_no_reasoning_preserve", ["--no-reasoning-preserve"], "preserve_off"),
+    ("server_flag_reasoning_off", ["--reasoning", "off"], "enable_thinking_false"),
+]
+
+
+def compare_row(name, vname, cname, agp, ref, eref, got, egot):
+    row = {"template": name, "variant": vname, "case": cname, "add_generation_prompt": agp}
+    if eref or egot:
+        row.update({"equal": False, "jinja2_error": eref, "server_error": egot})
+    elif got == ref:
+        row.update({"equal": True, "len": len(ref)})
+    else:
+        row.update({"equal": False}, **first_diff(got, ref))
+    return row
+
+
 def section_render(args, name, out):
+    """Rows: server vs jinja2 per variant, case and add_generation_prompt. Rows of the variants that turn thinking off
+    (effort_none, server_flag_reasoning_off) also carry same_as_server_default: the server's prompt equals its prompt
+    with the defaults (GLM's template does not read enable_thinking)."""
     rows = []
     tdir = TEMPLATES[name]["dir"]
+    default_prompt = {}
     with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(tdir / "chat_template.jinja"),
                   os.path.join(out, "render-" + name)) as srv:
         R = Renderers(name, srv)
@@ -131,36 +156,29 @@ def section_render(args, name, out):
                 for agp in (True, False):
                     ref, eref = try_render(R.hf(hkw, tools), msgs, agp)
                     got, egot = try_render(R.server(skw, extra, tools), msgs, agp)
-                    row = {"template": name, "variant": vname, "case": cname, "add_generation_prompt": agp}
-                    if eref or egot:
-                        row.update({"equal": False, "jinja2_error": eref, "server_error": egot})
-                    elif got == ref:
-                        row.update({"equal": True, "len": len(ref)})
-                    else:
-                        row.update({"equal": False}, **first_diff(got, ref))
+                    row = compare_row(name, vname, cname, agp, ref, eref, got, egot)
+                    if vname == "default":
+                        default_prompt[(cname, agp)] = got
+                    if vname == "effort_none":
+                        row["same_as_server_default"] = got is not None and got == default_prompt.get((cname, agp))
                     rows.append(row)
-        log = srv.log_text()
-    # a server started with --no-reasoning-preserve: same as preserve_reasoning false per request
-    with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(tdir / "chat_template.jinja"),
-                  os.path.join(out, "render-%s-nopreserve" % name), extra=["--no-reasoning-preserve"]) as srv:
-        R = Renderers(name, srv)
-        hkw = VARIANTS[name]["preserve_off"][0]
-        for cname in ("reasoning", "agent_session"):
-            case = C.CASES[cname]
-            tools = C.TOOLS if case.get("tools") else None
-            ref, eref = try_render(R.hf(hkw, tools), case["messages"], True)
-            got, egot = try_render(R.server(None, None, tools), case["messages"], True)
-            row = {"template": name, "variant": "server_flag_no_reasoning_preserve", "case": cname,
-                   "add_generation_prompt": True}
-            if eref or egot:
-                row.update({"equal": False, "jinja2_error": eref, "server_error": egot})
-            elif got == ref:
-                row.update({"equal": True, "len": len(ref)})
-            else:
-                row.update({"equal": False}, **first_diff(got, ref))
-            rows.append(row)
-        log2 = srv.log_text()
-    return {"rows": rows, "server_warnings": warnings_of(log), "server_warnings_no_preserve": warnings_of(log2)}
+        logs = {"default": warnings_of(srv.log_text())}
+    for vname, flags, like in SERVER_FLAG_RUNS:
+        with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(tdir / "chat_template.jinja"),
+                      os.path.join(out, "render-%s-%s" % (name, vname)), extra=flags) as srv:
+            R = Renderers(name, srv)
+            hkw = VARIANTS[name][like][0]
+            for cname in ("reasoning", "agent_session"):
+                case = C.CASES[cname]
+                tools = C.TOOLS if case.get("tools") else None
+                ref, eref = try_render(R.hf(hkw, tools), case["messages"], True)
+                got, egot = try_render(R.server(None, None, tools), case["messages"], True)
+                row = compare_row(name, vname, cname, True, ref, eref, got, egot)
+                if vname == "server_flag_reasoning_off":
+                    row["same_as_server_default"] = got is not None and got == default_prompt.get((cname, True))
+                rows.append(row)
+            logs[vname] = warnings_of(srv.log_text())
+    return {"rows": rows, "server_warnings": logs}
 
 
 PREFIX_SESSIONS = {  # session name -> (variant of VARIANTS, conversation)
@@ -425,8 +443,13 @@ def summary(results):
                 else:
                     lines.append("  %s %s agp=%s first_diff=%d server=%r jinja2=%r" % (
                         r["variant"], r["case"], r["add_generation_prompt"], r["first_diff"], r["server"], r["jinja2"]))
-        for w in sec["server_warnings"] + sec["server_warnings_no_preserve"]:
-            lines.append("  log: " + w)
+        for r in sec["rows"]:
+            if "same_as_server_default" in r:
+                lines.append("  %s %s agp=%s equal_to_jinja2=%s same_as_server_default=%s" % (
+                    r["variant"], r["case"], r["add_generation_prompt"], r["equal"], r["same_as_server_default"]))
+        for run, ws in sec["server_warnings"].items():
+            for w in ws:
+                lines.append("  log (%s): %s" % (run, w))
     for name, sec in results.get("prefix", {}).items():
         for w in sec.get("server_warnings", []):
             lines.append("prefix %s log: %s" % (name, w))
