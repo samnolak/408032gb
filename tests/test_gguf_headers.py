@@ -122,6 +122,7 @@ class FakeHub:
         self.page_size = 3
         self.ignore_range = False
         self.wrong_etag = False
+        self.wrong_total = False
         self.status_missing = 404
         self.search = []         # items the search API returns
         self.log = []            # (path, range or None, bytes sent)
@@ -213,7 +214,8 @@ class FakeHub:
                 return h.send(200, b)
             a, z = map(int, re.fullmatch(r"bytes=(\d+)-(\d+)", rg).groups())
             z = min(z, len(b) - 1)
-            return h.send(206, b[a:z + 1], [("Content-Range", f"bytes {a}-{z}/{len(b)}")])
+            total = len(b) + int(self.wrong_total)
+            return h.send(206, b[a:z + 1], [("Content-Range", f"bytes {a}-{z}/{total}")])
         if u.path == "/api/models":
             assert q.get("filter") == ["gguf"], q
             items = [it for it in self.search if q["search"][0].lower() in it["id"].lower()]
@@ -323,6 +325,16 @@ class Parser(unittest.TestCase):
         self.assertEqual(s["header_sha256"], hashlib.sha256(b[:off]).hexdigest())
         self.assertEqual([t["name"] for t in s["tensors"]], [t[0] for t in TENSORS[:2]])
         json.loads(G.dumps(s))
+
+    def test_tensor_offsets_must_be_contiguous_like_gguf_cpp(self):
+        b, off = make_gguf(arch_kv(), TENSORS)
+        h = G.parse(b)
+        self.assertEqual(G.data_layout(h)[0], "contiguous")
+        h.tensors[2]["offset"] += 32
+        self.assertTrue(G.data_layout(h)[0].startswith("mismatch at blk.1.ffn_gate_exps.weight"))
+        h.tensors[2]["offset"] -= 32
+        h.tensors[3]["type"] = 99
+        self.assertTrue(G.data_layout(h)[0].startswith("unknown type 99"))
 
     def test_rebuild_copies_values_byte_for_byte(self):
         b, off = split_model(n_tokens=300)[0]
@@ -494,6 +506,13 @@ class Fetch(HubCase):
         self.assertEqual(rc, 1)
         self.assertIn("instead of 206", self.load(p, "ERROR.json")["error"])
         self.assertFalse(os.path.exists(os.path.join(self.dest(p), "PIN.json")))
+
+    def test_a_range_of_another_file_size_is_rejected(self):
+        self.hub.wrong_total = True
+        p = self.request("m", repo="org/M-GGUF", files=[self.GLOB], expect_count=3)
+        rc, out = self.run_fetch(p)
+        self.assertEqual(rc, 1)
+        self.assertIn("does not match", self.load(p, "ERROR.json")["error"])
 
     def test_wrong_etag_is_recorded_and_warned(self):
         self.hub.wrong_etag = True
