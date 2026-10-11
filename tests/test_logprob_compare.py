@@ -31,9 +31,10 @@ def dist(prompt, temp=1.0, flip=False):
 
 def llamacpp_entry(tok, lp, invalid_bytes=True):
     """One top_logprobs entry as llama-server @79e2e74 writes it (tools/server/server-task.cpp:256-293): id, token (the
-    text after UTF-8 validation), bytes (the raw piece), logprob. With invalid_bytes, byte0/byte1 stand for single bytes
-    >= 0x80, not valid UTF-8 alone: the server prints both as the replacement character, only "bytes" (and "id") differ;
-    ctl2/ctl3 stand for control tokens (EOS and the like), which the server prints as an empty piece: only "id" differs."""
+    text after UTF-8 validation), bytes (the raw piece), logprob. With invalid_bytes, byte0/byte1 stand for the single
+    continuation bytes 0x80/0x81, not valid UTF-8 alone: the server prints both as the replacement character (a piece that
+    ends in an incomplete lead byte would print as "" instead), only "bytes" (and "id") differ; ctl2/ctl3 stand for control
+    tokens (EOS and the like), which the server prints with empty bytes: only "id" differs."""
     i = VOCAB.index(tok)
     if invalid_bytes and tok.startswith("byte"):
         return {"id": i, "token": "\ufffd", "bytes": [0x80 + i], "logprob": lp}

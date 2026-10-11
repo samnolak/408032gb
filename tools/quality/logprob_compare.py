@@ -16,12 +16,14 @@ and prefixes, and it is what an engine-agnostic API allows. Stdlib only.
 Response layouts read (choices[0].logprobs of a non-streamed /v1/completions answer):
   OpenAI legacy (vLLM):   {"tokens": [t], "token_logprobs": [lp], "top_logprobs": [{token: logprob, ...}]}
   llama.cpp llama-server: {"content": [{"id", "token", "bytes", "logprob", "top_logprobs": [{"id", "token", "bytes",
-                          "logprob"}, ...]}]}  (tools/server/server-task.cpp:256-293, 365-372 @79e2e74)
+                          "logprob"}, ...]}]}  (tools/server/server-task.cpp:256-293, 366-373 @79e2e74)
 A token is identified by its raw bytes: llama-server prints a piece that is not valid UTF-8 by itself (a byte-fallback or
-partial multi-byte token) as the replacement character, so different tokens can share one "token" text; "bytes" tells them
-apart. Key = the text when the bytes are valid UTF-8 (both layouts then agree), else "bytes:<hex>"; a token with an empty
-piece (llama-server prints control tokens such as EOS that way) is keyed "id:<n>" when the answer gives its id. Entries
-of one top-K list with the same key are one outcome: their probabilities are added (counted as ref_merged / cand_merged).
+partial multi-byte token) as the replacement character, or as an empty string when the piece ends in an incomplete
+multi-byte lead byte (validate_utf8 cuts it, tools/server/server-common.cpp:947-972, applied at server-task.cpp:260 and
+280 @79e2e74; "bytes" keeps the raw piece), so different tokens can share one "token" text; "bytes" tells them apart.
+Key = the text when the bytes are valid UTF-8 (both layouts then agree), else "bytes:<hex>"; a token whose bytes are empty
+(llama-server prints control tokens such as EOS that way) is keyed "id:<n>" when the answer gives its id. Entries of one
+top-K list with the same key are one outcome: their probabilities are added (counted as ref_merged / cand_merged).
 
 Usage:
   python3 tools/quality/logprob_compare.py --ref http://127.0.0.1:8081 --cand http://127.0.0.1:8080 \
