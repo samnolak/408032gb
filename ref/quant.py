@@ -198,3 +198,77 @@ def tensor(t, dequantize, act=True):
 def load(reader, dequantize, act=True):
     """All tensors of a GGUFReader: {name: ndarray or QWeight}."""
     return {t.name: tensor(t, dequantize, act) for t in reader.tensors}
+
+
+# ---------------------------------------------------------------- MXFP4 (N16, gap 12 of docs/reassessment/CORRECTNESS.md)
+#
+# The format and the CPU product, transcribed from llama.cpp @ec7630a640789c393694fb194f1bbbf0369fc62d; every file
+# below is identical at the R1 pin 79e2e74 except ggml-cpu.c and repack.cpp, whose cited lines are unchanged (the diff
+# is in docs/evidence/2026-10-11-n16-mimo-decode-parity.md). "CM" = ggml/src/ggml-common.h, "IM" =
+# ggml/src/ggml-impl.h, "GQ" = ggml/src/ggml-quants.c, "C" = ggml/src/ggml-cpu/ggml-cpu.c, "X" =
+# ggml/src/ggml-cpu/arch/x86/quants.c, "XR" = ggml/src/ggml-cpu/arch/x86/repack.cpp, "RP" =
+# ggml/src/ggml-cpu/repack.cpp, "SM" = ggml/src/ggml-cpu/simd-mappings.h.
+#   block   GGML_TYPE_MXFP4 = 39: block_mxfp4 {uint8_t e; uint8_t qs[16];}, 17 bytes per 32 weights (CM:214-219):
+#           e an E8M0 exponent, qs[j] holds weight j in its low nibble and weight j + 16 in its high nibble
+#   values  kvalues_mxfp4 = the e2m1 values doubled {0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12}
+#           (CM:1124-1129), so the scale is half of 2^(e - 127): GGML_E8M0_TO_FP32_HALF(e) = 2^(e - 128) built as f32
+#           bits, (e - 1) << 23 for e >= 2 and the denormals 0x00200000 << e for e < 2 (IM:487-507; the CPU backend
+#           reads the same values from a table filled with it, SM:128-131, C:3887-3890)
+#   dequant y[j] = kvalues[qs[j] & 0xF] * d, y[j + 16] = kvalues[qs[j] >> 4] * d, d = E8M0_HALF(e), in f32 (GQ:569-587);
+#           exact: an integer of at most 4 bits times a power of two
+#   product vec_dot_type Q8_0 (C:287-292): the f32 activations go through quantize_row_q8_0 (the AVX2 one, q8_0()
+#           above), then ggml_vec_dot_mxfp4_q8_0 (X:918-1001): per block sumi = sum kvalues[q_w] q_x (integers, exact)
+#           times d = f16(d_x) E8M0_HALF(e) (exact in f32: a power of two times an f16), accumulated in f32 (AVX2: two
+#           8-lane accumulators over block pairs, then a horizontal sum, an odd last block in scalar). On AVX2 a weight
+#           with ne[1] % 8 == 0 is repacked to block_mxfp4x8 (RP:5094-5098) and multiplied by
+#           ggml_gemv/gemm_mxfp4_8x8_q8_0 (XR:1700-1711, 3511-3523: the same integer products, the scales from the
+#           same E8M0 table, XR:584-596), its activations quantized four rows at a time by ggml_quantize_mat_q8_0_4x8
+#           (XR:178-288: the same d = amax / 127 in f16, id = 127 / amax, round to nearest even) or row by row
+#           (mul_mat_id, RP:4839-4841). Either way the product is the dot of the dequantized weight with the
+#           dequantized Q8_0 activation, up to the f32 rounding of the block scaling and the sum (act_quant + QWeight
+#           above; mxfp4_q8_0_dot below is the block form).
+QK_MXFP4 = 32
+MXFP4_BLOCK_BYTES = 1 + QK_MXFP4 // 2
+KVALUES_MXFP4 = np.array([0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12], dtype=np.int8)
+
+
+def e8m0_to_fp32_half(e):
+    """GGML_E8M0_TO_FP32_HALF (IM:489-507) on uint8 exponents: 2^(e - 128) as float32, bit for bit."""
+    e = np.asarray(e, dtype=np.uint32)
+    bits = np.where(e < 2, np.uint32(0x00200000) << e, (e - np.uint32(1)) << np.uint32(23)).astype(np.uint32)
+    return bits.view(np.float32)
+
+
+def mxfp4_split(raw):
+    """Raw block_mxfp4 bytes (..., n_blocks * 17) -> (e (..., n_blocks) uint8, qs (..., n_blocks, 16) uint8)."""
+    raw = np.asarray(raw, dtype=np.uint8)
+    if raw.shape[-1] % MXFP4_BLOCK_BYTES:
+        raise ValueError(f"{raw.shape[-1]} bytes is no multiple of the {MXFP4_BLOCK_BYTES}-byte block_mxfp4")
+    b = raw.reshape(*raw.shape[:-1], raw.shape[-1] // MXFP4_BLOCK_BYTES, MXFP4_BLOCK_BYTES)
+    return b[..., 0], b[..., 1:]
+
+
+def mxfp4_codes(qs):
+    """The 4-bit codes of the 32 weights of each block, in weight order: low nibbles (weights 0..15), then high
+    nibbles (16..31) (GQ:579-585)."""
+    qs = np.asarray(qs, dtype=np.uint8)
+    return np.concatenate([qs & np.uint8(0x0F), qs >> np.uint8(4)], axis=-1)
+
+
+def mxfp4_dequant(raw):
+    """dequantize_row_mxfp4 (GQ:569-587) of raw block_mxfp4 bytes (..., n_blocks * 17) -> float32 (..., n_blocks * 32)."""
+    e, qs = mxfp4_split(raw)
+    v = KVALUES_MXFP4[mxfp4_codes(qs)].astype(np.float32) * e8m0_to_fp32_half(e)[..., None]
+    return v.reshape(*v.shape[:-2], -1)
+
+
+def mxfp4_q8_0_dot(raw_row, x):
+    """One MXFP4 weight row (raw bytes) times one f32 activation row, in the block form of ggml_vec_dot_mxfp4_q8_0
+    (X:918-1001): sum over blocks of (f16(d_x) * E8M0_HALF(e), in f32) * sum_j kvalues[code_j] q_j (integers). The
+    terms are exact; the sum is done in float64 here (the kernel sums in f32: two accumulators, X:944-962, then the
+    scalar tail, X:991-1000). Equal to mxfp4_dequant(row) . act_quant(x, "Q8_0") up to float64 rounding."""
+    e, qs = mxfp4_split(raw_row)
+    q, d16 = q8_0(np.asarray(x, dtype=np.float32))
+    sumi = (KVALUES_MXFP4[mxfp4_codes(qs)].astype(np.int64) * q.astype(np.int64)).sum(axis=-1)
+    scale = (d16[..., 0].astype(np.float32) * e8m0_to_fp32_half(e)).astype(np.float32)
+    return float((scale.astype(np.float64) * sumi).sum())
