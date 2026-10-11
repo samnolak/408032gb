@@ -13,7 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "quality"))
 import logprob_compare as lc  # noqa: E402
 
-VOCAB = ["byte0", "byte1"] + [f"tok{i}" for i in range(2, 50)]     # names only; logits depend on the index
+VOCAB = ["byte0", "byte1", "ctl2", "ctl3"] + [f"tok{i}" for i in range(4, 50)]   # names only; logits depend on the index
 
 
 def dist(prompt, temp=1.0, flip=False):
@@ -32,15 +32,18 @@ def dist(prompt, temp=1.0, flip=False):
 def llamacpp_entry(tok, lp, invalid_bytes=True):
     """One top_logprobs entry as llama-server @79e2e74 writes it (tools/server/server-task.cpp:256-293): id, token (the
     text after UTF-8 validation), bytes (the raw piece), logprob. With invalid_bytes, byte0/byte1 stand for single bytes
-    >= 0x80, not valid UTF-8 alone: the server prints both as the replacement character, only "bytes" (and "id") differ."""
+    >= 0x80, not valid UTF-8 alone: the server prints both as the replacement character, only "bytes" (and "id") differ;
+    ctl2/ctl3 stand for control tokens (EOS and the like), which the server prints as an empty piece: only "id" differs."""
     i = VOCAB.index(tok)
     if invalid_bytes and tok.startswith("byte"):
         return {"id": i, "token": "\ufffd", "bytes": [0x80 + i], "logprob": lp}
+    if invalid_bytes and tok.startswith("ctl"):
+        return {"id": i, "token": "", "bytes": [], "logprob": lp}
     return {"id": i, "token": tok, "bytes": list(tok.encode()), "logprob": lp}
 
 
 def make_handler(temp=1.0, flip=False, no_logprobs=False, dialect="openai", swap_bytes=False, invalid_bytes=True,
-                 drop_logprobs_of=None):
+                 drop_logprobs_of=None, swap_ctl=False):
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
@@ -50,6 +53,8 @@ def make_handler(temp=1.0, flip=False, no_logprobs=False, dialect="openai", swap
             d = dist(body["prompt"], temp, flip)
             if swap_bytes:                     # an engine that confuses two invalid-UTF-8 byte tokens
                 d["byte0"], d["byte1"] = d["byte1"], d["byte0"]
+            if swap_ctl:                       # an engine that confuses two control tokens (e.g. two end-of-turn ids)
+                d["ctl2"], d["ctl3"] = d["ctl3"], d["ctl2"]
             k = body.get("logprobs") or 5
             top = dict(sorted(d.items(), key=lambda x: -x[1])[:k])
             best = max(top, key=top.get)
@@ -63,7 +68,8 @@ def make_handler(temp=1.0, flip=False, no_logprobs=False, dialect="openai", swap
                 choice["text"] = e["token"]
                 choice["logprobs"] = {"content": [e]}
                 if drop_logprobs_of and best in drop_logprobs_of:
-                    choice["logprobs"] = None    # what llama-server sends when the token ends in incomplete UTF-8
+                    # what llama-server sends when the token ends in an incomplete UTF-8 sequence (N11, observed)
+                    choice["logprobs"], choice["text"] = None, "\ufffd"
             else:
                 choice["logprobs"] = {"tokens": [best], "token_logprobs": [top[best]], "top_logprobs": [top]}
             out = json.dumps(out).encode()
@@ -152,6 +158,14 @@ class Compare(unittest.TestCase):
                               make_handler(dialect="llamacpp", temp=0.2, swap_bytes=True))
         self.assertEqual((rc, r["errors"]), (0, []))
         self.assertTrue([x for x in r["rows"] if x["kl_topk"] > 1e-3], "the byte0/byte1 swap must be visible")
+
+    def test_control_tokens_with_an_empty_piece_stay_apart(self):
+        # N11: on the real server <unk>, <s>, </s> all come back as token "" / bytes []; keyed by bytes they merged
+        rc, r = self.run_pair(make_handler(dialect="llamacpp", temp=0.2),
+                              make_handler(dialect="llamacpp", temp=0.2, swap_ctl=True))
+        self.assertEqual((rc, r["errors"]), (0, []))
+        self.assertTrue([x for x in r["rows"] if x["kl_topk"] > 1e-3], "the ctl2/ctl3 swap must be visible")
+        self.assertEqual(sum(x["ref_merged"] + x["cand_merged"] for x in r["rows"]), 0)
 
     def test_answer_without_logprobs_is_an_error_that_says_why(self):
         # llama-server @79e2e74 sends "logprobs": null when the generated token ends in an incomplete UTF-8 sequence
