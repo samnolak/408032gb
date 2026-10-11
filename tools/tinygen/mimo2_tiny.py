@@ -22,6 +22,17 @@ default, so the trunk weights stay those of the default model:
                      (mimo2.cpp:375), nextn.eh_proj / enorm / hnorm and layer_output_norm (the head norm of the
                      fallback chain shared_head_norm -> layer_out_norm -> output_norm, mimo2.cpp:392-394; HF
                      final_layernorm maps to it, gguf-py tensor_mapping LAYER_OUT_NORM). Drawn after the trunk.
+N17 (docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md):
+  --mtp-layers N     append N MTP blocks (implies --mtp; N = 1 is --mtp): layers n_layer .. n_layer + N - 1,
+                     block_count n_layer + N, nextn_predict_layers N, N more sliding-window entries in the SWA pattern
+                     and the KV-head array (the converter writes 3 for MiMo-V2-Flash / V2.5, conversion/mimo.py:22-24,
+                     155-160, 174-175, 290-298 @79e2e74). Each block has the layout of the --mtp block; block n_layer is
+                     drawn exactly as with --mtp (same numbers), the others after it in layer order, so --mtp-layers 3
+                     keeps the trunk and the first MTP block of --mtp.
+  --head-dims K,V    K and V head sizes (default 24,16) and RoPE on K // 3 dims (default 8): 192,128 gives the head
+                     geometry of MiMo-V2.6-Flash (head_dim 192, v_head_dim 128, int(192 * 0.334) = 64 rotated dims,
+                     third_party/hf/mimo-v2.6-flash-chat/config.json, conversion/mimo.py:161, 165-166 @79e2e74). The
+                     other draws keep their order (their shapes change with the head sizes).
 """
 import argparse
 
@@ -35,17 +46,22 @@ CFG = dict(n_vocab=96, n_embd=64, n_layer=6, n_head=4, kv_global=1, kv_swa=2, k_
 GLOBAL_LAYERS = (0, 5)   # the rest are sliding-window layers
 
 
-def build(path, seed=0, fused_qkv=False, sinks="all", value_scale=None, mtp=False):
+def build(path, seed=0, fused_qkv=False, sinks="all", value_scale=None, mtp=False, mtp_layers=None, head_dims=None):
     c, rng, p = CFG, np.random.default_rng(seed), ARCH
+    if head_dims:
+        c = dict(CFG, k_dim=int(head_dims[0]), v_dim=int(head_dims[1]), n_rot=int(head_dims[0]) // 3)
     E, L, H = c["n_embd"], c["n_layer"], c["n_head"]
-    swa = [0 if i in GLOBAL_LAYERS else 1 for i in range(L)] + ([1] if mtp else [])
+    n_mtp = int(mtp_layers) if mtp_layers else (1 if mtp else 0)
+    if n_mtp < 0 or (mtp_layers is not None and n_mtp < 1):
+        raise ValueError("--mtp-layers needs N >= 1")
+    swa = [0 if i in GLOBAL_LAYERS else 1 for i in range(L)] + [1] * n_mtp
     kv = [c["kv_swa"] if s else c["kv_global"] for s in swa]
     w = GGUFWriter(path, ARCH)
     w.add_uint32(f"{p}.context_length", c["ctx"])
     w.add_uint32(f"{p}.embedding_length", E)
-    w.add_uint32(f"{p}.block_count", L + (1 if mtp else 0))
-    if mtp:
-        w.add_uint32(f"{p}.nextn_predict_layers", 1)
+    w.add_uint32(f"{p}.block_count", L + n_mtp)
+    if n_mtp:
+        w.add_uint32(f"{p}.nextn_predict_layers", n_mtp)
     w.add_uint32(f"{p}.feed_forward_length", c["n_ff"])
     w.add_uint32(f"{p}.attention.head_count", H)
     w.add_array(f"{p}.attention.head_count_kv", kv)
@@ -109,11 +125,11 @@ def build(path, seed=0, fused_qkv=False, sinks="all", value_scale=None, mtp=Fals
             t(f"{b}.ffn_gate_exps.weight", X, F, E)
             t(f"{b}.ffn_up_exps.weight", X, F, E)
             t(f"{b}.ffn_down_exps.weight", X, E, F)
-    if mtp:
-        b = f"blk.{L}"
+    for i in range(L, L + n_mtp):
+        b = f"blk.{i}"
         t(f"{b}.attn_norm.weight", E, ones=True)
         t(f"{b}.ffn_norm.weight", E, ones=True)
-        qkv(b, kv[L], True)
+        qkv(b, kv[i], True)
         t(f"{b}.attn_output.weight", E, H * c["v_dim"])
         t(f"{b}.attn_sinks.weight", H, scale=1.0)
         t(f"{b}.ffn_gate.weight", c["n_ff"], E)
@@ -134,6 +150,9 @@ if __name__ == "__main__":
     ap.add_argument("--sinks", choices=("all", "swa"), default="all", help="layers that carry attention sinks")
     ap.add_argument("--value-scale", type=float, default=None, help="write mimo2.attention.value_scale")
     ap.add_argument("--mtp", action="store_true", help="append one MTP (NextN) block (see above)")
+    ap.add_argument("--mtp-layers", type=int, default=None, metavar="N", help="append N MTP blocks (see above)")
+    ap.add_argument("--head-dims", default=None, metavar="K,V", help="K and V head sizes (see above)")
     a = ap.parse_args()
-    build(a.out, a.seed, a.fused_qkv, a.sinks, a.value_scale, a.mtp)
+    build(a.out, a.seed, a.fused_qkv, a.sinks, a.value_scale, a.mtp, a.mtp_layers,
+          [int(x) for x in a.head_dims.split(",")] if a.head_dims else None)
     print("wrote", a.out)
