@@ -667,8 +667,21 @@ class Workflow(unittest.TestCase):
 
 # ------------------------------------------------------------------------------------------------ analyzer
 
-import analyze as A  # noqa: E402
-import branches as B  # noqa: E402
+import importlib.util  # noqa: E402
+
+
+def _load(name, path):
+    """by path, under a unique name: `analyze` is also tools/g0/analyze.py (tests/test_g0_analyze.py), and unittest
+    discover imports both test modules into one process"""
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+A = _load("gguf_headers_analyze", os.path.join(ROOT, "tools", "gguf_headers", "analyze.py"))
+import gguf_branches as B  # noqa: E402
 
 GLM_TEMPLATE = os.path.join(ROOT, "third_party", "hf", "glm-5.3-flash-chat", "chat_template.jinja")
 

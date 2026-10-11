@@ -13,7 +13,7 @@ Works from the committed bytes only (no network, no weights). Per request with P
   (b) the real hyperparameters (all arch-prefixed KV) next to the tinygen models the parity tests use
              (tools/tinygen/<tiny>_tiny.py variants default / --mtp / --quant-dims [/ --dialect ik], built here; needs
              numpy and LLAMA_CPP_GGUF_PY), the config.json cross-check, and the graph branches of tools/gguf_headers/
-             branches.py: the labels the real file and the tiny models take, "exercised by tiny" or NOT, with the
+             gguf_branches.py: the labels the real file and the tiny models take, "exercised by tiny" or NOT, with the
              file:line of every anchor at every --src checkout;
   (a)+(f) tools/gguf_quant_audit.py on the header-only shards rebuilt from the committed bytes (it reads headers
              only), i.e. the ADR-012 D5 floor: routed experts and non-expert matrices >= 4.0 bpw.
@@ -40,7 +40,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
-import branches  # noqa: E402
+import gguf_branches as branches  # noqa: E402
 import gguf_header as G  # noqa: E402
 import gguf_quant_audit as QA  # noqa: E402
 
