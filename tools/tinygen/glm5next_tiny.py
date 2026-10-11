@@ -21,7 +21,7 @@ attn_output reads n_head * v_mla = 256), expert, shared-expert and dense FFN wid
 architecture string "glm5next" of the Unsloth UD files (as --arch glm5next) plus "glm5next.expert_group_count" = 1, the
 one key known to belong to the UD schema beyond the name (PROVISIONAL: base B requires it and reads the UD files,
 docs/evidence/2026-10-03-lighttransport-fork.md:92-105; the real value is UNKNOWN; 1 = a single group, no restriction). Neither ik_llama.cpp @5194a9e (src/llama-hparams.cpp:
-2458-2560, the GLM5NEXT block) nor llama.cpp @79e2e74 (src/models/glm5-next.cpp:7-59) reads that key; ik reads every
+2458-2574, the GLM5NEXT block) nor llama.cpp @79e2e74 (src/models/glm5-next.cpp:7-59) reads that key; ik reads every
 other key and tensor the default file has under either name (the "glm5-next" alias resolves to GLM5NEXT,
 src/llama-model-loader.h:149-151 @5194a9e). Tensors and weights are those of the default file.
 
