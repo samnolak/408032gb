@@ -577,6 +577,37 @@ $ diff <(grep -v '^0\.\|log: \|log (\|^exit 0$' appendixA.log | sed -E 's/[0-9]+
 > prefix qwen switch effort_none: {"shared_bytes": 19, "prompt_bytes": 5093, "at": "<|im_start|>system\n‖# Tools\n\nYou have access to the following function"}
 ```
 
+## 13. CI on GitHub (head `ac419b0`, Draft PR #10)
+
+Runs 38131411545 (push) and 38131442342 (pull_request) on `ac419b0`: 12 of 12 check runs `completed` / `success`
+(GitHub API, `pull_request_read get_check_runs`, read 2026-10-11 by the lead). Lines from the `cpu-parity` job log of run
+38131442342 (job 114446428816, `get_job_logs`), quoted literally:
+
+```
+2026-10-11T10:18:04.5937972Z ##[group]Run pip install numpy pyyaml jinja2
+2026-10-11T10:18:05.7202903Z Requirement already satisfied: jinja2 in /usr/lib/python3/dist-packages (3.1.2)
+2026-10-11T10:18:21.8005528Z test_prompt_cache_reuse (test_chat_templates.LiveB3.test_prompt_cache_reuse) ... skipped 'set CHATTMPL_SERVER_BIN, CHATTMPL_GLM_GGUF, CHATTMPL_QWEN_GGUF (tools/chattmpl/run_n14.sh)'
+2026-10-11T10:18:21.9216742Z test_defaults_prefix_stable_in_agent_loop (test_chat_templates.TemplateProperties.test_defaults_prefix_stable_in_agent_loop) ... ok
+2026-10-11T10:18:21.9834349Z test_dropping_past_reasoning_breaks_at_new_user_message (test_chat_templates.TemplateProperties.test_dropping_past_reasoning_breaks_at_new_user_message) ... ok
+2026-10-11T10:18:21.9836292Z test_glm_ignores_enable_thinking (test_chat_templates.TemplateProperties.test_glm_ignores_enable_thinking) ... ok
+2026-10-11T10:18:21.9837738Z test_glm_loop_scope_jinja2 (test_chat_templates.TemplateProperties.test_glm_loop_scope_jinja2) ... ok
+2026-10-11T10:18:22.0314500Z test_history_breaks_default (test_chat_templates.TemplateProperties.test_history_breaks_default) ... ok
+2026-10-11T10:18:22.0315854Z test_no_date_injection (test_chat_templates.TemplateProperties.test_no_date_injection) ... ok
+2026-10-11T10:18:22.0436865Z test_qwen_enable_thinking_false (test_chat_templates.TemplateProperties.test_qwen_enable_thinking_false) ... ok
+2026-10-11T10:18:22.0441908Z test_reasoning_effort_values (test_chat_templates.TemplateProperties.test_reasoning_effort_values) ... ok
+2026-10-11T10:18:22.0445916Z test_glm_config_facts (test_chat_templates.VendoredFiles.test_glm_config_facts) ... ok
+2026-10-11T10:18:22.0447244Z test_qwen_config_facts (test_chat_templates.VendoredFiles.test_qwen_config_facts) ... ok
+2026-10-11T10:18:22.0453362Z test_sha256sums (test_chat_templates.VendoredFiles.test_sha256sums) ... ok
+2026-10-11T10:19:39.8159656Z Ran 860 tests in 90.911s
+2026-10-11T10:19:39.8160134Z OK (skipped=359)
+```
+
+So the 11 jinja2 tests run in CI (the 3 build-dependent classes skip, as designed; `ServerRender` and `ParseHarness`
+skip lines are of the same form and omitted above). Correction to the premise of audit MINOR 6: the ubuntu-24.04 image
+already ships jinja2 **3.1.2** in `dist-packages`, so before `f17c71c` these tests would also have run on this image;
+the `deps` line now makes the dependency explicit, so an image change cannot turn them into a silent skip. The local runs
+of this file used jinja2 **3.1.6**; the tests pass on both versions (CONFIRMED: the local outputs above and this log).
+
 ## Appendix A. `tools/chattmpl/run_n14.sh` at `1a95c5c`, full output
 
 ```
