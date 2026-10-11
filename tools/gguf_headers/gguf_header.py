@@ -11,7 +11,7 @@ Layout and checks follow llama.cpp ggml/src/gguf.cpp gguf_init_from_reader @ec76
   n_tensors x (string name < 64 bytes, u32 n_dims <= 4, n_dims x i64 ne, i32 ggml type, u64 offset);
   general.alignment (u32, power of two, default 32); the data section starts at the next multiple of the alignment
   after the tensor infos if n_tensors > 0, else right after them (gguf.cpp:781-788); tensor offsets are relative to the
-  data section and must be the running sum of the padded tensor sizes (gguf.cpp:790-816).
+  data section and must be the running sum of the padded tensor sizes (gguf.cpp:790-820).
 A string is u64 length + bytes. Everything little endian.
 
 parse(buf) raises NeedMore(n) when buf holds fewer than the n bytes the next step needs (n counts from the start of the
