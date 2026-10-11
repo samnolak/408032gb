@@ -18,12 +18,16 @@ head_dim 64 (d_inner = 4 * 64 = 256, the input of the KDA attn_output), q_lora 2
 attn_output reads n_head * v_mla = 256), expert, shared-expert and dense FFN widths 256.
 
 --dialect ik (N12, gap 5 of docs/reassessment/CORRECTNESS.md) writes the file ik_llama.cpp is run on in R1: the
-architecture string "glm5next" of the Unsloth UD files (as --arch glm5next) plus "glm5next.expert_group_count" = 1, the
-one key known to belong to the UD schema beyond the name (PROVISIONAL: base B requires it and reads the UD files,
-docs/evidence/2026-10-03-lighttransport-fork.md:92-105; the real value is UNKNOWN; 1 = a single group, no restriction). Neither ik_llama.cpp @5194a9e (src/llama-hparams.cpp:
-2458-2574, the GLM5NEXT block) nor llama.cpp @79e2e74 (src/models/glm5-next.cpp:7-59) reads that key; ik reads every
-other key and tensor the default file has under either name (the "glm5-next" alias resolves to GLM5NEXT,
-src/llama-model-loader.h:149-151 @5194a9e). Tensors and weights are those of the default file.
+architecture string "glm5next" of the Unsloth UD files (as --arch glm5next) plus "glm5next.expert_group_count" = 1. That
+key is PROVISIONALLY part of the UD schema (base B requires it and reads the UD files,
+docs/evidence/2026-10-03-lighttransport-fork.md:92-105); the real value is UNKNOWN. ik_llama.cpp @5194a9e does not read
+it for glm5next (src/llama-hparams.cpp:2458-2574, the GLM5NEXT block; it reads it only for other architectures, :1655,
+1680). llama.cpp @79e2e74 reads it for every architecture (src/llama-model.cpp:1362) and, with more than one group,
+restricts glm5-next's routing to the top groups (build_moe_ffn, src/llama-graph.cpp:2145-2163, called at
+src/models/glm5-next.cpp:621, 743). The value 1 written here has no effect in either engine; a real value above 1
+would be a possible further routing difference between the two (UNKNOWN). ik reads every other key and tensor the
+default file has under either name (the "glm5-next" alias resolves to GLM5NEXT, src/llama-model-loader.h:149-151
+@5194a9e). Tensors and weights are those of the default file.
 
 Key and tensor names: llama.cpp @ec7630a src/llama-arch.cpp; shapes: src/models/glm5-next.cpp
 load_arch_tensors. numpy shapes are ggml ne reversed.
@@ -83,7 +87,7 @@ def build(path, cfg=DEFAULT, seed=0, mtp=False, dialect=None):
     w.add_float32(f"{p}.kda.gate_lower_bound", c["kda_lower_bound"])
     w.add_uint32(f"{p}.expert_count", c["n_expert"])
     w.add_uint32(f"{p}.expert_used_count", c["n_expert_used"])
-    if dialect == "ik":                                       # UD-schema key, ignored by both engines
+    if dialect == "ik":                                       # UD-schema key; 1 = no group step (docstring)
         w.add_uint32(f"{p}.expert_group_count", 1)
     w.add_uint32(f"{p}.expert_feed_forward_length", c["n_ff_exp"])
     w.add_uint32(f"{p}.expert_shared_count", c["n_shared"])
