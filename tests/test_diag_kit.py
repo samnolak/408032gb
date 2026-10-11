@@ -12,8 +12,12 @@ Runs without GPU and without root requirements:
     the test file is deleted; raw mode stays read-only);
   * membw.c compiled with gcc -fopenmp and run on a tiny array; bench_mem.sh on a tiny array;
   * summarize.py on the SYNTHETIC fixtures in tests/fixtures/diag (never invents values);
-  * nvcc compile of the .cu files for sm_89 when nvcc is available (env NVCC or PATH),
-    shellcheck when available (env SHELLCHECK or PATH). Otherwise these two are skipped.
+  * nvcc compile of every scripts/diag/*.cu for sm_89 and a check that the binaries carry sm_89 code (cuobjdump)
+    when nvcc is available (env NVCC or PATH), shellcheck when available (env SHELLCHECK or PATH). Otherwise these
+    are skipped. The CUDA build runs in the `cuda-compile` job of .github/workflows/ci.yml, which installs nvcc and
+    fails on any skip of CudaCompile; the job without nvcc (`cpu-parity`, step `unit tests`) turns that skip into a
+    warning annotation (gap 11 (b), (c) of docs/reassessment/CORRECTNESS.md). CudaSourcesInCi guards that wiring
+    without nvcc: every tracked .cu outside third_party/ is one CudaCompile builds, and the job still fails on a skip.
 """
 import contextlib
 import io
@@ -554,17 +558,97 @@ class Membw(unittest.TestCase):
             self.assertEqual(sec["result"]["exit_code"], "0")
 
 
-@unittest.skipUnless(which_nvcc(), "nvcc not available (set NVCC=/path/to/nvcc)")
+NO_NVCC = ("nvcc not available (set NVCC=/path/to/nvcc); scripts/diag/*.cu is compiled for sm_89 in the cuda-compile "
+           "job of .github/workflows/ci.yml")
+
+
+def diag_cuda_sources():
+    return sorted(DIAG.glob("*.cu"))
+
+
+@unittest.skipUnless(which_nvcc(), NO_NVCC)
 class CudaCompile(unittest.TestCase):
+    """Every scripts/diag/*.cu builds for sm_89 (the RTX 4080 Super) and the binary holds sm_89 code."""
+    ARCH = "sm_89"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nvcc = which_nvcc()
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.built = {}
+        for src in diag_cuda_sources():
+            exe = os.path.join(cls.tmp.name, src.stem)
+            r = subprocess.run([cls.nvcc, "-O2", f"-arch={cls.ARCH}", "-Xcompiler", "-Wall", "-o", exe, str(src)],
+                               capture_output=True, text=True, timeout=600)
+            cls.built[src.name] = (r, exe)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
     def test_compile_sm89(self):
-        nvcc = which_nvcc()
-        with tempfile.TemporaryDirectory() as d:
-            for src in ("gpu_p2p_matrix.cu", "gpu_vram_check.cu"):
-                exe = os.path.join(d, src[:-3])
-                r = subprocess.run([nvcc, "-O2", "-arch=sm_89", "-Xcompiler", "-Wall", "-o", exe, str(DIAG / src)],
-                                   capture_output=True, text=True, timeout=600)
-                self.assertEqual(r.returncode, 0, src + r.stdout + r.stderr)
+        self.assertTrue(self.built, "no scripts/diag/*.cu to compile")
+        for name, (r, exe) in self.built.items():
+            with self.subTest(src=name):
+                self.assertEqual(r.returncode, 0, name + r.stdout + r.stderr)
                 self.assertTrue(os.path.isfile(exe))
+                print(f"\n  {name}: nvcc -arch={self.ARCH} OK, {os.path.getsize(exe)} bytes", file=sys.stderr, end="")
+        print(file=sys.stderr)
+
+    def test_binaries_hold_sm89_code(self):
+        cuobjdump = os.path.join(os.path.dirname(self.nvcc), "cuobjdump")
+        if not os.access(cuobjdump, os.X_OK):
+            self.skipTest(f"no cuobjdump next to {self.nvcc} (CUDA package cuda-cuobjdump)")
+        for name, (r, exe) in self.built.items():
+            with self.subTest(src=name):
+                self.assertEqual(r.returncode, 0, name + r.stderr)
+                out = subprocess.run([cuobjdump, "--list-elf", exe], capture_output=True, text=True, timeout=120)
+                self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+                self.assertRegex(out.stdout, r"\.sm_89\.cubin", out.stdout)     # the server's GPUs, not ARCH
+
+
+class CudaSourcesInCi(unittest.TestCase):
+    """No nvcc needed: the CI wiring of the CUDA build (gap 11 (b), (c) of docs/reassessment/CORRECTNESS.md)."""
+
+    CI = ROOT / ".github" / "workflows" / "ci.yml"
+
+    def job(self, name):
+        text = self.CI.read_text()
+        m = re.search(rf"^  {re.escape(name)}:\n(.*?)(?=^  [\w-]+:\n|\Z)", text, re.S | re.M)
+        self.assertIsNotNone(m, f"job {name} not in {self.CI}")
+        return m[1]
+
+    def test_every_tracked_cuda_source_is_built_by_cuda_compile(self):
+        r = subprocess.run(["git", "-C", str(ROOT), "ls-files", "*.cu", "*.cuh"], capture_output=True, text=True)
+        if r.returncode != 0:
+            self.skipTest("not a git checkout")
+        tracked = sorted(f for f in r.stdout.split() if not f.startswith("third_party/"))
+        built = sorted(str(p.relative_to(ROOT)) for p in diag_cuda_sources())
+        self.assertTrue(built, "no scripts/diag/*.cu: cuda-compile would compile nothing")
+        self.assertEqual(tracked, built, "a CUDA source outside scripts/diag is compiled by no CI job: extend "
+                                         "CudaCompile / the cuda-compile job of ci.yml")
+
+    def test_cuda_compile_job_runs_the_build_and_fails_on_a_skip(self):
+        job = self.job("cuda-compile")
+        code = "\n".join(line for line in job.splitlines() if not line.lstrip().startswith("#"))
+        self.assertNotRegex(code, r"exit 0\b", "a green-by-construction exit")
+        self.assertNotIn("kernels/", code)    # the old glob over a directory that does not exist
+        self.assertIn("cuda-nvcc-13-0", job)
+        self.assertIn("cuda-cuobjdump-13-0", job)
+        self.assertRegex(job, r"NVCC=/usr/local/cuda-13\.0/bin/nvcc python3 -m unittest tests\.test_diag_kit\.CudaCompile ")
+        # the summary's skipped=K or a `... skipped '<reason>'` line; not a bare 'skipped' (test names contain it)
+        self.assertIn("""grep -qE "skipped=|\\.\\.\\. skipped '" t.log && { echo "::error::""", job)
+        self.assertIn("""grep -qE '^Ran [1-9][0-9]* tests? ' t.log || { echo "::error::""", job)
+        self.assertIn("exit $rc", job)
+
+    def test_cpu_parity_warns_when_the_cuda_build_does_not_run(self):
+        job = self.job("cpu-parity")
+        step = job[job.index("- name: unit tests"):]
+        step = step[:step.index("\n      - name:")]
+        self.assertIn("shell: bash", step)      # -eo pipefail: the tee keeps unittest's exit status
+        self.assertTrue(NO_NVCC.startswith("nvcc not available"))
+        self.assertIn("""if grep -q "skipped 'nvcc not available" unit.log; then""", step)
+        self.assertRegex(step, r"echo \"::warning::scripts/diag/\*\.cu NOT compiled")
 
 
 class Summarize(unittest.TestCase):

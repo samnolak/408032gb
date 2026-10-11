@@ -2,10 +2,14 @@
 
 Run: tools/tinygen/mimo2_tiny.py -> tools/dump/dump_tensors.cpp (-fa off -ctk f32 -ctv f32) -> this test.
 Env: MIMO_TINY_DUMP, MIMO_TINY_GGUF, LLAMA_CPP_GGUF_PY.
+Every comparison is recorded; the table printed at the end of the module lists, per component and layer, the max abs
+and normwise relative error and how close it is to its tolerance (gap 14 of docs/reassessment/CORRECTNESS.md;
+tolerances unchanged).
 """
 import json
 import os
 import pathlib
+import re
 import sys
 import unittest
 
@@ -28,9 +32,45 @@ def dump(name):
     return a
 
 
+TABLE = []    # (component, layer, max abs, rel, tol, compared): the per-layer error report (gap 14)
+
+
+def record(what, il, mx, rel, tol, compared="rel"):
+    TABLE.append((what, il, mx, rel, tol, compared))
+
+
 def close(t, got, want, tol, what):
-    err = np.max(np.abs(got - want)) / (np.max(np.abs(want)) + 1e-12)
+    """Normwise relative error < tol; the layer is the ` L<n>` in `what`. Sizes must match (no silent broadcasting)."""
+    got, want = np.asarray(got, dtype=np.float64), np.asarray(want, dtype=np.float64)
+    t.assertEqual(got.size, want.size, f"{what}: size {got.shape} vs {want.shape}")
+    got = got.reshape(want.shape)
+    m = re.fullmatch(r"(.*) L(\d+)(.*)", what)
+    comp, il = (m[1] + m[3], int(m[2])) if m else (what, -1)
+    mx = float(np.max(np.abs(got - want)))
+    err = mx / (np.max(np.abs(want)) + 1e-12)
+    record(comp, il, mx, float(err), tol)
     t.assertLess(err, tol, f"{what}: rel err {err:.2e}")
+
+
+def tearDownModule():
+    if not TABLE:
+        return
+    print("\nper-layer errors (rel = max|got-want| / max|want|; 'of tol' = the compared error / tolerance):",
+          file=sys.stderr)
+    print(f"{'component':24s} {'layer':>5s} {'max abs':>10s} {'rel':>10s} {'tol':>12s} {'of tol':>7s}", file=sys.stderr)
+    for what, il, mx, rel, tol, cmp in TABLE:
+        frac = (rel if cmp == "rel" else mx) / tol
+        print(f"{what:24s} {il:5d} {mx:10.3e} {rel:10.3e} {tol:8.0e} {cmp:3s} {frac:7.3f}", file=sys.stderr)
+    worst = {}
+    for row in TABLE:
+        what, il, mx, rel, tol, cmp = row
+        frac = (rel if cmp == "rel" else mx) / tol
+        if il not in worst or frac > worst[il][0]:
+            worst[il] = (frac, row)
+    print("worst per layer:", file=sys.stderr)
+    for il in sorted(worst):
+        frac, (what, _, mx, rel, tol, cmp) = worst[il]
+        print(f"  L{il:<3d} {what}: max abs {mx:.3e}, rel {rel:.3e}, {frac:.3f} of tol {tol:.0e} {cmp}", file=sys.stderr)
 
 
 @unittest.skipUnless(DUMP and GGUF and GGUF_PY, "run tools/tinygen/run_parity.sh mimo")
@@ -80,8 +120,11 @@ class MimoTinyParity(unittest.TestCase):
             got_ids = dump(f"ffn_moe_topk-{il}__0").astype(int)
             self.assertTrue(np.array_equal(np.sort(ids, 1), np.sort(got_ids, 1)), f"top-k L{il}")
             got_w = dump(f"ffn_moe_weights_norm-{il}__0").reshape(self.T, -1)
-            for t in range(self.T):
-                mine, theirs = dict(zip(ids[t], w[t])), dict(zip(got_ids[t], got_w[t]))
+            pairs = [(dict(zip(ids[t], w[t])), dict(zip(got_ids[t], got_w[t]))) for t in range(self.T)]
+            diffs = [abs(mine[e] - theirs.get(e, np.inf)) for mine, theirs in pairs for e in mine]
+            record("router weights", il, float(max(diffs)), float(max(diffs) / (np.max(np.abs(got_w)) + 1e-12)),
+                   1e-5, "abs")
+            for mine, theirs in pairs:
                 for e in mine:
                     self.assertAlmostEqual(mine[e], theirs[e], delta=1e-5)
 
