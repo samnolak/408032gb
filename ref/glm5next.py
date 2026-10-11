@@ -56,6 +56,12 @@ build_attn_mha (G:998-1005), i.e. flash attention when -fa on (ref/fattn.py mode
 the latent rounding reaches it ("exact" mode over the f16 latents; the tests force it per row with prec["modes"]).
 KDA states stay f32 (GGML_TYPE_F32, src/llama-model.cpp:2483-2484).
 
+Quantized weights (N10, gap 2): a weight may be a ref/quant.py QWeight (a non-F32 GGUF tensor, dequantized). Every
+matrix product with a weight here is written x @ w.T or w @ x, which for a QWeight converts the activations the way
+ggml's CPU mul_mat / mul_mat_id do. llama-quantize keeps hc_*, the indexer, ssm_f_* / ssm_g_* / ssm_beta,
+attn_kv_a_mqa, attn_k_b and attn_v_b of glm5-next F32 (src/llama-quant.cpp:333-346), so the einsum and np.asarray
+uses of attn_k_b / attn_v_b below always see F32 weights.
+
 Shapes are numpy-natural (token-major); weights are the GGUF arrays as numpy reads them (ggml ne reversed).
 Everything runs in float64; cast at the boundary when comparing with a kernel.
 """
