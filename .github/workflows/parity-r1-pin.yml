@@ -7,8 +7,9 @@
 # precision of the KV cache and the attention (-ctk f16 -ctv f16 -fa on), tools/tinygen/run_parity_f16fa.sh, and
 # quantized weights (Q8_0, Q4_K_M by the pin's own llama-quantize), tools/tinygen/run_parity_quant.sh.
 # N12 (gap 5): the second GLM engine of R1, ik_llama.cpp at its pin, on the same tiny model written as "glm5next"
-# (job ik-glm5next, in parallel; tools/tinygen/run_parity_ik_glm5next.sh: CPU build of ik + dump tool about 5.5 min on
-# 4 cores, runs and tests about 15 s, measured in the N12 sandbox).
+# (job ik-glm5next, in parallel; tools/tinygen/run_parity_ik_glm5next.sh: the whole driver from an empty build
+# directory, CPU build of ik + dump tool included, took 353 s on 4 cores in the N12 sandbox, `driver rc=0 wall_s=353` in
+# docs/evidence/2026-10-11-n12-ik-glm5next-cpu.md; the time on a GitHub runner is UNKNOWN).
 # CPU only, tiny random-weight models.
 name: parity-r1-pin
 on:
