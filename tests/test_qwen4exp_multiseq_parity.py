@@ -26,7 +26,10 @@ run's expected divergences per pin are in RUNS[run]["diverge"] (none elsewhere);
 that (A) is off there, and every other run- and pin-specific behaviour (refusals, sharing, cell moves).
 G = src/models/qwen4exp.cpp; line numbers @ec7630a640789c393694fb194f1bbbf0369fc62d unless "@79e2e74".
 Env: QWEN4EXP_MULTISEQ_DUMP (root with one directory per run), QWEN4EXP_TINY_GGUF, LLAMA_CPP_GGUF_PY,
-PARITY_LLAMA_COMMIT (which pin's behaviour to expect; set by the driver).
+PARITY_LLAMA_COMMIT (which pin's behaviour to expect; set by the driver), QWEN4EXP_RS_GUARD=1 (N20: the dumps come
+from llama.cpp with patches/llama.cpp/<pin>/0001-recurrent-rollback-guard.patch; expect RUNS[run]["guard_ok"] (else
+the R1 pin's seq_rm results) and RUNS[run]["diverge"]["guard"] (else none); set by
+tools/tinygen/run_parity_qwen4exp_rs_guard.sh).
 
 Tolerances as N2/N6: normwise relative error < 1e-4 for f32 paths; exact for the embedding and PLE gathers, the zero
 state of a new sequence, the masked (zero) attention probabilities; MoE ids equal as sets; QSA selections equal, or
@@ -57,7 +60,21 @@ GGUF = os.environ.get("QWEN4EXP_TINY_GGUF")
 GGUF_PY = os.environ.get("LLAMA_CPP_GGUF_PY")
 LLAMA_COMMIT = os.environ.get("PARITY_LLAMA_COMMIT", "ec7630a640789c393694fb194f1bbbf0369fc62d")
 PIN = {"ec7630a": "ec", "79e2e74": "r1"}.get(LLAMA_COMMIT[:7])
+GUARD = os.environ.get("QWEN4EXP_RS_GUARD") == "1"
 TOL = 1e-4
+
+
+def expected_ok(plan):
+    """The seq_rm result every "r" step of a plan must give: at the pin, or with the N20 guard patch (the same at both
+    pins: the ec7630a patch adds 79e2e74's shared-cell refusal)."""
+    rs = [st for st in plan["steps"] if st[0] == "r"]
+    if GUARD:
+        return list(plan.get("guard_ok", [st[4] for st in rs]))
+    return [st[3] if PIN == "ec" else st[4] for st in rs]
+
+
+def expected_diverge(plan):
+    return plan.get("diverge", {}).get("guard" if GUARD else PIN, {})
 SKIP = ("set QWEN4EXP_MULTISEQ_DUMP, QWEN4EXP_TINY_GGUF, LLAMA_CPP_GGUF_PY: "
         "run tools/tinygen/run_parity_qwen4exp_multiseq.sh")
 TABLE = []        # (run, component, layer, graph, max abs, rel)
@@ -73,7 +90,7 @@ class Replay:
         self.fed = [int(x) for x in (self.dir / "tokens.txt").read_text().split(",")]
         man = self.man
         self.M = M = Q.MultiSeqContext(W, hp, man["n_seq_max"], man["n_ctx_seq"], man["kv_unified"], man["n_rs_seq"],
-                                       pin, man["n_ubatch"])
+                                       pin, man["n_ubatch"], guard=GUARD)
         self.graphs, self.steps = [], []       # graph dicts with g, call; per manifest call: what B did
         life = {s: s for s in range(man["n_seq_max"])}
         self.life_tokens = {s: [] for s in range(man["n_seq_max"])}
@@ -133,6 +150,7 @@ class Replay:
 
 class _MultiSeqParity:
     RUN = None
+    PLANS = None      # the plans module of RUN (None: tools/tinygen/qwen4exp_multiseq_plans.py)
 
     @classmethod
     def setUpClass(cls):
@@ -144,7 +162,7 @@ class _MultiSeqParity:
             raise AssertionError(f"PARITY_LLAMA_COMMIT {LLAMA_COMMIT}: no expectations for this llama.cpp commit")
         cls.W, cls.hp = model(GGUF)
         hp = cls.hp
-        cls.PLAN = PLANS.RUNS[cls.RUN]
+        cls.PLAN = (cls.PLANS or PLANS).RUNS[cls.RUN]
         cls.LIN = [i for i in range(hp["n_layer"]) if hp["recurrent"][i]]
         cls.ATT = [i for i in range(hp["n_layer"]) if not hp["recurrent"][i]]
         cls.QSA = [i for i in cls.ATT if hp["compress"][i] > 0]
@@ -476,10 +494,11 @@ class _MultiSeqParity:
         R, run, plan = self.R, self.RUN, self.PLAN
         steps = plan["steps"]
         self.assertEqual(len(steps), len(R.man["calls"]))
-        # every seq_rm result as the plan says for this pin
+        # every seq_rm result as the plan says for this pin (or for the N20 guard patch)
+        want_ok = iter(expected_ok(plan))
         for i, (st, call) in enumerate(zip(steps, R.man["calls"])):
             if st[0] == "r":
-                self.assertEqual(call["ok"], st[3] if PIN == "ec" else st[4], f"{run} step {i} {st}: ok")
+                self.assertEqual(call["ok"], next(want_ok), f"{run} step {i} {st}: ok")
             if st[0] == "x":
                 self.assertTrue(call["ok"])
         # divergence: exactly the expected sequences, from the expected call on, and (A) is off there
@@ -488,7 +507,7 @@ class _MultiSeqParity:
             for s in gr["seqs"]:
                 if gr["diverged"][s] and s not in first:
                     first[s] = gr
-        expect = plan.get("diverge", {}).get(PIN, {})
+        expect = expected_diverge(plan)
         self.assertEqual({s: gr["call"] for s, gr in first.items()}, expect, f"{run}: diverged sequences")
         for s, gr in first.items():
             k = gr["seqs"].index(s)
@@ -576,13 +595,14 @@ class _MultiSeqParity:
             rb = [i for i, st in enumerate(steps) if st[0] == "r"][0]
             pos = R.man["calls"][rb]["pos_max"]
             # ec7630a: the shared recurrent cell moves back for both sequences (RC:207-213), so the other sequence's
-            # seq_pos_max drops by 2 although its KV cells still hold 22, 23; 79e2e74 refuses (RC:202-205@79e2e74)
-            self.assertEqual(pos, [21, 21] if PIN == "ec" else [23, 23])
+            # seq_pos_max drops by 2 although its KV cells still hold 22, 23; 79e2e74 refuses (RC:202-205@79e2e74), and
+            # so does ec7630a with the N20 guard patch
+            self.assertEqual(pos, [21, 21] if PIN == "ec" and not GUARD else [23, 23])
 
 
-def _class(run):
+def _class(run, plans=None, module=__name__):
     return unittest.skipUnless(DUMP and GGUF and GGUF_PY, SKIP)(
-        type(f"Run_{run}", (_MultiSeqParity, unittest.TestCase), {"RUN": run}))
+        type(f"Run_{run}", (_MultiSeqParity, unittest.TestCase), {"RUN": run, "PLANS": plans, "__module__": module}))
 
 
 for _run in PLANS.RUNS:
@@ -603,6 +623,7 @@ def tearDownModule():
     print(f"{'run':13s} {'component':62s} {'layer':>5s} {'graph':>5s} {'max abs':>10s} {'rel':>10s}", file=sys.stderr)
     for (run, what), (il, g, mx, rel) in worst.items():
         print(f"{run:13s} {what:62s} {il:5d} {g:5d} {mx:10.3e} {rel:10.3e}", file=sys.stderr)
+    TABLE.clear()     # printed once: a module that reuses these classes (N20) prints its own runs
 
 
 if __name__ == "__main__":
