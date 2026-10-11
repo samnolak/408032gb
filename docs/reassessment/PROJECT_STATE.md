@@ -17,6 +17,13 @@
   `f11c8e50…` коммита `bef4d440`), хотя `git bundle verify` в том клоне проходил — заметил владелец. Причина и исправление:
   `docs/evidence/2026-10-10-backup-bundle.md`; клон дополнен (`git fetch --unshallow origin`), бандлы теперь делает и проверяет
   восстановлением `scripts/offline/repo_backup.py` (правило — `.claude/skills/bundle-sync/SKILL.md`).
+- **Исправления N11 в инструментах этой ветки — 2026-10-11:** другая сессия прогнала их против настоящего `llama-server`
+  `79e2e74` на CPU (ветка `claude/n11-r1-tools-cpu-server`); шесть коммитов перенесены сюда `cherry-pick -x`:
+  `logprob_compare` читает раскладку llama-server (раньше V6 с llama.cpp не измерялся), `run_matrix` солит nonce на каждый
+  прогон (повторный «холодный» прогон шёл из кэша), `slot_persist` сравнивает id токенов, `run_r1` создаёт
+  `artifacts/quality/`; новые тесты падают на старых инструментах (`docs/evidence/2026-10-11-n11-fixes-port.md`). Ждут
+  решения: синтетика в verification pack = NOT RUN (предложения N11 a/b) и допуск ошибок V6 (llama-server не отдаёт
+  logprobs токена с незавершённым UTF-8; доля на реальном тексте — UNKNOWN).
 - **Продолжить:** прочитать этот файл, `ROADMAP.md` (раздел «Трек без железа») и последние файлы в `docs/evidence/`; работать в
   своей ветке `claude/*` (или продолжить эту), коммитить по одному логическому изменению с префиксом роли, пушить после каждого
   законченного шага; обновлять этот файл и `ROADMAP.md` в том же коммите, что и работу.
@@ -159,13 +166,6 @@ llama.cpp на master умеет GPU-кэш экспертов (LRU на уст�
    падение llama.cpp (exit 139) под gdb; 4 мелких замечания закрыты (раздел «CI and the second evidence audit» в
    `docs/evidence/2026-10-10-qwen4exp-decode-parity.md`). Шаг CI декода зелёный на `3f32a66` (run 38072395874).
    Скрипты мутационных проверок — `docs/evidence/mutation-scripts/`.
-   Исправления N11 (2026-10-11, другая сессия прогнала инструменты этой ветки против настоящего `llama-server` `79e2e74`
-   на CPU) перенесены `cherry-pick -x`: `logprob_compare` читает раскладку llama-server (раньше V6 с llama.cpp не
-   измерялся), `run_matrix` солит nonce на каждый прогон (повторный «холодный» прогон шёл из кэша), `slot_persist`
-   сравнивает id токенов, `run_r1` создаёт `artifacts/quality/`; новые тесты падают на старых инструментах
-   (`docs/evidence/2026-10-11-n11-fixes-port.md`). Ждут решения: синтетика в verification pack = NOT RUN (предложения
-   N11 a/b) и допуск ошибок V6 (llama-server не отдаёт logprobs токена с незавершённым UTF-8; доля на реальном тексте —
-   UNKNOWN).
 1. R0: диагностика на сервере → `HARDWARE_FACTS.md`, обновить hardware JSON измеренными bw/каналами/PCIe/P2P.
 2. R1: веса шорт-листа + `tools/gguf_quant_audit.py` на каждом файле → матрица бейзлайнов (`tools/bench/run_matrix.py`, `probes.py`),
    включая базу A для GLM.
