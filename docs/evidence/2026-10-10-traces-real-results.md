@@ -1,10 +1,11 @@
 # 2026-10-10 — traces-real: routing of two real proxy MoE models, cache policies and expert prediction
 
-Branch `claude/research-landscape`. Role: perf-bench. Data: workflow `traces-real` run 38079738013, committed by the bot as
-`0914244` (`data/traces/real/{qwen3-coder-30b-a3b,glm-4.7-flash}/`). Analysis here: agent sandbox CPU, no GPU, no model
-weights; `predict_eval` results are CONFIRMED-from-CI (the probes and GGUFs were not kept), every `cachesim` number was
-recomputed here from the committed traces. Tools added for this file: `scripts/traces/cachesim_sensitivity.py` (commits
-`830106e`, `8435e8d`) with `tests/test_cachesim_sensitivity.py`. Literal outputs of every run are in
+Branch `claude/research-landscape`. Role: perf-bench. Data: workflow `traces-real` run 38079738013, committed by the bot
+as `0914244` (`data/traces/real/{qwen3-coder-30b-a3b,glm-4.7-flash}/`). Analysis here: agent sandbox CPU, no GPU, no
+model weights; `predict_eval` results are CONFIRMED from the CI output committed at `0914244` (the probes and GGUFs were
+not kept, so they were not re-run), every `cachesim` number was recomputed here from the committed traces. Tools added
+for this file: `scripts/traces/cachesim_sensitivity.py` (commits `830106e`, `8435e8d`) with
+`tests/test_cachesim_sensitivity.py`. Literal outputs of every run are in
 `docs/evidence/2026-10-10-traces-real-results/` (file names below).
 
 **Scope of the claims.** The two models are PROXIES (Qwen3-Coder-30B-A3B for the Qwen family, GLM-4.7-Flash for the GLM
@@ -12,20 +13,30 @@ family), run at Q4_K_M on CPU over 16 CONSTRUCTED agent-style conversations with
 statement about GLM-5.3-Flash or Qwen3.8-Flash-Next below is PROVISIONAL. Every tok/s is a PROVISIONAL model ceiling of
 `tools/ceilings/tier_cost.py`, never a measurement and never a forecast.
 
+**Labels** (AGENTS.md set only). CONFIRMED: checked against a primary source given inline - code `path:line@0914244`, a CI
+output file committed at `0914244` (written "CONFIRMED (`<file>`@0914244, CI output)"), or a command whose literal output is
+in `docs/evidence/2026-10-10-traces-real-results/`. PROVISIONAL: derived, model output, a transfer from proxy to target, or a
+secondary source (written "PROVISIONAL (secondary source: ...)": a number another document or a third party reports and that
+was not re-measured here). UNKNOWN: not known; what would settle it is stated. NOT RUN: not executed, with the reason.
+
 ## 0. Findings
 
-1. **Self-checks pass** (CONFIRMED-from-CI, `predict.txt` line 1): router weights reproduce the recorded logits to 2.9e-4 /
-   1.7e-4 relative error; the selection rule reproduces 72,384 of 72,384 (Qwen) and 69,367 of 69,368 (GLM) recorded top-k
+1. **Self-checks pass** (CONFIRMED (`predict.txt`@0914244 line 1, CI output)): router weights reproduce the recorded
+   logits to 2.9e-4 / 1.7e-4 relative error; the selection rule reproduces 72,384 of 72,384 (Qwen) and 69,367 of 69,368
+   (GLM) recorded top-k
    rows; the probe run selects exactly the experts of the trace run on every recorded row. The single GLM row is not the
    group rule (GLM-4.7-Flash has one group); a near-tie under fp32 vs float64 arithmetic is the PROVISIONAL explanation
    (section 3).
 2. **`cachesim` reproduces exactly**: the committed `cachesim.txt` and `cachesim.json` of both models are byte-identical to
    a re-run here from the committed traces (CONFIRMED, `reproduce.txt`).
 3. **At the GLM-5.3-Flash residency of 0.607** (UD-Q4_K_XL, ARCHITECTURE-ALTERNATIVES 9.12), the GLM proxy's held-out
-   **static** hit is **0.770** (0.754-0.786 over the 4 hold-out folds), inside the planning band 0.70/0.75/0.80 and just
-   above R9's 0.75 stop/go line; at 0.546 it is 0.708, beside the only published held-out number for GLM-5.3-Flash itself
-   (0.701-0.773 at 0.556). The Qwen proxy is higher everywhere (static 0.908 at 0.607). (CONFIRMED for the proxies,
-   `runs-*.txt`; the mapping to the target is PROVISIONAL.)
+   **static** hit is **0.770** (0.754-0.786 over the 4 hold-out folds), inside the planning band 0.70/0.75/0.80. It is above
+   R9 M1's stop threshold (< 0.75) and below its build threshold (>= 0.85) (`R9-adversarial-ceilings.md:521`); M1 requires
+   real GLM-5.3-Flash traces at 32K-128K, so it is not evaluated here. At 0.546 the proxy gives 0.708, beside the only
+   published held-out numbers for GLM-5.3-Flash itself at 0.556 (PROVISIONAL, secondary source: third-party EXL3 4.05 bpw
+   profiles in R11 C03 - code 0.701 / agentic 0.773; systems/security 0.735-0.869, `R11-verification.md:110`). The Qwen proxy
+   is higher everywhere (static 0.908 at 0.607). (CONFIRMED for the proxies, `runs-*.txt`; the mapping to the target is
+   PROVISIONAL.)
 4. **Better policies exist on the proxies at the same residency**: a static set ranked on **decode** tokens 0.899, LRU
    0.86-0.91 depending on how it is warmed, hybrid (half static, half LRU) 0.87-0.90, Belady bound 0.965 (GLM proxy,
    0.607). How the prompt is replayed moves per-layer LRU by ~5 points and which tokens train the static profile moves it
@@ -33,9 +44,10 @@ statement about GLM-5.3-Flash or Qwen3.8-Flash-Next below is PROVISIONAL. Every 
 5. **`lru_global` / `lru_device` plateau at exactly 0.900 (GLM) / 0.922 (Qwen)**, the compulsory-miss bound of a cache that
    is empty at the first of 100-128 generated tokens (CONFIRMED, `se_cold_last_full`). With `prompt_readonly` they start
    every generation empty, so from capacity ~0.75 on those columns measure generation length, not the policy (within
-   2 points of the bound already at 0.607).
+   2.2 points of the bound already at 0.607: GLM lru_device 0.878 vs 0.900).
 6. **Prediction**: cross-layer pre-gating names 81-86% of the next MoE layer's experts with m = k candidates and 95-98% with
-   m = 2k (d = 1); 74-80% / 90-95% at d = 2 (CONFIRMED-from-CI). In the cost model a PCIe prefetch with these values gains
+   m = 2k (d = 1); 74-80% / 90-95% at d = 2 (CONFIRMED (`predict.txt`@0914244, CI output)). In the cost model a PCIe
+   prefetch with these values gains
    nothing while the CPU expert path is DRAM-bound and +4-10% when it is compute-bound (32 threads x 3.6 GB/s), about what
    the old assumptions gave; m = 2k is worse than m = k there because precision halves. Recall on the experts that actually
    miss, the number prefetch needs, is UNKNOWN (PROVISIONAL model output; section 7).
@@ -81,7 +93,8 @@ statement about GLM-5.3-Flash or Qwen3.8-Flash-Next below is PROVISIONAL. Every 
   * `pregate+prev`: the first m - k pregate candidates united with the previous token's k experts (`:228`). **At m = k it
     holds no pregate candidate and equals `prev_token`**; the identical columns at m = k are this construction.
   * `prev_token` and `pregate+prev` are scored on recorded tokens with a recorded predecessor (`idx_prev`, `:200`), the
-    others on all recorded tokens (the two sets differ by one token per file and part).
+    others on all recorded tokens. The sets differ by one token per file in the prompt part and not at all in the gen part
+    (gen indices are >= 256, so `idx_prev == idx`).
 * Training data for `popularity` / `transition`: the 12 training traces (`run_real_traces.sh:56,64-65`). **Lead time**:
   with d = 1 the candidates are known one MoE layer before layer L routes (`:23`).
 
@@ -115,7 +128,7 @@ statement about GLM-5.3-Flash or Qwen3.8-Flash-Next below is PROVISIONAL. Every 
   traces (`:395-396`, `:274-289`), against the independent-routing value E(1 - (1 - k/E)^w): the expert traffic of
   verifying a w-token speculation window at batch 1.
 
-## 3. Self-checks (CONFIRMED-from-CI: `predict.txt` line 1 of each model)
+## 3. Self-checks (CONFIRMED (`predict.txt`@0914244 line 1 of each model, CI output))
 
 | check | Qwen3-Coder-30B-A3B | GLM-4.7-Flash | what it tests (code) |
 |---|---|---|---|
@@ -140,7 +153,8 @@ Which row is UNKNOWN (no probe files). What can be said:
   k-th/(k+1)-th margins of 432 (`2026-10-10-traces-real-fix.md` §4).
 * Effect: none on any reported number. `cachesim` reads the trace (what llama.cpp chose), and `predict_eval` scores every
   predictor against the recorded top-k (`:207`), not against its own rule; the row only shows that our rule and ggml's can
-  disagree at a near-tie, which `pregate` inherits at the same rate (1 in 69,368).
+  disagree at a near-tie, which `pregate` inherits at a comparable rate (PROVISIONAL: pregate scores projected logits
+  W_L x_l, not the recorded ones).
 
 **Generation lengths below 128** (CONFIRMED from code; the generated text is UNKNOWN):
 
@@ -208,7 +222,8 @@ $ python3 tools/g0/cachesim.py $S/qwen3-coder-30b-a3b/traces --n-experts 128 --c
     0.90       0.992       0.995       0.995       0.991       0.995       0.998       0.922       0.922       0.998
 ```
 (excerpt: 10 of 21 rows per model; the `# cachesim` and `hit rate` lines, the second column-name line and the window lines
-cut; capacity list shortened in the commands; the row "0.61" is capacity 0.607. Full output in `runs-*.txt`, exact-capacity rows for 0.546 / 0.607 / 0.746 in `derived.txt`.)
+cut; capacity list shortened in the commands; the row "0.61" is capacity 0.607. Full output in `runs-*.txt`,
+exact-capacity rows for 0.546 / 0.607 / 0.746 in `derived.txt`.)
 
 * At capacity 0.05 a layer holds fewer experts than one token uses (3 < 4 of 64 for GLM, 6 < 8 of 128 for Qwen), so the
   LRUs thrash: per-layer LRU falls below static, and the global LRU (prompt read-only) scores 0.000.
@@ -230,8 +245,10 @@ cachesim's own split (fold 3) is inside every range. Fold-to-fold spread of `sta
 
 ### 5.3 R8 §0 item 4, pitfall 1: replay semantics (prompt replay vs cold vs warm start), 4 folds pooled
 
-R8 (`R8-memory-tiers-expert-scheduling.md:40-45`) cites a paper (REPORTED via snippet) in which per-access vs fused-event
-trace replay inflates recency policies by 27-29%. In `cachesim`, per-layer policies replay every prompt token one by one
+R8 (`R8-memory-tiers-expert-scheduling.md:40-45`) cites a paper in which per-access vs fused-event trace replay inflates
+recency policies by 27-29% (PROVISIONAL, secondary source: a search snippet of arXiv 2608.07911; the "per-access vs
+fused-event" wording is in `docs/reassessment/research/matrix/R8.json:353`). In `cachesim`, per-layer policies replay
+every prompt token one by one
 before decode (section 2.2), the most favourable possible warm-up for recency; llama.cpp-like engines do not update the cache
 on large prefill ubatches. Three views of the same traces (`se_folds_full`, `se_folds_genonly`, `se_folds_genonly_warm`,
 `se_cold_folds_genonly`):
@@ -251,7 +268,8 @@ on large prefill ubatches. Three views of the same traces (`se_folds_full`, `se_
 | cold-start bound | 0.926 | | | | |
 
 * Per-token prompt replay is worth ~5 points of LRU over a cold start (GLM 0.908 vs 0.860; Qwen 0.969 vs 0.919), about 5%
-  relative - much less than the paper's 27-29% (different semantics; REPORTED there). A static preload recovers almost all
+  relative - much less than the paper's 27-29% (different semantics; PROVISIONAL, secondary source). A static preload
+  recovers almost all
   of it without seeing the prompt (0.901 / 0.966). `--warm` in the full view changes nothing at all (`cs_warm` equals the
   baseline in every cell, both models): the prompt replay overwrites the preload.
 * Cold LRU cannot beat the bound 0.895 / 0.926 here: over a GLM-proxy test generation a layer meets ~48 of its 64 experts
@@ -276,7 +294,8 @@ ranking, which `cachesim` trains on all tokens of the training traces (~94% of t
 * Prefill routing and decode routing differ: the all-token profile (~94% prefill tokens) loses 12.9 (GLM) / 3.5 (Qwen)
   points of decode hit against a decode-token profile, a prefill-only one 16.6 / 5.6. The same shows in the baseline: GLM
   static scores 0.773 on the test prompt tokens but 0.661 on the generated ones at 0.5 (`cachesim.json` "prompt" vs "gen").
-  The swing is of the same order as the paper's template-contamination effect (19-32 points, REPORTED).
+  The swing is of the same order as the paper's template-contamination effect (19.4-31.9 points; PROVISIONAL, secondary
+  source: `matrix/R8.json:353`).
 * PROVISIONAL caveat in the other direction: the decode-trained profile is trained on answers to the same 9 templates under
   the same system prompt; on diverse real sessions it may score lower. UNKNOWN by how much.
 * Hybrid moves less (GLM 0.892 / 0.895 / 0.915; Qwen 0.966 / 0.967 / 0.969 for prompt / all / gen training).
@@ -318,7 +337,8 @@ policy. With caches kept across requests (`--session`) or filled by the prompt t
 
 Per test trace, capacity 0.607 (cachesim's split): GLM static c03 0.740 / c07 0.772 / c11 0.787 / c15 0.775, lru 0.924 /
 0.914 / 0.918 / 0.914; Qwen static 0.939 / 0.948 / 0.854 / 0.878, lru 0.988 / 0.986 / 0.947 / 0.938. c03 (100 tokens) is
-the lowest GLM static and the highest GLM LRU trace, within the spread of the others for Qwen.
+the lowest GLM static and the highest GLM LRU trace; for Qwen it is within the spread for static and the highest for LRU
+(0.988).
 
 Every test generation cut to its first N tokens, capacity 0.607, 4 folds pooled:
 
@@ -361,15 +381,18 @@ traced.**
 | MoE layers | 48 | 46 | 42 | 48 |
 | router | softmax (gating 1) | sigmoid + selection bias, one group (gating 2, groups [1, 1]) | sigmoid + `noaux_tc` bias, routed scale 2.5 | softmax |
 | hidden | 2048 | 2048 | 4096 | 2560 |
-| previous-token expert reuse | 0.471 (`prev_token`, gen, m = k) | 0.336 | 24.6% (REPORTED) | UNKNOWN |
-| source | MANIFEST.json, trace.txt, probe.txt, predict.json (CONFIRMED) | same | `models/specs/glm-5.3-flash.json:2-15`, `docs/models/glm-5.3-flash.md:14-15` (HF config, CONFIRMED there); reuse: `docs/reassessment/ROOFLINE.md:29-31` (base A on real weights, 3x3090 host, REPORTED) | `models/specs/qwen3.8-flash-next.json:2-15` (Strata layout, CONFIRMED there); router: `ref/qwen4exp.py:63` (oracle of the llama.cpp graph) |
+| previous-token expert reuse (x uniform k/E) | 0.471 (`prev_token`, gen, m = k) (7.5x) | 0.336 (5.4x) | 24.6% (8.9x; PROVISIONAL, secondary source) | UNKNOWN |
+| source | MANIFEST.json, trace.txt, probe.txt, predict.json (CONFIRMED) | same | `models/specs/glm-5.3-flash.json:2-15`, `docs/models/glm-5.3-flash.md:14-15` (HF config, CONFIRMED there); reuse: `docs/reassessment/ROOFLINE.md:29-31` (base A on real weights, 3x3090 host; secondary source: ROOFLINE quotes the strata-glm-3090 fork's `PROBLEMS.md`@794cd69) | `models/specs/qwen3.8-flash-next.json:2-15` (Strata layout, CONFIRMED there); router: `ref/qwen4exp.py:63` (oracle of the llama.cpp graph) |
 
 Also different, none measured: corpus (CONSTRUCTED, 16 conversations, 1.3-3.3K-token prompts), generation (greedy,
-<= 128 tokens), weights (Q4_K_M), numerics (CPU). A 288-expert top-8 layer keeps 2.25x more experts resident than a
-64-expert layer at the same fraction and has a smaller k/E; whether its held-out hit at a given fraction is higher or lower
-than the proxies' is UNKNOWN. The one target number available, 24.6% previous-token reuse, is below both proxies (0.336,
-0.471): less token-to-token locality in absolute terms, which is what LRU lives on. The two proxies differ from each other
-by 2-14 points at the same capacity (opt to static, section 5.2), a rough lower bound on how far a third model can sit.
+<= 128 tokens), weights (Q4_K_M), numerics (CPU). A 288-expert top-8 layer keeps 4.5x more experts resident than a
+64-expert layer (2.25x more than a 128-expert layer) at the same fraction and has a smaller k/E; whether its held-out hit
+at a given fraction is higher or lower than the proxies' is UNKNOWN. The one target number available, 24.6%
+previous-token reuse, is below both proxies (0.336,
+0.471) in absolute terms, which is what LRU lives on, but relative to uniform routing it is higher: 8.9x its 2.78%
+against 5.4x / 7.5x the proxies' 6.25% (arithmetic). ARCHITECTURE-ALTERNATIVES already rejects the "flat routing" reading
+of the 24.6% on this ground (`ARCHITECTURE-ALTERNATIVES.md:816`). The two proxies differ from each other by 2-15 points at
+the same capacity (opt 2.3 ... tinylfu 15.4 at 0.607, section 5.2): an indication of model-to-model spread, not a bound.
 
 ### 6.2 Expert capacity per layer in VRAM on 4x RTX 4080 Super 32 GB (PROVISIONAL placement models)
 
@@ -390,18 +413,19 @@ upper bounds that ignore compute, launch and PCIe costs, and this file does not 
 
 | capacity (target layout) | planning hit | GLM proxy static | static, decode-trained | hybrid full / cold | lru full / cold / warm | lru_device (cachesim) | opt bound | Qwen proxy static / lru |
 |---|---|---|---|---|---|---|---|---|
-| 0.607 (UD-Q4_K_XL) | 0.70 / 0.75 / 0.80 (`ARCHITECTURE-ALTERNATIVES.md:100`); R9's stop/go 0.75 (`R11-verification.md:118-119`) | **0.770** (0.754-0.786) | 0.899 | 0.895 / 0.874 | 0.908 / 0.860 / 0.901 | 0.867 | 0.965 | 0.908 / 0.969 |
-| 0.546 (TP, KV x4) | GLM-5.3 itself, static held-out at 0.556: 0.701 (code) - 0.773 (agentic), third-party measurement (R11 C03, `R11-verification.md:25,104-119`) | **0.708** (0.690-0.727) | 0.867 | 0.859 / 0.841 | 0.881 / 0.840 / 0.872 | 0.847 | 0.952 | 0.866 / 0.959 |
-| 0.746 (EXL3 4.05) | 0.80 / 0.85 / 0.90 (`ARCHITECTURE-ALTERNATIVES.md:113-120`, extrapolated there) | **0.895** (0.881-0.904) | 0.951 | 0.950 / 0.922 | 0.953 / 0.885 / 0.950 | 0.891 | 0.984 | 0.966 / 0.985 |
+| 0.607 (UD-Q4_K_XL) | 0.70 / 0.75 / 0.80 (`ARCHITECTURE-ALTERNATIVES.md:100`); R9 M1 on real GLM-5.3 traces at 32K-128K: stop < 0.75, build >= 0.85 (`R9-adversarial-ceilings.md:521`; not evaluated by proxies) | **0.770** (0.754-0.786) | 0.899 | 0.895 / 0.874 | 0.908 / 0.860 / 0.901 | 0.867 | 0.965 | 0.908 / 0.969 |
+| 0.546 (TP, KV x4) | GLM-5.3 itself, EXL3 4.05 bpw, static held-out at 0.556: code 0.701 / agentic 0.773; systems/security 0.735-0.869 (PROVISIONAL, secondary source: third-party profiles, R11 C03, `R11-verification.md:25,104-119`, `:110`) | **0.708** (0.690-0.727) | 0.867 | 0.859 / 0.841 | 0.881 / 0.840 / 0.872 | 0.847 | 0.952 | 0.866 / 0.959 |
+| 0.746 (EXL3 4.05) | 0.80 / 0.85 / 0.90 (`ARCHITECTURE-ALTERNATIVES.md:113-118`, extrapolated there) | **0.895** (0.881-0.904) | 0.951 | 0.950 / 0.922 | 0.953 / 0.885 / 0.950 | 0.891 | 0.984 | 0.966 / 0.985 |
 
 Reading (PROVISIONAL):
 
 * With the placement the plan assumes (static, held-out), **the GLM proxy lands inside the planning band** (0.770 at 0.607,
-  0.895 at 0.746) and at 0.546 on top of the only GLM-5.3-Flash measurement (0.708 vs 0.701-0.773). Nothing here says the
-  band is too optimistic; nothing here measures the target.
-* **The band is conservative for anything better than a prefill-trained static set**: decode-trained static, hybrid and
+  0.895 at 0.746) and at 0.546 next to the only GLM-5.3-Flash numbers (0.708 vs code 0.701 / agentic 0.773; PROVISIONAL,
+  secondary source, R11 C03). Nothing here says the band is too optimistic; nothing here measures the target, and nothing
+  here evaluates R9's M1 gate, which needs real GLM-5.3-Flash traces at 32K-128K.
+* **On the proxies, the band is conservative for anything better than a prefill-trained static set**: decode-trained static, hybrid and
   warmed LRU give 0.87-0.91 at 0.607 on the GLM proxy and 0.94-0.97 on the Qwen proxy. Whether GLM-5.3-Flash gets the same
-  uplift is UNKNOWN (6.1: less previous-token locality on the target).
+  uplift is UNKNOWN (6.1: the target has less previous-token locality in absolute terms, more relative to uniform).
 * Per-layer spread is wide: GLM static at 0.607 ranges 0.653-0.904 over layers, LRU 0.709-0.944 (all test tokens,
   `derived.txt`), so a byte budget split evenly by layer leaves hit on the table (R8 §7.4 already proposes byte-sized,
   per-layer slots).
@@ -455,7 +479,7 @@ admission traffic.
 
 ## 7. Prediction for prefetch
 
-### 7.1 Measured recall and implied precision (recall CONFIRMED-from-CI; precision = recall x k / m, arithmetic)
+### 7.1 Measured recall and implied precision (recall CONFIRMED (`predict.txt`@0914244, CI output); precision = recall x k / m, arithmetic)
 
 `pregate`, generated tokens, 4 held-out conversations (484 generated tokens per model):
 
@@ -468,19 +492,25 @@ admission traffic.
 Reading (PROVISIONAL unless marked):
 
 * Cross-layer pre-gating has 1.5-2.4x the recall of the best predictor without it and 4-5x that of `popularity` at m = k,
-  on both proxies (CONFIRMED-from-CI arithmetic on the table), and sits inside the range R8 §7.1 collects for other models
-  (REPORTED there: 78.8% top-k one layer ahead; 0.85-0.90 for top-8 within top-16 one layer ahead, 0.76-0.83 two layers
-  ahead).
-* d = 2 costs 5-7 points of recall at m = k and 2.5-5 at m = 2k (CONFIRMED-from-CI arithmetic).
+  on both proxies (arithmetic on the CONFIRMED values of the table), and sits inside the range R8 §7.1 collects for other
+  models (PROVISIONAL, secondary sources collected there: 78.8% top-k one layer ahead; 0.85-0.90 for top-8 within top-16
+  one layer ahead, 0.76-0.83 two layers ahead).
+* d = 2 costs 5-7 points of recall at m = k and 2.5-5 at m = 2k (arithmetic on the CONFIRMED values).
 * **Prefetch needs recall on the experts that are not already resident** - only those are copied; `tier_cost`'s
   `p_recall` is defined that way (`tier_cost.py:99`). The numbers above are recall over all routed experts; conditional on a
   miss they are lower by an UNKNOWN amount, because misses are the experts the cache did not expect. One case is exact:
-  with per-layer LRU and capacity >= k the previous token's k experts are always resident, so `prev_token` has recall 0 on
-  LRU misses (CONFIRMED by construction, `cachesim.py:161-172`). The only measured conditional value is Strata's community
-  probe: recall 27-34%, precision ~8% on the non-resident fetch set (REPORTED, R8 §0 item 3). The joint pregate-plus-cache
+  with per-layer LRU and capacity >= 2k - 1 no admission during a token can evict an expert of the previous token before it
+  is used, so every expert the previous token shares with the current one hits and `prev_token` at m = k has recall 0 on
+  LRU misses (CONFIRMED by construction, `cachesim.py:161-172`). It holds at every capacity >= 0.15 in this file (caps >= 10
+  of 64 and >= 19 of 128), not at 0.05 / 0.1 (GLM caps 3, 6 < 7; Qwen caps 6, 13 < 15). With capacity = k it fails:
+  `cachesim.simulate_layer([(0, 1), (2, 0)], "lru", 2, None)` gives hits [0, 0], with capacity 3 = 2k - 1 [0, 1]. The only
+  measured conditional value is Strata's community probe: recall 27-34%, precision ~8% on the non-resident fetch set
+  (PROVISIONAL, secondary source: Qwen3.8-Flash-Next, Strata RouterLookahead, top-10, up to 4 layers deep, `R8:246`, R8 §0
+  item 3; depth of the reported probe not stated). The joint pregate-plus-cache
   simulation was not possible here (probes not packaged; section 8).
 * Link capacity: one PCIe 4.0 x16 link lands ~0.7 GLM-5.3-Flash experts per 0.44 ms layer (R11 C24 arithmetic; `tier_cost`
-  copies 0.63-0.70 per layer at h_v 0.61 below). Misses per layer are 8 (1 - hit): 3.1 at 0.61, 2.0 at 0.75, 1.8 at 0.77, 0.74 at 0.908.
+  copies 0.63-0.70 per layer at h_v 0.61 below). Misses per layer are 8 (1 - hit): 3.1 at 0.61, 2.0 at 0.75, 1.8 at
+  0.77, 0.74 at 0.908.
   A d = 1 PCIe prefetch can cover a minority of misses at planning hits and most of them only near hit 0.9 - where, in the
   cost model, the CPU side is no longer the bottleneck (7.2).
 
@@ -490,7 +520,9 @@ Reading (PROVISIONAL unless marked):
 step, 8 DRAM channels, `prefetch_opt` on (the scheduler copies the best number of predicted experts, `tier_cost.py:103,
 184-196`), W = d x 0.44 ms (R8's one-layer lead at 50 tok/s; shorter than the layer time at the speeds below, so it understates
 the lead). Proxy rows use the GLM-proxy `pregate` recall as `p_recall` and recall x k / m as `pi_prec`, i.e. they assume the
-all-expert recall holds on the off-VRAM experts (optimistic, 7.1); the last row is Strata's off-VRAM probe. Driver
+all-expert recall holds on the off-VRAM experts (optimistic, 7.1); `old R8` = p 0.85 / pi 0.5 at one layer (R8 §7.4),
+`old 4b` = p 0.95 / pi 0.9 at 1.3 ms (`docs/evidence/2026-10-10-tier-cost-model.md` §4b); the last row is Strata's off-VRAM
+probe (Qwen3.8-Flash-Next, Strata RouterLookahead, `R8:246`; depth not stated). Driver
 `tier_pred.sh` (a loop over `python3 tools/ceilings/tier_cost.py --model glm --set ... --json`); literal excerpt of
 `tier_cost.txt` (three of ten blocks; the seven cut blocks are the 32 x 8 GB/s default CPU and 46 threads x 3.6 GB/s, each
 at h_v 0.61 / 0.75 / 0.908, and 32 x 3.6 GB/s at h_v 0.908 - every row of each cut block equals its block's `none` row:
@@ -529,22 +561,25 @@ Strata probe, off-VRAM set: p .30 pi .08 d=1     22.9 tok/s  step  43.74 ms  cop
 
 Reading (PROVISIONAL, conditional on the model and on recall holding on misses):
 
-* **PCIe prefetch to VRAM**: nothing while the CPU expert path is DRAM-bound (default 32 x 8 GB/s, and 46 x 3.6 GB/s: every
-  row equals `none`); with a compute-bound CPU (32 x 3.6 GB/s) the measured proxy values give +9.9% (h_v 0.61) / +7.4%
-  (0.75), against +6.3% / +4.8% for R8's old p 0.85 / pi 0.5 and +10.5% / +8.2% for the optimistic 0.95 / 0.9; nothing at
-  h_v 0.908. **m = k beats m = 2k** in every GPU-prefetch block: doubling the candidate set buys 13 points of recall but
-  halves precision, and wasted copies cost DRAM bandwidth. d = 2 at m = k is within 0.3 tok/s of d = 1. With Strata's off-VRAM recall the gain
-  is +1%. R8's conclusion (compute misses on the CPU in place; prediction is not a lever on the GLM decode ceiling) stands
-  with the measured values; the 4b result (prefetch substitutes for missing CPU cores, at most ~11%) is reproduced - the
-  "old 4b" rows equal 4b's 33.6 / 40.7.
+* **PCIe prefetch to VRAM**: nothing while the CPU expert path is DRAM-bound (default 32 x 8 GB/s, and 46 x 3.6 GB/s:
+  every row equals `none`); with a compute-bound CPU (32 x 3.6 GB/s) the measured proxy values give +9.9% (h_v 0.61) /
+  +7.4% (0.75), against +6.3% / +4.8% for R8's old p 0.85 / pi 0.5 and +10.5% / +8.2% for the optimistic 0.95 / 0.9;
+  nothing at h_v 0.908. **m = k beats m = 2k** in every GPU-prefetch block: doubling the candidate set buys 13 points of
+  recall but halves precision, and wasted copies cost DRAM bandwidth. d = 2 at m = k is within 0.3 tok/s of d = 1. With
+  Strata's off-VRAM recall (Qwen3.8-Flash-Next, Strata RouterLookahead, `R8:246`; depth not stated) the gain is +1%.
+  R8's conclusion (compute misses on the CPU in place; prediction is not a lever on the GLM decode ceiling) stands with
+  the measured values; the result of `docs/evidence/2026-10-10-tier-cost-model.md` §4b (prefetch substitutes for missing
+  CPU cores, at most ~11%) is reproduced - the `old 4b` rows equal that section's 33.6 / 40.7.
 * **NVMe -> RAM staging** is where recall pays in this model (5% of experts on NVMe: 22.2 -> 30.9 tok/s at d = 1, m = k;
   32.2 at d = 2, m = 2k, where background reads have the longer lead - here, unlike GPU prefetch, m = 2k can win).
   GLM-5.3-Flash at UD-Q4_K_XL has no NVMe-resident experts in the placement of 6.2; this matters for DeepSeek-V4.1-Flash
   (48.6 GiB of experts on NVMe in the same table, `ARCHITECTURE-ALTERNATIVES.md:1365`).
 * `accept` / speculation: the proxies' 2-token windows touch 6.72 of 7.75 (GLM) and 12.24 of 15.50 (Qwen) independent-routing
   distinct experts (`cachesim.txt` window line). For GLM-5.3-Flash the cost model's `U` for one MTP draft is 15.78 under
-  independent routing; with the REPORTED 24.6% previous-token reuse it is 8 + 8 x 0.754 = 14.03, with the GLM proxy's overlap
-  13.43. `tier_cost.txt` (n_tok 2, accept 0.7, h_v 0.61, 8 channels): 39.43 / 42.46 / 43.61 tok/s for U = independent / 14.03 /
+  independent routing; with the 24.6% previous-token reuse (PROVISIONAL, secondary source, 6.1) it is 8 + 8 x 0.754 = 14.03;
+  with the GLM proxy's overlap it is 8 + 8 x (6.7153 / 4 - 1) = 13.43, from `cachesim.json`
+  `distinct_experts_per_window.gen.2.distinct` = 6.7153 (the second token of a pair adds 6.7153 - 4 = 2.7153 new experts of its 4).
+  `tier_cost.txt` (n_tok 2, accept 0.7, h_v 0.61, 8 channels): 39.43 / 42.46 / 43.61 tok/s for U = independent / 14.03 /
   13.43 (PROVISIONAL model output).
 
 ## 8. What these traces cannot say (NOT RUN / UNKNOWN)
@@ -555,13 +590,13 @@ Reading (PROVISIONAL, conditional on the model and on recall holding on misses):
 | hit on the customer's real agent sessions (EXPERIMENTS.md M1/M2) | NOT RUN: the corpus is CONSTRUCTED from this repository's files with one system prompt and 9 task templates | the customer's own sessions rendered to ids (`render_ids.py`) and replayed |
 | long contexts (32K-262K tokens) | UNKNOWN: prompts are 1,314-3,300 tokens; routing drift with context length not measured | the same tools with long prompts and `-c` to match |
 | long generations (agent patches of 1-4K tokens) | UNKNOWN: at most 128 generated tokens; 3 of 32 traces (c03 in both models, GLM c00) stopped earlier at EOG; cold-start rows are still rising at 128 (5.6) | `G0_GEN_TOKENS` 1024+ |
-| sampling at T > 0 | UNKNOWN: greedy only; a third-party report says sampling flattens routing (R11 C03, REPORTED) | a sampled run (the tools would need a sampler) |
+| sampling at T > 0 | UNKNOWN: greedy only; a third-party report says sampling flattens routing (PROVISIONAL, secondary source: R11 C03) | a sampled run (the tools would need a sampler) |
 | routing of the BF16/FP8 originals or other quants | UNKNOWN: Q4_K_M only (`cachesim.json` label: "routing of a quantized model may differ from the original") | the same ids on a second quant, traces compared row by row |
 | GPU numerics vs these CPU traces | UNKNOWN on real models; batch-size rounding alone flipped 4 of 780 rows on a tiny model (`2026-10-10-traces-real-fix.md` §4) | a GPU run of the same ids |
 | concurrent sessions / batch > 1 | NOT RUN: `--session` is one user's sequential requests | interleaved traces |
 | predictor recall **on the experts that miss** VRAM (what prefetch needs) | UNKNOWN: probes not packaged, so pregate cannot be joined with a cache simulation | keep the `.probe` files, or compute the conditional recall inside the CI job |
 | MTP / draft-token routing | NOT RUN: the tools trace the main decoder's MoE layers only | trace the MTP layer on GLM-5.3 |
-| time: tok/s, prefill, cost of cache admission and prefetch copies | NOT MEASURED: everything in 6-7 is model output | the server (R0/R1) |
+| time: tok/s, prefill, cost of cache admission and prefetch copies | NOT RUN: nothing was timed; everything in 6-7 is model output | the server (R0/R1) |
 | MiMo-V2.6-Flash, DeepSeek-V4.1-Flash | NOT RUN | - |
 
 ## 9. Files and tests
@@ -572,4 +607,14 @@ seconds, commit), `cachesim-fine-<model>.json` (fine grid, exact capacities), `d
 `tier_cost.txt` (prediction blocks, h_v sweeps, MTP `U` rows), `fitplan.txt`, and the drivers `jobs.sh`, `jobs2.sh`,
 `runjob.sh`, `tier_pred.sh` (their paths point at the agent's scratch directory `$S`).
 
-Unit tests: `tests/test_cachesim_sensitivity.py` (8 tests, synthetic traces); full suite in the final report of this task.
+Unit tests: `tests/test_cachesim_sensitivity.py` (8 tests, synthetic traces), run at `91e35a2` (the script and test are
+unchanged since `8435e8d`):
+
+```
+$ python3 -m unittest tests.test_cachesim_sensitivity
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.083s
+
+OK
+```
