@@ -175,8 +175,8 @@ class F16Mixin:
         change): the precision-aware oracle must be at least twice as close to llama.cpp as the plain f32 oracle in
         the 2-norm. The plain oracle misses the deterministic roundings (cache store, f16 Q of one_chunk); the aware
         one is left with the noise of the f16 accumulator, whose rounding positions any f32-level input difference
-        reshuffles (measured ratio 3.3 to 1e3, docs/evidence/2026-10-10-quant-fa-parity.md). Recorded: the share of
-        elements within half a binary16 spacing of each oracle."""
+        reshuffles (measured ratio 3.1 to 1e3, docs/evidence/2026-10-10-quant-fa-parity.md; the smallest, 3.15, is only
+        1.57 times the required 2). Recorded: the share of elements within half a binary16 spacing of each oracle."""
         res = {}
         for which in ("aware", "plain"):
             d2 = n2 = 0.0
