@@ -9,13 +9,122 @@ How the work went:
 - Round 1 extended the tooling and committed the requests (section 1). The lead pushed `8c0b424`.
 - Workflow `gguf-headers` run 38145613553 read the headers and committed them as bot commit `df9bea1`, which was
   fast-forwarded here.
-- Round 2 analyses them offline (sections 2–8) and adds the MiMo header requests (section 9). Their fetch and the MiMo
-  analysis are round 3.
+- Round 2 analyses them offline (sections 2–8) and adds the MiMo header requests (section 9).
+- Round 3: the lead pushed `65c3805`; run 38147482333 committed the MiMo headers as bot commit `6161763`, which was
+  fast-forwarded here. They are analysed in sections 13–15 and appendix B. The CORRECTNESS note is at the end of the
+  gap 9 status paragraph.
 - docs/reassessment/CORRECTNESS.md gap 9.
 
 Labels: CONFIRMED means read from the committed header bytes, the hub listing, or the source at a pin (file:line,
 printed back with `sed -n` / located by the analyzer at run time). PROVISIONAL means by reading: nothing was loaded,
 there are no weights here.
+
+## Result (round 3: MiMo-V2.6-Flash-MOPD)
+
+Run 38147482333 (bot commit `6161763`) read the headers of the four MiMo requests: 31 376 608 B fetched, integrity OK
+for all 5 files (section 13).
+
+1. **Hyperparameters against the vendored config** (`data/gguf-headers/mimo-v2.6-flash-config/config.json`, copy of
+   bot `1ce4d32`), CONFIRMED for all four files (analyzer cross-check):
+   - window 128;
+   - full-attention layers 0, 5, 11, 17, 23, 29, 35, 41, 47; the other 39 are sliding-window;
+   - KV heads 4 (full) / 8 (SWA); 64 query heads;
+   - K 192 / V 128; RoPE on 64 dims (`int(192 × 0.334)`);
+   - freq bases 1e7 (full) / 1e4 (SWA); value scale 0.707;
+   - **sinks on the 39 SWA trunk layers and on the 3 NextN layers, on no full-attention layer**;
+   - `nextn_predict_layers` 3 with the 3 NextN layers as SWA layers with 8 KV heads (converter: + 1 / + SWA KV per MTP
+     layer).
+
+   | file | config.json cross-check | not in the file |
+   |---|---|---|
+   | ggml-org trunk | 21 of 22 OK | `nextn_predict_layers`: trunk only, block_count 48 |
+   | ggml-org `mtp-` | 22 of 22 OK | — |
+   | QuantaPlanta | 22 of 22 OK | — |
+   | kernelpool | 20 of 22 OK | the two expert-group keys (n_group = topk_group = 1: no group step either way) |
+
+2. **Experts and D5**, CONFIRMED:
+   - In all three MXFP4 files the routed experts are **MXFP4** in all 47 MoE layers (`ffn_{gate,up,down}_exps`).
+     - llama.cpp's converter writes exactly that from the checkpoint's MXFP4 store (`conversion/mimo.py:243`,
+       `raw_dtype=MXFP4`) and sets `MOSTLY_MXFP4_MOE` (`:338-340`; `= 38`, `include/llama.h:156@ec7630a` / `:157@79e2e74`).
+     - `llama-quantize … MXFP4_MOE` gives the same expert type (`src/llama-quant.cpp:512-523`).
+   - **D5 PASS** for all four, routed experts at 4.25 bpw.
+
+   | file | non-expert matrices | total size | bpw |
+   |---|---|---|---|
+   | ggml-org trunk | Q8_0 | 155.87 GiB | 4.336 |
+   | QuantaPlanta | BF16 | 162.89 GiB | 4.517 |
+   | kernelpool | Q8_0, but `token_embd` BF16 | 157.39 GiB | 4.365 |
+   | ggml-org `mtp-` | Q8_0 | 2.214 GiB | 8.501 |
+
+3. **The three MXFP4 files compared**, CONFIRMED:
+   - Same trunk tensor names and shapes (layers 0–47 and the non-layer tensors, 472). Same tokens and merges; the
+     template is the vendored MOPD one (`11ea52e1…`) in all four files.
+   - QuantaPlanta and kernelpool also hold the 3 NextN layers (`blk.48`–`50`, 12 tensors each). Their 987 820 224
+     params more than ggml-org's (round 2) are these layers.
+   - The ggml-org `mtp-…-Q8_0` holds the same 3 NextN layers (names and shapes = QuantaPlanta's) plus `token_embd`,
+     `output_norm`, `output`.
+   - **Which is llama.cpp's converter output** (PROVISIONAL, from the metadata; no converter run):
+     - **QuantaPlanta** = `convert_hf_to_gguf.py` with BF16 for the non-MXFP4 tensors: `general.file_type` 38, the
+       gguf-py key set, MTP head norm as `layer_output_norm`. llama.cpp's tensor map sends
+       `model.layers.{bid}.final_layernorm` there (`gguf-py/gguf/tensor_mapping.py:743@ec7630a`, `:755@79e2e74`).
+     - **ggml-org** = the same layout with Q8_0 non-expert matrices: the converter with `--outtype q8_0`, or
+       `llama-quantize MXFP4_MOE`, which gives the same types. Its trunk ships without the NextN layers, which come as
+       separate `mtp-` files.
+     - **kernelpool** is not from llama.cpp's converter. It has no `general.file_type` or `quantization_version`. It
+       has its own keys: `mimo2.qkv_chunks` = 4, `mimo2.quantization`, `vocab_size`, `leading_dense_block_count`,
+       `expert_weights_scale` / `_norm`, `general.source.revision` = `2479e2d…` (not the vendored `b12f557`).
+       - Its MTP head norm is in `nextn.shared_head_norm` (llama.cpp maps `…shared_head.norm` there,
+         `tensor_mapping.py:2772` / `:2874`).
+       - 6 FIM tokens (`<|fim_prefix|>` … `<|file_sep|>`) are USER_DEFINED instead of CONTROL.
+     - None of kernelpool's extra keys is read by `mimo2` at either pin: grep of `src/models/mimo2.cpp` and the
+       `load_hparams` body. `vocab_size` is read only for a file without a vocabulary (`src/llama-vocab.cpp:1963` /
+       `:2076`).
+     - **Risk, UNKNOWN:** `qkv_chunks = 4` suggests the fused `attn_qkv` rows are stored in 4 TP chunks.
+       llama.cpp splits it as one `[Q | K | V]` (`src/models/mimo2.cpp:134-142@ec7630a`), and llama.cpp's converter
+       regroups TP chunks (`conversion/mimo.py:35-98`). If kernelpool did not regroup, llama.cpp would compute wrong
+       Q/K/V with this file. To confirm: compare the Q8_0 bytes of a few `blk.0.attn_qkv` rows of ggml-org and
+       kernelpool (a data read, not a header).
+4. **Loader verdict per pin** (PROVISIONAL, by reading; nothing loaded):
+   - Every tensor of the four files is one `llama_model_mimo2::load_arch_tensors` creates, and none of the required ones
+     is missing, at both pins (`committed-facts.py mimoloader`, parsed from `src/models/mimo2.cpp` + `src/llama-arch.cpp`).
+     The 8 keys read without a default are present in every file.
+   - **ggml-org trunk:** a plain trunk-only model.
+   - **QuantaPlanta, kernelpool:** trunk + NextN in one file. MTP runs on the target's own NextN layers:
+     `--spec-type draft-mtp`, no `-md`. The NextN graph exists at both pins (`mimo2.cpp:88@ec7630a`, `:82@79e2e74`).
+   - **ggml-org `mtp-` file:** a separate MTP model at both pins. MTP-only detection is at `mimo2.cpp:28` at both
+     pins, with different code: `mtp_only` at ec7630a, `nextn_flags(ml)` at 79e2e74 (`src/llama-model.cpp:3485`).
+     The required `token_embd`, `output_norm` and `output` are present.
+   - `-hf ggml-org/MiMo-V2.6-Flash-MOPD-GGUF:MXFP4 --mtp` would pick `mtp-…-Q4_0` (4 bits, the tag's bits;
+     `find_best_sibling`, section 5).
+   - The trunk emits `h_nextn` for the drafter: at ec7630a only when `cparams.embeddings_nextn` is set
+     (`mimo2.cpp:104`, `:244-246`), at 79e2e74 always (`:236-238`).
+   - The source lines cited in items 2–4 are printed back in section 14.
+5. **Branches only the real geometry takes vs N16/N17's tiny models.** CONFIRMED by the probes on tiny models built
+   from those branches' generator:
+   - N16 `0b0eace`: `n16.gguf`;
+   - N17 `0352df4`, a local branch not on origin: `n17.gguf` with 3 MTP heads, and `n17hd.gguf` with K 192 / V 128,
+     RoPE 64.
+
+   | file | trunk branches | branches no N16/N17 tiny model takes |
+   |---|---|---|
+   | ggml-org trunk | all exercised: fused qkv, sinks on SWA only, value scale, K ≠ V, partial RoPE with two bases, dense layer 0 + sigmoid MoE | — |
+   | QuantaPlanta | all exercised | — |
+   | kernelpool | all exercised | MTP head norm `nextn.shared_head_norm` (N17 section 5: `shared_head_*` "fallbacks checked" only) |
+   | ggml-org `mtp-` | — | the MTP-only separate file (`-md`) |
+
+   (On this branch's older generator, the analyzer marks value scale, sinks, qkv and the MTP branches NOT IN TINY,
+   appendix B.)
+   - What N16 / N17 cover of these files, PROVISIONAL (their evidence, not re-run here):
+     - N16: MXFP4 experts with Q8_0 matrices on the CPU, i.e. `llama-quantize MXFP4_MOE`, the ggml-org layout; the
+       fused qkv, SWA-only sinks and value-scale path; one MTP head.
+     - N17: the 3 MTP heads (offsets 0–2), f16 KV + flash attention with sinks, and K 192 / V 128 heads.
+   - **Not covered:**
+     - the sizes: window 128 (tiny 8), 64 / 4 / 8 heads, 256 experts top-8, 48 layers;
+     - BF16 matrices (QuantaPlanta) and BF16 `token_embd` (kernelpool);
+     - a quantized (Q8_0) MTP block (N17 section 5);
+     - the separate MTP file path.
+6. **Templates**, CONFIRMED: all four embed the vendored MOPD template (`11ea52e156de…`, sha256 of
+   `git show origin/claude/n16-mimo-decode-parity:third_party/hf/mimo-v2.6-flash-chat/chat_template.jinja`).
 
 ## Result (round 2)
 
@@ -583,7 +692,7 @@ M39-tiny-workdir-not-created KILLED  (N18Analyzer.test_mimo2_tiny_exercises_its_
 
 - Loading any file in llama.cpp. Every loader verdict is PROVISIONAL, by reading the loaders at both pins.
 - Draft acceptance with the Unsloth MTP files, given the NextN compress ratio 0 (section 4): UNKNOWN until run.
-- The MiMo headers (round 3, after the lead's push) and the CORRECTNESS note (round 3).
+- Round 3 has since read the MiMo headers (sections 13–15); its own NOT RUN list is at the end of section 15.
 - The tiny mimo2 NextN variant: it needs the N16 generator (`claude/n16-mimo-decode-parity`, not merged); the analyzer
   notes the skip.
 - `-hf … --mtp` downloads: the sibling choice of section 5 is by reading `find_best_sibling`, not run.
@@ -595,8 +704,437 @@ M39-tiny-workdir-not-created KILLED  (N18Analyzer.test_mimo2_tiny_exercises_its_
   pulled a 16 MiB Range by doubling.
 - **Round 1 named the MiMo split** (listing first, headers next) instead of guessing globs, as the task allowed. The
   MiMo headers therefore need a third runner pass.
+- **Round 2's PROVISIONAL reading of the extra 987 820 224 params** of the single-file MiMo repos (the 3 NextN
+  layers) is CONFIRMED by the headers: same trunk names and shapes, plus `blk.48`–`50` (Result (round 3) item 3).
+- **The mimo2 sinks / qkv probes counted trunk layers an MTP-only file does not hold.** On the ggml-org `mtp-` file
+  they reported "SWA layers without sinks". Fixed in `65ea5b5`, guarded by mutation M40.
 - **The MiMo config** is a byte-exact copy under `data/gguf-headers/mimo-v2.6-flash-config/` (lead's instruction; N16
   not merged). The vendored chat template is not copied: its sha256 is compared through `git show` (section 8).
+
+## 13. Round 3: the runner run, bytes, integrity
+
+```
+$ gh api repos/samnolak/408032gb/actions/runs/38147482333 --jq '{status, conclusion, head_sha, event, created_at, updated_at, head_branch}'
+{"conclusion":"success","created_at":"2026-10-11T14:30:48Z","event":"push","head_branch":"claude/n18-gguf-headers-mtp-mimo","head_sha":"65c380517e5fe53f21c2361490854cde46265e22","status":"completed","updated_at":"2026-10-11T14:31:32Z"}
+$ JOB=$(gh api repos/samnolak/408032gb/actions/runs/38147482333/jobs --jq '.jobs[0].id'); echo "job $JOB"
+job 114493770093
+$ gh api repos/samnolak/408032gb/actions/jobs/$JOB --jq '.steps[] | "\(.number) \(.name) \(.conclusion) \(.started_at) \(.completed_at)"'
+1 Set up job success 2026-10-11T14:30:51Z 2026-10-11T14:30:52Z
+2 Run actions/checkout@v4 success 2026-10-11T14:30:52Z 2026-10-11T14:30:54Z
+3 gguf-py of llama.cpp at the CI pin and numpy, PyYAML (for the self-test) success 2026-10-11T14:30:54Z 2026-10-11T14:31:00Z
+4 self-test of the fetcher against a local Range server (no network; fails on any skip but llama-tokenize's) success 2026-10-11T14:31:00Z 2026-10-11T14:31:07Z
+5 check the pending requests against the byte caps (fetches nothing; fails on a cap violation) success 2026-10-11T14:31:07Z 2026-10-11T14:31:07Z
+6 read the GGUF headers with Range requests success 2026-10-11T14:31:07Z 2026-10-11T14:31:27Z
+7 commit and push to this claude/* branch success 2026-10-11T14:31:27Z 2026-10-11T14:31:29Z
+14 Post Run actions/checkout@v4 success 2026-10-11T14:31:29Z 2026-10-11T14:31:30Z
+15 Complete job success 2026-10-11T14:31:30Z 2026-10-11T14:31:30Z
+$ gh api repos/samnolak/408032gb/check-runs/$JOB/annotations --jq '.[] | "\(.annotation_level) | \(.message[0:330])"'
+warning | Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+notice | headers commit 6161763cce63081500ad121104f1eae9ff144c60
+notice | /home/runner/work/408032gb/408032gb/data/gguf-headers/mimo-v2.6-flash-mopd-quantaplanta-mxfp4/REQUEST.json: status ok, revision ac33b3743d70ed57a8cc6b847698d2ebbddb7784, 1 headers, 8388608 B fetched, 1665898 B committed (gzip)
+notice | QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF:MiMo-V2.6-Flash-MOPD-MXFP4.gguf: GGUF v3, arch 'mimo2', 43 KV, 508 tensors, header 5980736 B (sha256 2e3a7ba2f0b09c15), 8388608 B fetched in 6 Range requests; size check exact; chat_template 11ea52e156de38a4
+notice | /home/runner/work/408032gb/408032gb/data/gguf-headers/mimo-v2.6-flash-mopd-kernelpool-mxfp4/REQUEST.json: status ok, revision 44d9191bb7a95125c8b971ce0593bd802ae6dd48, 1 headers, 8388608 B fetched, 1666380 B committed (gzip)
+notice | kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF:MiMo-V2.6-Flash-MOPD-MXFP4.gguf: GGUF v3, arch 'mimo2', 41 KV, 508 tensors, header 5980608 B (sha256 98002a80c3b0951e), 8388608 B fetched in 6 Range requests; size check exact; chat_template 11ea52e156de38a4
+notice | /home/runner/work/408032gb/408032gb/data/gguf-headers/mimo-v2.6-flash-mopd-ggml-org-mxfp4/REQUEST.json: status ok, revision e6d4bced739310a721eefad4c247ec7e0247c89d, 2 headers, 6210784 B fetched, 1664824 B committed (gzip)
+notice | ggml-org/MiMo-V2.6-Flash-MOPD-GGUF:MiMo-V2.6-Flash-MOPD-MXFP4-00002-of-00002.gguf: GGUF v3, arch None, 3 KV, 472 tensors, header 30048 B (sha256 b11fbbabdcab1b51), 262144 B fetched in 1 Range requests; size check exact; chat_template absent
+notice | ggml-org/MiMo-V2.6-Flash-MOPD-GGUF:MiMo-V2.6-Flash-MOPD-MXFP4-00001-of-00002.gguf: GGUF v3, arch 'mimo2', 45 KV, 0 tensors, header 5948636 B (sha256 f2e9498e281706e3), 5948640 B fetched in 6 Range requests; size check exact (no tensors: the writer's padding after the KV block); chat_template 11ea52e156de38a4
+notice | /home/runner/work/408032gb/408032gb/data/gguf-headers/mimo-v2.6-flash-mopd-ggml-org-mtp/REQUEST.json: status ok, revision e6d4bced739310a721eefad4c247ec7e0247c89d, 1 headers, 8388608 B fetched, 1661660 B committed (gzip)
+notice | ggml-org/MiMo-V2.6-Flash-MOPD-GGUF:mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf: GGUF v3, arch 'mimo2', 43 KV, 39 tensors, header 5950944 B (sha256 8805a08513f9777f), 8388608 B fetched in 6 Range requests; size check exact; chat_template 11ea52e156de38a4
+```
+
+`git fetch origin claude/n18-gguf-headers-mtp-mimo && git merge --ff-only origin/claude/n18-gguf-headers-mtp-mimo`
+brought `6161763` (author github-actions[bot], 14 files).
+
+- Bytes fetched, CONFIRMED (PIN.json, below):
+  - ggml-org MXFP4: 6 210 784 B, i.e. the metadata-only first shard whole (5 948 640 B) plus one 256 KiB Range of
+    shard 2;
+  - the `mtp-` file, QuantaPlanta and kernelpool: 8 388 608 B each;
+  - together 31 376 608 B.
+- Headers: 5 948 636, 30 048, 5 950 944, 5 980 736 and 5 980 608 B.
+- Integrity, CONFIRMED for all 5 files: the `integrity:` lines of appendix B, and etag = LFS sha256 and repo commit =
+  pin in PIN.json. The ggml-org first shard is the header plus 4 padding bytes, and it hashes to its LFS sha256.
+
+The facts printer was run in `/home/user/wt-n18` at `bc26480`, right after the analyzer of appendix B. Each output file
+starts with the command it ran:
+
+```
+$ cd /home/user/wt-n18; for c in mimopins mimo mimotiny; do echo "\$ LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py python3 docs/evidence/mutation-scripts/2026-10-11-n18-committed-facts.py $c" > <S>/n18/r3/facts-$c.txt; LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py python3 docs/evidence/mutation-scripts/2026-10-11-n18-committed-facts.py $c >> <S>/n18/r3/facts-$c.txt 2>&1; echo "exit $?" >> <S>/n18/r3/facts-$c.txt; done; echo "\$ python3 docs/evidence/mutation-scripts/2026-10-11-n18-committed-facts.py mimoloader ec7630a=<S>/llama-ec7630a 79e2e74=<S>/llama.cpp" > <S>/n18/r3/facts-mimoloader.txt; python3 docs/evidence/mutation-scripts/2026-10-11-n18-committed-facts.py mimoloader ec7630a=<S>/llama-ec7630a 79e2e74=<S>/llama.cpp >> <S>/n18/r3/facts-mimoloader.txt 2>&1; echo "exit $?" >> <S>/n18/r3/facts-mimoloader.txt; grep -h "^exit" <S>/n18/r3/facts-*.txt; grep -c "Warning" <S>/n18/r3/facts-*.txt
+exit 0
+exit 0
+exit 0
+exit 0
+<S>/n18/r3/facts-mimo.txt:0
+<S>/n18/r3/facts-mimoloader.txt:0
+<S>/n18/r3/facts-mimopins.txt:0
+<S>/n18/r3/facts-mimotiny.txt:0
+```
+
+```
+$ LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py python3 docs/evidence/mutation-scripts/2026-10-11-n18-committed-facts.py mimopins
+== mimo-v2.6-flash-mopd-ggml-org-mxfp4 ok ggml-org/MiMo-V2.6-Flash-MOPD-GGUF e6d4bced739310a721eefad4c247ec7e0247c89d -> e6d4bced739310a721eefad4c247ec7e0247c89d gated False ['license:mit'] fetched_utc 2026-10-11T14:31:13Z workflow_sha 65c380517e5fe53f21c2361490854cde46265e22
+   bytes_fetched 6210784 committed_bytes (gz) 1664824
+   MiMo-V2.6-Flash-MOPD-MXFP4-00001-of-00002.gguf: size 5948640, lfs a353e75ccd30, header 5948636, fetched 5948640 in 6, gz 1661133, size_check(PIN) "exact (no tensors: the writer's padding after the KV block)", etag_ok True, commit_ok True
+   MiMo-V2.6-Flash-MOPD-MXFP4-00002-of-00002.gguf: size 167363516512, lfs 3adf8ea80157, header 30048, fetched 262144 in 1, gz 3691, size_check(PIN) 'exact', etag_ok True, commit_ok True
+== mimo-v2.6-flash-mopd-ggml-org-mtp ok ggml-org/MiMo-V2.6-Flash-MOPD-GGUF e6d4bced739310a721eefad4c247ec7e0247c89d -> e6d4bced739310a721eefad4c247ec7e0247c89d gated False ['license:mit'] fetched_utc 2026-10-11T14:31:07Z workflow_sha 65c380517e5fe53f21c2361490854cde46265e22
+   bytes_fetched 8388608 committed_bytes (gz) 1661660
+   mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf: size 2383728864, lfs 4589839383ca, header 5950944, fetched 8388608 in 6, gz 1661660, size_check(PIN) 'exact', etag_ok True, commit_ok True
+== mimo-v2.6-flash-mopd-quantaplanta-mxfp4 ok QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF ac33b3743d70ed57a8cc6b847698d2ebbddb7784 -> ac33b3743d70ed57a8cc6b847698d2ebbddb7784 gated False ['license:mit'] fetched_utc 2026-10-11T14:31:24Z workflow_sha 65c380517e5fe53f21c2361490854cde46265e22
+   bytes_fetched 8388608 committed_bytes (gz) 1665898
+   MiMo-V2.6-Flash-MOPD-MXFP4.gguf: size 174908254272, lfs fc1b8122d1a3, header 5980736, fetched 8388608 in 6, gz 1665898, size_check(PIN) 'exact', etag_ok True, commit_ok True
+== mimo-v2.6-flash-mopd-kernelpool-mxfp4 ok kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF 44d9191bb7a95125c8b971ce0593bd802ae6dd48 -> 44d9191bb7a95125c8b971ce0593bd802ae6dd48 gated False ['license:mit'] fetched_utc 2026-10-11T14:31:19Z workflow_sha 65c380517e5fe53f21c2361490854cde46265e22
+   bytes_fetched 8388608 committed_bytes (gz) 1666380
+   MiMo-V2.6-Flash-MOPD-MXFP4.gguf: size 169005098944, lfs 5e5dfb6d9646, header 5980608, fetched 8388608 in 6, gz 1666380, size_check(PIN) 'exact', etag_ok True, commit_ok True
+MiMo-V2.6-Flash-MOPD-MXFP4-00001-of-00002.gguf: header 5948636 + 4 zero bytes = file 5948640; sha256 equal to LFS: True
+exit 0
+```
+
+## 14. Round 3: the MiMo facts
+
+The three MXFP4 files and the `mtp-` file compared (KV, general keys, tensor names / shapes / types, templates):
+
+```
+$ LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py python3 docs/evidence/mutation-scripts/2026-10-11-n18-committed-facts.py mimo
+mimo-v2.6-flash-mopd-ggml-org-mxfp4: 472 tensors, 45 KV, layers 0-47, nextn_predict_layers None, general {"general.architecture": "mimo2", "general.file_type": 38, "general.languages": ["en", "zh"], "general.license": "mit", "general.name": "MiMo-V2.6-Flash-MOPD", "general.quantization_version": 2, "general.sampling.temp": 1.0, "general.sampling.top_p": 0.949999988079071, "general.size_label": "256x7.2B", "general.tags": ["text-generation", "multimodal", "vision-language", "audio", "agent", "video-understanding", "long-context", "mimo_v2", "transformers"], "general.type": "model"}
+mimo-v2.6-flash-mopd-ggml-org-mtp: 39 tensors, 43 KV, layers 48-50, nextn_predict_layers 3, general {"general.architecture": "mimo2", "general.file_type": 7, "general.languages": ["en", "zh"], "general.license": "mit", "general.name": "MiMo-V2.6-Flash-MOPD", "general.quantization_version": 2, "general.sampling.temp": 1.0, "general.sampling.top_p": 0.949999988079071, "general.size_label": "2.2B", "general.tags": ["text-generation", "multimodal", "vision-language", "audio", "agent", "video-understanding", "long-context", "mimo_v2", "transformers"], "general.type": "model"}
+mimo-v2.6-flash-mopd-quantaplanta-mxfp4: 508 tensors, 43 KV, layers 0-50, nextn_predict_layers 3, general {"general.architecture": "mimo2", "general.file_type": 38, "general.languages": ["en", "zh"], "general.license": "mit", "general.name": "MiMo V2.6 Flash MOPD", "general.quantization_version": 2, "general.sampling.temp": 1.0, "general.sampling.top_p": 0.949999988079071, "general.size_label": "256x8.2B", "general.tags": ["text-generation", "multimodal", "vision-language", "audio", "agent", "video-understanding", "long-context", "mimo_v2", "transformers"], "general.type": "model"}
+mimo-v2.6-flash-mopd-kernelpool-mxfp4: 508 tensors, 41 KV, layers 0-50, nextn_predict_layers 3, general {"general.alignment": 32, "general.architecture": "mimo2", "general.name": "MiMo V2.6 Flash MOPD", "general.source.revision": "2479e2d0029eca9a34cc7e7f55a121925f81908e", "general.source.url": "https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Flash-MOPD"}
+arch KV that differ between the three MXFP4 files (value or presence):
+   attention.head_count_kv: ggml-org-mxfp4 [48] first 48 equal to ggml-org's: True, after: [] | quantaplanta-mxfp4 [51] first 48 equal to ggml-org's: True, after: [8, 8, 8] | kernelpool-mxfp4 [51] first 48 equal to ggml-org's: True, after: [8, 8, 8]
+   attention.sliding_window_pattern: ggml-org-mxfp4 [48] first 48 equal to ggml-org's: True, after: [] | quantaplanta-mxfp4 [51] first 48 equal to ggml-org's: True, after: [1, 1, 1] | kernelpool-mxfp4 [51] first 48 equal to ggml-org's: True, after: [1, 1, 1]
+   block_count: ggml-org-mxfp4 48 | quantaplanta-mxfp4 51 | kernelpool-mxfp4 51
+   expert_group_count: ggml-org-mxfp4 1 | quantaplanta-mxfp4 1 | kernelpool-mxfp4 "(absent)"
+   expert_group_used_count: ggml-org-mxfp4 1 | quantaplanta-mxfp4 1 | kernelpool-mxfp4 "(absent)"
+   expert_weights_norm: ggml-org-mxfp4 "(absent)" | quantaplanta-mxfp4 "(absent)" | kernelpool-mxfp4 true
+   expert_weights_scale: ggml-org-mxfp4 "(absent)" | quantaplanta-mxfp4 "(absent)" | kernelpool-mxfp4 1.0
+   leading_dense_block_count: ggml-org-mxfp4 "(absent)" | quantaplanta-mxfp4 "(absent)" | kernelpool-mxfp4 1
+   nextn_predict_layers: ggml-org-mxfp4 "(absent)" | quantaplanta-mxfp4 3 | kernelpool-mxfp4 3
+   qkv_chunks: ggml-org-mxfp4 "(absent)" | quantaplanta-mxfp4 "(absent)" | kernelpool-mxfp4 4
+   quantization: ggml-org-mxfp4 "(absent)" | quantaplanta-mxfp4 "(absent)" | kernelpool-mxfp4 "released MXFP4 gate/up/down; Q8_0 attention/dense/head"
+   vocab_size: ggml-org-mxfp4 "(absent)" | quantaplanta-mxfp4 "(absent)" | kernelpool-mxfp4 152576
+   split.count: ggml-org-mxfp4 2 | quantaplanta-mxfp4 (absent) | kernelpool-mxfp4 (absent)
+   split.no: ggml-org-mxfp4 0 | quantaplanta-mxfp4 (absent) | kernelpool-mxfp4 (absent)
+   split.tensors.count: ggml-org-mxfp4 472 | quantaplanta-mxfp4 (absent) | kernelpool-mxfp4 (absent)
+   tokenizer.ggml.token_type: ggml-org-mxfp4 "6a2b48747cdecdc8ab740d9ca29fb07e668a465 | quantaplanta-mxfp4 "6a2b48747cdecdc8ab740d9ca29fb07e668a465 | kernelpool-mxfp4 "9aab44baf2f6ab1746ea3d79da308225734b1f0
+trunk tensors (layers 0-47 + non-layer) mimo-v2.6-flash-mopd-quantaplanta-mxfp4 vs ggml-org: names equal True (only here [], only ggml-org []), shapes equal True, type pairs (ggml-org, this) that differ {('Q8_0', 'BF16'): 101}
+trunk tensors (layers 0-47 + non-layer) mimo-v2.6-flash-mopd-kernelpool-mxfp4 vs ggml-org: names equal True (only here [], only ggml-org []), shapes equal True, type pairs (ggml-org, this) that differ {('Q8_0', 'BF16'): 1}
+mimo-v2.6-flash-mopd-ggml-org-mxfp4: non-expert matrices by type {'Q8_0': 101, 'F32': 47}; non-layer [('output.weight', 'Q8_0'), ('output_norm.weight', 'F32'), ('token_embd.weight', 'Q8_0')]
+mimo-v2.6-flash-mopd-quantaplanta-mxfp4: non-expert matrices by type {'BF16': 101, 'F32': 47}; non-layer [('output.weight', 'BF16'), ('output_norm.weight', 'F32'), ('token_embd.weight', 'BF16')]
+mimo-v2.6-flash-mopd-kernelpool-mxfp4: non-expert matrices by type {'BF16': 1, 'Q8_0': 100, 'F32': 47}; non-layer [('output.weight', 'Q8_0'), ('output_norm.weight', 'F32'), ('token_embd.weight', 'BF16')]
+mimo-v2.6-flash-mopd-ggml-org-mtp: NextN layers blk.48 12 tensors, names = QuantaPlanta's True, shapes = True, types {'F32': 6, 'Q8_0': 6}; blk.49 12 tensors, names = QuantaPlanta's True, shapes = True, types {'F32': 6, 'Q8_0': 6}; blk.50 12 tensors, names = QuantaPlanta's True, shapes = True, types {'F32': 6, 'Q8_0': 6}
+   only here [], only QuantaPlanta []
+mimo-v2.6-flash-mopd-quantaplanta-mxfp4: NextN layers blk.48 12 tensors, names = QuantaPlanta's True, shapes = True, types {'BF16': 6, 'F32': 6}; blk.49 12 tensors, names = QuantaPlanta's True, shapes = True, types {'BF16': 6, 'F32': 6}; blk.50 12 tensors, names = QuantaPlanta's True, shapes = True, types {'BF16': 6, 'F32': 6}
+   only here [], only QuantaPlanta []
+mimo-v2.6-flash-mopd-kernelpool-mxfp4: NextN layers blk.48 12 tensors, names = QuantaPlanta's False, shapes = True, types {'Q8_0': 6, 'F32': 6}; blk.49 12 tensors, names = QuantaPlanta's False, shapes = True, types {'Q8_0': 6, 'F32': 6}; blk.50 12 tensors, names = QuantaPlanta's False, shapes = True, types {'Q8_0': 6, 'F32': 6}
+   only here ['nextn.shared_head_norm.weight'], only QuantaPlanta ['layer_output_norm.weight']
+mimo-v2.6-flash-mopd-ggml-org-mxfp4: embedded chat template sha256 11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059
+mimo-v2.6-flash-mopd-ggml-org-mtp: embedded chat template sha256 11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059
+mimo-v2.6-flash-mopd-quantaplanta-mxfp4: embedded chat template sha256 11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059
+mimo-v2.6-flash-mopd-kernelpool-mxfp4: embedded chat template sha256 11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059
+exit 0
+```
+
+`attention.head_count_kv` and `attention.sliding_window_pattern` differ only by the 3 NextN entries; the first 48 are
+equal. Tokens, merges and token types, decoded from the committed header bytes, and a grep for kernelpool's own keys
+(run in `/home/user/wt-n18` at `0f61e10`; the headers are unchanged since `6161763`):
+
+```
+$ S=<S>; for r in llama-ec7630a llama.cpp n12/ik-src; do echo "== $r $(git -C $S/$r rev-parse --short HEAD)"; grep -rn "qkv_chunks\|QKV_CHUNKS\|\.quantization\"\|LLM_KV_QUANTIZATION" $S/$r/src $S/$r/common $S/$r/gguf-py $S/$r/conversion 2>/dev/null | head -5; done; cd /home/user/wt-n18 && python3 - <<'EOF'
+import gzip, json, sys, collections
+sys.path.insert(0, "tools/gguf_headers"); sys.path.insert(0, "tools")
+import gguf_header as G
+def kv(path):
+    h = G.parse(gzip.decompress(open(path, "rb").read()))
+    return {e["key"]: e["value"] for e in h.kv}
+a = kv("third_party/gguf-headers/mimo-v2.6-flash-mopd-ggml-org-mxfp4/MiMo-V2.6-Flash-MOPD-MXFP4-00001-of-00002.gguf.header.gz")
+b = kv("third_party/gguf-headers/mimo-v2.6-flash-mopd-kernelpool-mxfp4/MiMo-V2.6-Flash-MOPD-MXFP4.gguf.header.gz")
+q = kv("third_party/gguf-headers/mimo-v2.6-flash-mopd-quantaplanta-mxfp4/MiMo-V2.6-Flash-MOPD-MXFP4.gguf.header.gz")
+ta, tb, tq = a["tokenizer.ggml.token_type"], b["tokenizer.ggml.token_type"], q["tokenizer.ggml.token_type"]
+toks = a["tokenizer.ggml.tokens"]
+print("tokens equal a/b/q:", toks == b["tokenizer.ggml.tokens"] == q["tokenizer.ggml.tokens"], "merges equal:", a["tokenizer.ggml.merges"] == b["tokenizer.ggml.merges"] == q["tokenizer.ggml.merges"])
+print("token_type ggml-org == quantaplanta:", ta == tq)
+d = [i for i in range(len(ta)) if ta[i] != tb[i]]
+print("token_type differs at", len(d), "ids; (ggml-org, kernelpool) type pairs", dict(collections.Counter((ta[i], tb[i]) for i in d)))
+print("first ids:", [(i, toks[i], ta[i], tb[i]) for i in d[:12]])
+print("last ids:", [(i, toks[i], ta[i], tb[i]) for i in d[-6:]])
+print("counts by type ggml-org", dict(collections.Counter(ta)), "kernelpool", dict(collections.Counter(tb)))
+for k in sorted(set(a) | set(b)):
+    if k.startswith("tokenizer.") and k not in ("tokenizer.ggml.tokens","tokenizer.ggml.merges","tokenizer.ggml.token_type","tokenizer.chat_template"):
+        if a.get(k) != b.get(k): print("tokenizer key differs", k, a.get(k), b.get(k))
+EOF
+== llama-ec7630a ec7630a
+== llama.cpp 79e2e74
+== n12/ik-src 5194a9e
+tokens equal a/b/q: True merges equal: True
+token_type ggml-org == quantaplanta: True
+token_type differs at 6 ids; (ggml-org, kernelpool) type pairs {(3, 4): 6}
+first ids: [(151659, '<|fim_prefix|>', 3, 4), (151660, '<|fim_middle|>', 3, 4), (151661, '<|fim_suffix|>', 3, 4), (151662, '<|fim_pad|>', 3, 4), (151663, '<|repo_name|>', 3, 4), (151664, '<|file_sep|>', 3, 4)]
+last ids: [(151659, '<|fim_prefix|>', 3, 4), (151660, '<|fim_middle|>', 3, 4), (151661, '<|fim_suffix|>', 3, 4), (151662, '<|fim_pad|>', 3, 4), (151663, '<|repo_name|>', 3, 4), (151664, '<|file_sep|>', 3, 4)]
+counts by type ggml-org {1: 151643, 3: 26, 4: 6, 5: 901} kernelpool {1: 151643, 3: 20, 4: 12, 5: 901}
+```
+
+The grep prints nothing at any of the three checkouts. Token type 3 is CONTROL and 4 is USER_DEFINED
+(`gguf-py/gguf/constants.py:5752-5758@ec7630a`, `class TokenType`).
+
+The probes on the real files against N16's and N17's tiny models. The models were built from each branch's
+generator: the `mimo2_tiny.py` text of each branch via `git show`, into a temporary directory; nothing merged.
+
+```
+$ LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py python3 docs/evidence/mutation-scripts/2026-10-11-n18-committed-facts.py mimotiny
+tiny N16 n16.gguf (--fused-qkv --sinks swa --value-scale 0.75 --mtp) [0] @0b0eace: block_count 7, nextn 1, K/V 24/16, n_rot 8
+tiny N17 n17.gguf + n17hd.gguf (--mtp-layers 3; --head-dims 192,128) [0] @0352df4: block_count 9, nextn 3, K/V 24/16, n_rot 8
+tiny N17 n17.gguf + n17hd.gguf (--mtp-layers 3; --head-dims 192,128) [1] @0352df4: block_count 6, nextn None, K/V 192/128, n_rot 64
+== mimo-v2.6-flash-mopd-ggml-org-mxfp4
+   [tiny OK] moe.groups: real ['no group step']; not exercised []
+   [tiny OK] moe.used_array: real ['scalar']; not exercised []
+   [tiny OK] mimo.swa_pattern: real ['full-attention layers', 'sliding-window layers']; not exercised []
+   [tiny OK] mimo.kv_heads: real ['per-layer KV heads, full != SWA']; not exercised []
+   [tiny OK] mimo.head_dims: real ['K head dim != V head dim']; not exercised []
+   [tiny OK] mimo.rope: real ['own SWA freq base (rope.freq_base_swa)', 'partial rotary (n_rot < K head dim)']; not exercised []
+   [tiny OK] mimo.value_scale: real ['attn_out x value_scale']; not exercised []
+   [tiny OK] mimo.sinks: real ['SWA layers with sinks', 'full layers without sinks']; not exercised []
+   [tiny OK] mimo.qkv: real ['fused attn_qkv']; not exercised []
+   [tiny OK] mimo.ffn: real ['MoE (sigmoid + exp_probs_b, renormalised top-k)', 'dense FFN']; not exercised []
+   [tiny OK] mimo.mtp: real ['nextn_predict_layers 0']; not exercised []
+   [tiny OK] mimo.mtp_block: real ['no MTP layers']; not exercised []
+   [tiny OK] mimo.mtp_head: real ['no MTP tensors']; not exercised []
+   [tiny OK] mimo.file_layout: real ['trunk only (no nextn_predict_layers)']; not exercised []
+== mimo-v2.6-flash-mopd-ggml-org-mtp
+   [tiny OK] moe.groups: real ['no group step']; not exercised []
+   [tiny OK] moe.used_array: real ['scalar']; not exercised []
+   [tiny OK] mimo.swa_pattern: real ['full-attention layers', 'sliding-window layers']; not exercised []
+   [tiny OK] mimo.kv_heads: real ['per-layer KV heads, full != SWA']; not exercised []
+   [tiny OK] mimo.head_dims: real ['K head dim != V head dim']; not exercised []
+   [tiny OK] mimo.rope: real ['own SWA freq base (rope.freq_base_swa)', 'partial rotary (n_rot < K head dim)']; not exercised []
+   [tiny OK] mimo.value_scale: real ['attn_out x value_scale']; not exercised []
+   [tiny OK] mimo.sinks: real []; not exercised []
+   [tiny OK] mimo.qkv: real []; not exercised []
+   [tiny OK] mimo.ffn: real []; not exercised []
+   [tiny OK] mimo.mtp: real ['nextn_predict_layers 3']; not exercised []
+   [tiny OK] mimo.mtp_block: real ['MTP layer with a dense FFN', 'MTP layer with fused attn_qkv']; not exercised []
+   [tiny OK] mimo.mtp_head: real ['head norm layer_output_norm', 'trunk output head', 'trunk token_embd']; not exercised []
+   [NOT IN N16/N17 TINY] mimo.file_layout: real ['MTP-only file']; not exercised ['MTP-only file']
+== mimo-v2.6-flash-mopd-quantaplanta-mxfp4
+   [tiny OK] moe.groups: real ['no group step']; not exercised []
+   [tiny OK] moe.used_array: real ['scalar']; not exercised []
+   [tiny OK] mimo.swa_pattern: real ['full-attention layers', 'sliding-window layers']; not exercised []
+   [tiny OK] mimo.kv_heads: real ['per-layer KV heads, full != SWA']; not exercised []
+   [tiny OK] mimo.head_dims: real ['K head dim != V head dim']; not exercised []
+   [tiny OK] mimo.rope: real ['own SWA freq base (rope.freq_base_swa)', 'partial rotary (n_rot < K head dim)']; not exercised []
+   [tiny OK] mimo.value_scale: real ['attn_out x value_scale']; not exercised []
+   [tiny OK] mimo.sinks: real ['SWA layers with sinks', 'full layers without sinks']; not exercised []
+   [tiny OK] mimo.qkv: real ['fused attn_qkv']; not exercised []
+   [tiny OK] mimo.ffn: real ['MoE (sigmoid + exp_probs_b, renormalised top-k)', 'dense FFN']; not exercised []
+   [tiny OK] mimo.mtp: real ['nextn_predict_layers 3']; not exercised []
+   [tiny OK] mimo.mtp_block: real ['MTP layer with a dense FFN', 'MTP layer with fused attn_qkv']; not exercised []
+   [tiny OK] mimo.mtp_head: real ['head norm layer_output_norm', 'trunk output head', 'trunk token_embd']; not exercised []
+   [tiny OK] mimo.file_layout: real ['trunk + MTP in one file']; not exercised []
+== mimo-v2.6-flash-mopd-kernelpool-mxfp4
+   [tiny OK] moe.groups: real ['no group step']; not exercised []
+   [tiny OK] moe.used_array: real ['scalar']; not exercised []
+   [tiny OK] mimo.swa_pattern: real ['full-attention layers', 'sliding-window layers']; not exercised []
+   [tiny OK] mimo.kv_heads: real ['per-layer KV heads, full != SWA']; not exercised []
+   [tiny OK] mimo.head_dims: real ['K head dim != V head dim']; not exercised []
+   [tiny OK] mimo.rope: real ['own SWA freq base (rope.freq_base_swa)', 'partial rotary (n_rot < K head dim)']; not exercised []
+   [tiny OK] mimo.value_scale: real ['attn_out x value_scale']; not exercised []
+   [tiny OK] mimo.sinks: real ['SWA layers with sinks', 'full layers without sinks']; not exercised []
+   [tiny OK] mimo.qkv: real ['fused attn_qkv']; not exercised []
+   [tiny OK] mimo.ffn: real ['MoE (sigmoid + exp_probs_b, renormalised top-k)', 'dense FFN']; not exercised []
+   [tiny OK] mimo.mtp: real ['nextn_predict_layers 3']; not exercised []
+   [tiny OK] mimo.mtp_block: real ['MTP layer with a dense FFN', 'MTP layer with fused attn_qkv']; not exercised []
+   [NOT IN N16/N17 TINY] mimo.mtp_head: real ['head norm nextn.shared_head_norm', 'trunk output head', 'trunk token_embd']; not exercised ['head norm nextn.shared_head_norm']
+   [tiny OK] mimo.file_layout: real ['trunk + MTP in one file']; not exercised []
+exit 0
+```
+
+The loader of each pin against each file's tensor names:
+
+```
+$ python3 docs/evidence/mutation-scripts/2026-10-11-n18-committed-facts.py mimoloader ec7630a=<S>/llama-ec7630a 79e2e74=<S>/llama.cpp
+[ec7630a] load_arch_tensors creates: global:output.weight, global:output_norm.weight, global:token_embd.weight, nextn:layer_output_norm.weight (opt), nextn:nextn.eh_proj.weight, nextn:nextn.embed_tokens.weight (opt), nextn:nextn.enorm.weight, nextn:nextn.hnorm.weight, nextn:nextn.shared_head_head.weight (opt), nextn:nextn.shared_head_norm.weight (opt), trunk:attn_norm.weight, trunk:attn_output.weight, trunk:attn_qkv|attn_q+attn_k+attn_v, trunk:attn_sinks.weight (opt), trunk:exp_probs_b.bias (opt), trunk:ffn_down.weight (opt), trunk:ffn_down_exps.weight (opt), trunk:ffn_gate.weight (opt), trunk:ffn_gate_exps.weight (opt), trunk:ffn_gate_inp.weight (opt), trunk:ffn_norm.weight, trunk:ffn_up.weight (opt), trunk:ffn_up_exps.weight (opt)
+   mimo-v2.6-flash-mopd-ggml-org-mxfp4: layers 0-47 (n_layer 48), tensors the loader does not create [], required ones absent []
+   mimo-v2.6-flash-mopd-ggml-org-mtp: layers 48-50 (n_layer 48), tensors the loader does not create [], required ones absent []
+   mimo-v2.6-flash-mopd-quantaplanta-mxfp4: layers 0-50 (n_layer 48), tensors the loader does not create [], required ones absent []
+   mimo-v2.6-flash-mopd-kernelpool-mxfp4: layers 0-50 (n_layer 48), tensors the loader does not create [], required ones absent []
+[79e2e74] load_arch_tensors creates: global:output.weight, global:output_norm.weight, global:token_embd.weight, nextn:layer_output_norm.weight (opt), nextn:nextn.eh_proj.weight, nextn:nextn.embed_tokens.weight (opt), nextn:nextn.enorm.weight, nextn:nextn.hnorm.weight, nextn:nextn.shared_head_head.weight (opt), nextn:nextn.shared_head_norm.weight (opt), trunk:attn_norm.weight, trunk:attn_output.weight, trunk:attn_qkv|attn_q+attn_k+attn_v, trunk:attn_sinks.weight (opt), trunk:exp_probs_b.bias (opt), trunk:ffn_down.weight (opt), trunk:ffn_down_exps.weight (opt), trunk:ffn_gate.weight (opt), trunk:ffn_gate_exps.weight (opt), trunk:ffn_gate_inp.weight (opt), trunk:ffn_norm.weight, trunk:ffn_up.weight (opt), trunk:ffn_up_exps.weight (opt)
+   mimo-v2.6-flash-mopd-ggml-org-mxfp4: layers 0-47 (n_layer 48), tensors the loader does not create [], required ones absent []
+   mimo-v2.6-flash-mopd-ggml-org-mtp: layers 48-50 (n_layer 48), tensors the loader does not create [], required ones absent []
+   mimo-v2.6-flash-mopd-quantaplanta-mxfp4: layers 0-50 (n_layer 48), tensors the loader does not create [], required ones absent []
+   mimo-v2.6-flash-mopd-kernelpool-mxfp4: layers 0-50 (n_layer 48), tensors the loader does not create [], required ones absent []
+exit 0
+```
+
+The source lines cited in Result (round 3), printed back:
+
+```
+$ bash <S>/n18/r3/anchors-cmd.sh > <S>/n18/r3/anchors.txt 2>&1; echo "rc=$?"; cat <S>/n18/r3/anchors.txt
+rc=0
+== ec7630a ec7630a, 79e2e74 79e2e74
+-- conversion/mimo.py:243 (ec7630a)
+            self.gguf_writer.add_tensor(new_name, data, raw_dtype=gguf.GGMLQuantizationType.MXFP4)
+-- conversion/mimo.py:338-340 (ec7630a)
+        if self._is_mxfp4_packed():
+            self._is_mxfp4 = True
+            self.ftype = gguf.LlamaFileType.MOSTLY_MXFP4_MOE
+-- include/llama.h:156 (ec7630a) / :157 (79e2e74)
+        LLAMA_FTYPE_MOSTLY_MXFP4_MOE     = 38, // except 1d tensors
+        LLAMA_FTYPE_MOSTLY_MXFP4_MOE     = 38, // except 1d tensors
+-- src/llama-quant.cpp:512-523 (ec7630a)
+    } else if (ftype == LLAMA_FTYPE_MOSTLY_MXFP4_MOE) {
+        // MoE   tensors -> MXFP4
+        // other tensors -> Q8_0
+        // MLA projection tensors are also 3D, so match expert tensor roles explicitly.
+        const bool is_bailingmoe3_expert = arch == LLM_ARCH_BAILINGMOE3 &&
+            (category == tensor_category::FFN_UP ||
+             category == tensor_category::FFN_GATE ||
+             category == tensor_category::FFN_DOWN);
+        if (tensor->ne[2] > 1 && (arch != LLM_ARCH_BAILINGMOE3 || is_bailingmoe3_expert)) {
+            new_type = GGML_TYPE_MXFP4;
+        } else {
+            new_type = GGML_TYPE_Q8_0;
+-- gguf-py/gguf/tensor_mapping.py:743 (ec7630a) / :755 (79e2e74)
+            "model.layers.{bid}.final_layernorm",           # bailingmoe2
+            "model.layers.{bid}.final_layernorm",           # bailingmoe2
+-- gguf-py/gguf/tensor_mapping.py:2772 (ec7630a) / :2874 (79e2e74)
+            "model.layers.{bid}.shared_head.norm",
+            "model.layers.{bid}.shared_head.norm",
+-- src/llama-vocab.cpp:1963 (ec7630a) / :2076 (79e2e74)
+            if (ml.get_key(LLM_KV_VOCAB_SIZE, n_tokens, false)) {
+            if (ml.get_key(LLM_KV_VOCAB_SIZE, n_tokens, false)) {
+-- src/models/mimo2.cpp:134-142 (ec7630a)
+                const size_t row_k    = ggml_row_size(qkv->type, n_embd_head_k);
+                const size_t row_v    = ggml_row_size(qkv->type, n_embd_head_v);
+                const size_t row_full = qkv->nb[1];
+                const size_t k_off    = row_k * n_head_l;
+                const size_t v_off    = k_off + row_k * n_head_kv_l;
+
+                Qcur = ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_l,    n_tokens, row_k, row_full, 0);
+                Kcur = ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_kv_l, n_tokens, row_k, row_full, k_off);
+                Vcur = ggml_view_3d(ctx0, qkv, n_embd_head_v, n_head_kv_l, n_tokens, row_v, row_full, v_off);
+-- conversion/mimo.py:35-38 (ec7630a, start of the TP regrouping)
+    def _tp_aware_qkv_dequant(weight: Tensor, scale_inv: Tensor,
+                              n_q: int, n_kv: int, hd: int, vhd: int,
+                              bs: int = 128) -> Tensor:
+        # MiMo-V2.5 (TP=4) and V2.5-Pro (TP=8) ship qkv_proj sharded across TP
+-- src/models/mimo2.cpp:28 (ec7630a / 79e2e74)
+    const bool mtp_only = (hparams.n_layer_nextn > 0) && (ml.get_weight("blk.0.attn_norm.weight") == nullptr);
+    const auto nf = nextn_flags(ml);
+-- src/models/mimo2.cpp:88 (ec7630a) / :82 (79e2e74)
+        return std::make_unique<graph_mtp>(*this, params);
+        return std::make_unique<graph_mtp>(*this, params);
+-- src/models/mimo2.cpp:104 (ec7630a)
+    const bool emit_h_nextn = cparams.embeddings_nextn;
+-- src/models/mimo2.cpp:244-246 (ec7630a) / :236-238 (79e2e74)
+    if (emit_h_nextn) {
+        cb(cur, "h_nextn", -1);
+        res->t_h_nextn = cur;
+    // pre-norm state for MTP; set even when extraction is off
+    cb(cur, "h_nextn", -1);
+    res->t_h_nextn = cur;
+-- grep of kernelpool's extra keys in src/models/mimo2.cpp at both pins
+ec7630a: 0 matching lines
+79e2e74: 0 matching lines
+-- src/llama-model.cpp:3485 (79e2e74)
+llama_model_base::nextn_flags_t llama_model_base::nextn_flags(llama_model_loader & ml, llm_tensor trunk_probe) const {
+$ cat <S>/n18/r3/anchors-cmd.sh
+S=<S>
+E=$S/llama-ec7630a; R=$S/llama.cpp
+echo "== ec7630a $(git -C $E rev-parse --short HEAD), 79e2e74 $(git -C $R rev-parse --short HEAD)"
+echo "-- conversion/mimo.py:243 (ec7630a)"; sed -n 243p $E/conversion/mimo.py
+echo "-- conversion/mimo.py:338-340 (ec7630a)"; sed -n 338,340p $E/conversion/mimo.py
+echo "-- include/llama.h:156 (ec7630a) / :157 (79e2e74)"; sed -n 156p $E/include/llama.h; sed -n 157p $R/include/llama.h
+echo "-- src/llama-quant.cpp:512-523 (ec7630a)"; sed -n 512,523p $E/src/llama-quant.cpp
+echo "-- gguf-py/gguf/tensor_mapping.py:743 (ec7630a) / :755 (79e2e74)"; sed -n 743p $E/gguf-py/gguf/tensor_mapping.py; sed -n 755p $R/gguf-py/gguf/tensor_mapping.py
+echo "-- gguf-py/gguf/tensor_mapping.py:2772 (ec7630a) / :2874 (79e2e74)"; sed -n 2772p $E/gguf-py/gguf/tensor_mapping.py; sed -n 2874p $R/gguf-py/gguf/tensor_mapping.py
+echo "-- src/llama-vocab.cpp:1963 (ec7630a) / :2076 (79e2e74)"; sed -n 1963p $E/src/llama-vocab.cpp; sed -n 2076p $R/src/llama-vocab.cpp
+echo "-- src/models/mimo2.cpp:134-142 (ec7630a)"; sed -n 134,142p $E/src/models/mimo2.cpp
+echo "-- conversion/mimo.py:35-38 (ec7630a, start of the TP regrouping)"; sed -n 35,38p $E/conversion/mimo.py
+echo "-- src/models/mimo2.cpp:28 (ec7630a / 79e2e74)"; sed -n 28p $E/src/models/mimo2.cpp; sed -n 28p $R/src/models/mimo2.cpp
+echo "-- src/models/mimo2.cpp:88 (ec7630a) / :82 (79e2e74)"; sed -n 88p $E/src/models/mimo2.cpp; sed -n 82p $R/src/models/mimo2.cpp
+echo "-- src/models/mimo2.cpp:104 (ec7630a)"; sed -n 104p $E/src/models/mimo2.cpp
+echo "-- src/models/mimo2.cpp:244-246 (ec7630a) / :236-238 (79e2e74)"; sed -n 244,246p $E/src/models/mimo2.cpp; sed -n 236,238p $R/src/models/mimo2.cpp
+echo "-- grep of kernelpool's extra keys in src/models/mimo2.cpp at both pins"; for d in $E $R; do echo "$(git -C $d rev-parse --short HEAD): $(grep -c "qkv_chunks\|QKV_CHUNKS\|LEADING_DENSE\|EXPERT_WEIGHTS_SCALE\|EXPERT_WEIGHTS_NORM\|VOCAB_SIZE" $d/src/models/mimo2.cpp) matching lines"; done
+echo "-- src/llama-model.cpp:3485 (79e2e74)"; sed -n 3485p $R/src/llama-model.cpp
+```
+
+## 15. Round 3: tests and mutation check
+
+- Round-3 code changes:
+  - `65ea5b5`: the mimo2 sinks / qkv probes skip trunk layers that an MTP-only file does not hold;
+  - `7edc27f`: the facts printer gains `mimopins`, `mimo`, `mimotiny`, `mimoloader`;
+  - `bc26480`: `CommittedN18Mimo`, 5 tests;
+  - `0f61e10`: mutation M40.
+- `0f61e10` changes only the mutation script, so the suite at `bc26480` is the suite of the code HEAD.
+
+```
+$ export TMPDIR=<S>/n18/tmp
+$ cd /home/user/wt-n18 && git log --oneline -n 1 && LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py python3 -m unittest discover -s tests > <S>/n18/full-suite-bc26480.log 2>&1; echo "exit $?"; grep -E "^(Ran|OK|FAILED)" <S>/n18/full-suite-bc26480.log
+bc26480 [model-analyst] tests: facts of the N18 MiMo headers (bot 6161763): config cross-check, MXFP4 experts and D5, the three MXFP4 files and the mtp file compared
+exit 0
+Ran 917 tests in 218.227s
+OK (skipped=358)
+$ python3 -m unittest tests.test_hooks tests.test_check_unittest 2>&1 | tail -3
+Ran 54 tests in 19.155s
+
+OK
+$ LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py LLAMA_CPP_SRC_79E2E74=<S>/llama.cpp LLAMA_TOKENIZE_BIN=<S>/n15/build-tok/bin/llama-tokenize python3 -m unittest tests.test_gguf_headers tests.test_gguf_headers_committed -v > <S>/n18/modules-bc26480.log 2>&1; echo "exit $?"; grep -E "^(Ran|OK|FAILED)" <S>/n18/modules-bc26480.log; grep -c " \.\.\. ok$" <S>/n18/modules-bc26480.log; grep -c "skipped" <S>/n18/modules-bc26480.log
+exit 0
+Ran 57 tests in 35.201s
+OK
+57
+0
+$ LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py python3 -m unittest tests.test_gguf_headers -v > <S>/n18/selftest-bc26480.log 2>&1; echo "self-test unittest rc=$?"; grep -E "^(Ran|OK|FAILED)" <S>/n18/selftest-bc26480.log; skips=$(grep -E ' \.\.\. skipped ' <S>/n18/selftest-bc26480.log | grep -v '^test_llama_tokenize_runs_on_the_vocab_only_file ' || true); [ -n "$skips" ] && echo "step FAILS: $skips" || echo "step passes"
+self-test unittest rc=0
+Ran 39 tests in 18.612s
+OK (skipped=1)
+step passes
+```
+
+917 = 912 + the 5 `CommittedN18Mimo` tests. Skips are unchanged; the pin-dependent MiMo test runs with the CI pin's
+checkout.
+
+```
+$ export TMPDIR=<S>/n18/tmp; cd <S>/n18 && git -C /home/user/wt-n18 log --oneline -n 1 && bash /home/user/wt-n18/docs/evidence/mutation-scripts/2026-10-11-n18-mutations.sh > mutations-r3.log 2>&1; echo "exit $?"; tail -2 mutations-r3.log | cut -c1-200; head -2 mutations-r3.log; grep -c KILLED mutations-r3.log; grep -c "SURVIVED\|NOT APPLIED" mutations-r3.log
+0f61e10 [model-analyst] evidence scripts: N18 mutation M40 (mimo2 probes count trunk layers an MTP-only file does not hold)
+exit 0
+M39-tiny-workdir-not-created KILLED  (N18Analyzer.test_mimo2_tiny_exercises_its_own_branches )
+M40-mimo-probes-count-absent-layers KILLED  (N18Analyzer.test_mimo2_config_branches_keys_experts_audit )
+HEAD 0f61e10
+base exit 0 (Ran 39 tests in 17.940s, OK (skipped=1))
+21
+0
+$ cat <S>/n18/mutations-r3.log
+HEAD 0f61e10
+base exit 0 (Ran 39 tests in 17.940s, OK (skipped=1))
+M20-named-revision-unchecked KILLED  (Fetch.test_discover_named_repo_revision_is_pinned_and_requests_are_checked )
+M21-named-listed-again-by-search KILLED  (Fetch.test_discover_lists_named_repos_and_reads_no_file )
+M22-named-unavailable-raises KILLED  (Fetch.test_discover_lists_named_repos_and_reads_no_file N18Analyzer.test_listing_renders_named_repos )
+M23-duplicate-repos-accepted KILLED  (Fetch.test_discover_named_repo_revision_is_pinned_and_requests_are_checked )
+M24-optional-counted-missing KILLED  (N18Analyzer.test_reference_diff_takes_fused_and_split_forms_as_equal N18Analyzer.test_separate_mtp_files_loader_verdicts_per_pin )
+M25-no-fused-split-alternatives KILLED  (N18Analyzer.test_reference_diff_takes_fused_and_split_forms_as_equal )
+M26-globals-unchecked KILLED  (N18Analyzer.test_separate_mtp_files_loader_verdicts_per_pin )
+M27-no-mtp-only-handling-ignored KILLED  (N18Analyzer.test_separate_mtp_files_loader_verdicts_per_pin )
+M28-missing-graph-ignored KILLED  (N18Analyzer.test_separate_mtp_files_loader_verdicts_per_pin )
+M29-tokenizer-unchecked KILLED  (N18Analyzer.test_separate_mtp_files_loader_verdicts_per_pin )
+M30-extra-tensors-ignored KILLED  (N18Analyzer.test_separate_mtp_files_loader_verdicts_per_pin )
+M31-lax-key-regex KILLED  (N18Analyzer.test_mimo2_config_branches_keys_experts_audit N18Analyzer.test_separate_mtp_files_loader_verdicts_per_pin )
+M32-conditional-generic-keys-required KILLED  (N18Analyzer.test_mimo2_config_branches_keys_experts_audit )
+M33-pattern-without-mtp-layers KILLED  (N18Analyzer.test_mimo2_config_branches_keys_experts_audit )
+M34-kv-array-without-mtp-layers KILLED  (N18Analyzer.test_mimo2_config_branches_keys_experts_audit )
+M35-sinks-label-inverted KILLED  (N18Analyzer.test_mimo2_config_branches_keys_experts_audit N18Analyzer.test_mimo2_tiny_exercises_its_own_branches )
+M36-mtp-qkv-unchecked KILLED  (N18Analyzer.test_mimo2_config_branches_keys_experts_audit )
+M37-value-scale-inverted KILLED  (N18Analyzer.test_mimo2_config_branches_keys_experts_audit )
+M38-trunk-probe-ignored KILLED  (N18Analyzer.test_mimo2_config_branches_keys_experts_audit N18Analyzer.test_separate_mtp_files_loader_verdicts_per_pin )
+M39-tiny-workdir-not-created KILLED  (N18Analyzer.test_mimo2_tiny_exercises_its_own_branches )
+M40-mimo-probes-count-absent-layers KILLED  (N18Analyzer.test_mimo2_config_branches_keys_experts_audit )
+```
+
+21 of 21 killed.
+
+NOT RUN in round 3:
+- loading any MiMo file;
+- reading `attn_qkv` rows to settle kernelpool's `qkv_chunks` question;
+- N16 / N17 parity runs: not re-run here; their results are their branches' evidence;
+- the BF16 and Q8_0-MTP numerics.
 
 ## Appendix A. `tools/gguf_headers/analyze.py` on the N18 headers, full output
 
@@ -1175,3 +1713,584 @@ search 'MiMo-V2.6-Flash' (architectures []): 30 repos
     petr567/MiMo-V2.6-Flash-MOPD-Strix-Halo-Recipe  arch=None  downloads=0  sha=29500f0a8910
 ```
 
+## Appendix B. `tools/gguf_headers/analyze.py` on the MiMo headers (round 3), full output
+
+At `bc26480`:
+
+```
+$ export TMPDIR=<S>/n18/tmp; cd <S>/n18/r3 && git -C /home/user/wt-n18 log --oneline -n 1 && LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py python3 /home/user/wt-n18/tools/gguf_headers/analyze.py --src ec7630a=<S>/llama-ec7630a --src 79e2e74=<S>/llama.cpp --name mimo-v2.6-flash-mopd-ggml-org-mxfp4 --name mimo-v2.6-flash-mopd-ggml-org-mtp --name mimo-v2.6-flash-mopd-quantaplanta-mxfp4 --name mimo-v2.6-flash-mopd-kernelpool-mxfp4 --json analyze.json > analyze.txt; echo "exit $?"; wc -l analyze.txt
+bc26480 [model-analyst] tests: facts of the N18 MiMo headers (bot 6161763): config cross-check, MXFP4 experts and D5, the three MXFP4 files and the mtp file compared
+exit 0
+570 analyze.txt
+$ cat <S>/n18/r3/analyze.txt
+sources: ec7630a = ec7630a640789c393694fb194f1bbbf0369fc62d (<S>/llama-ec7630a), 79e2e74 = 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6 (<S>/llama.cpp)
+
+=== mimo-v2.6-flash-mopd-ggml-org-mxfp4 (third_party/gguf-headers/mimo-v2.6-flash-mopd-ggml-org-mxfp4)
+status ok, ggml-org/MiMo-V2.6-Flash-MOPD-GGUF @ e6d4bced739310a721eefad4c247ec7e0247c89d
+integrity: MiMo-V2.6-Flash-MOPD-MXFP4-00001-of-00002.gguf OK, MiMo-V2.6-Flash-MOPD-MXFP4-00002-of-00002.gguf OK
+  MiMo-V2.6-Flash-MOPD-MXFP4-00001-of-00002.gguf: 5948640 B, LFS sha256 a353e75ccd30f347dfd68a8cf1be8be0fb989fcca94b8e72fd7d1e35241b5f51, header 5948636 B (sha256 f2e9498e281706e33120fa0fef43caaff9e84cf133ee2839d8830b6e8c72b213), fetched 5948640 B, committed 1661133 B gz, 0 tensors, size check exact (no tensors: the writer's padding after the KV block), offsets contiguous
+  MiMo-V2.6-Flash-MOPD-MXFP4-00002-of-00002.gguf: 167363516512 B, LFS sha256 3adf8ea80157dd066945a954428ba0e507c15c0e5a8b6b276ac92df0948698bc, header 30048 B (sha256 b11fbbabdcab1b5121cdfb1c6ad0a684cb53b22ee6a44e047d124f09bff5e1f8), fetched 262144 B, committed 3691 B gz, 472 tensors, size check exact, offsets contiguous
+
+(e) identity
+  architecture: mimo2
+  general.name: MiMo-V2.6-Flash-MOPD
+  tokenizer.ggml.model: gpt2
+  tokenizer.ggml.pre: qwen2
+  vocab (tokenizer.ggml.tokens): 152576
+  merges: 151387
+  token_embd shape: [4096, 152576]
+  output shape: [4096, 152576]
+  tokenizer.ggml.add_bos_token: false
+  tokenizer.ggml.add_eos_token: false
+  tokenizer.ggml.eos_token_id: 151645
+  tokenizer.ggml.padding_token_id: 151643
+  chat templates: ["tokenizer.chat_template"]
+  general.* keys: {"general.file_type": 38, "general.languages": ["en", "zh"], "general.license": "mit", "general.quantization_version": 2, "general.sampling.temp": 1.0, "general.sampling.top_p": 0.949999988079071, ...
+  [ec7630a] arch mimo2: src/llama-arch.cpp:149
+  [ec7630a] tokenizer model gpt2: src/llama-vocab.cpp:1993
+  [ec7630a] pre-tokenizer qwen2: src/llama-vocab.cpp:2259
+  [79e2e74] arch mimo2: src/llama-arch.cpp:151
+  [79e2e74] tokenizer model gpt2: src/llama-vocab.cpp:2106
+  [79e2e74] pre-tokenizer qwen2: src/llama-vocab.cpp:2376
+
+(d) expert_group_count = 1, expert_group_used_count = 1 (keys present: [True, True]): no group step in llama.cpp (absent or <= 1 -> n_expert_groups 0/1)
+  [ec7630a] src/llama-graph.cpp:2105
+  [79e2e74] src/llama-graph.cpp:2145
+
+(c) chat template vs None: no vendored template named in the request; embedded 3867 B sha256 11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059
+
+(b) hyperparameters, real vs tiny (tiny variants skipped: --fused-qkv --sinks swa --value-scale 0.75 --mtp (tools/tinygen/mimo2_tiny.py build() takes no ['fused_qkv', 'mtp', 'sinks', 'value_scale']))
+  attention.head_count                       | real: 64 | tiny default: 4
+  attention.head_count_kv                    | real: [48] 8 x39, 4 x9 | tiny default: [1, 2, 2, 2, 2, 1]
+  attention.key_length                       | real: 192 | tiny default: 24
+  attention.layer_norm_rms_epsilon           | real: 9.999999974752427e-07 | tiny default: 9.999999747378752e-06
+  attention.sliding_window                   | real: 128 | tiny default: 8
+  attention.sliding_window_pattern           | real: [48] 1 x39, 0 x9 | tiny default: [false, true, true, true, true, false]
+  attention.value_length                     | real: 128 | tiny default: 16
+  attention.value_scale                      | real: 0.7070000171661377 | tiny default: (absent)
+  block_count                                | real: 48 | tiny default: 6
+  context_length                             | real: 1048576 | tiny default: 512
+  embedding_length                           | real: 4096 | tiny default: 64
+  expert_count                               | real: 256 | tiny default: 8
+  expert_feed_forward_length                 | real: 2048 | tiny default: 32
+  expert_gating_func                         | real: 2 | tiny default: (absent)
+  expert_group_count                         | real: 1 | tiny default: (absent)
+  expert_group_used_count                    | real: 1 | tiny default: (absent)
+  expert_used_count                          | real: 8 | tiny default: 2
+  feed_forward_length                        | real: 16384 | tiny default: 96
+  rope.dimension_count                       | real: 64 | tiny default: 8
+  rope.freq_base                             | real: 10000000.0 | tiny default: 10000.0
+  rope.freq_base_swa                         | real: 10000.0 | tiny default: 5000.0
+  config.json cross-check:
+    OK     num_hidden_layers = 48  ->  layers = 48
+    ABSENT num_nextn_predict_layers = 3  ->  nextn_predict_layers = null
+    OK     hidden_size = 4096  ->  embedding_length = 4096
+    OK     intermediate_size = 16384  ->  feed_forward_length = 16384
+    OK     moe_intermediate_size = 2048  ->  expert_feed_forward_length = 2048
+    OK     n_routed_experts = 256  ->  expert_count = 256
+    OK     num_experts_per_tok = 8  ->  expert_used_count = 8
+    OK     num_attention_heads = 64  ->  attention.head_count = 64
+    OK     hybrid_layer_pattern = [48] 1 x39, 0 x9 (swa_num_key_value_heads where 1 else num_key_value_heads, + SWA per MTP layer -> [48] 8 x39, 4 x9)  ->  attention.head_count_kv = [48] 8 x39, 4 x9
+    OK     head_dim = 192  ->  attention.key_length = 192
+    OK     v_head_dim = 128  ->  attention.value_length = 128
+    OK     sliding_window = 128  ->  attention.sliding_window = 128
+    OK     hybrid_layer_pattern = [48] 1 x39, 0 x9 (+ 1 per MTP layer -> [48] 1 x39, 0 x9)  ->  attention.sliding_window_pattern = [48] 1 x39, 0 x9
+    OK     partial_rotary_factor = 0.334 (int(head_dim x factor) -> 64)  ->  rope.dimension_count = 64
+    OK     rope_theta = 10000000.0  ->  rope.freq_base = 10000000.0
+    OK     swa_rope_theta = 10000.0  ->  rope.freq_base_swa = 10000.0
+    OK     attention_value_scale = 0.707  ->  attention.value_scale = 0.7070000171661377
+    OK     layernorm_epsilon = 1e-06  ->  attention.layer_norm_rms_epsilon = 9.999999974752427e-07
+    OK     max_position_embeddings = 1048576  ->  context_length = 1048576
+    OK     n_group = 1  ->  expert_group_count = 1
+    OK     topk_group = 1  ->  expert_group_used_count = 1
+    OK     vocab_size = 152576  ->  @vocab = {"tokens": 152576, "token_embd rows": 152576}
+  graph branches:
+    [tiny OK] moe.groups: group-limited routing (expert_group_count > 1)
+       real: ['no group step']  expert_group_count = 1, used = 1
+       tiny: default: ['no group step']
+       [ec7630a] src/llama-model.cpp:1334; src/llama-graph.cpp:2105
+       [79e2e74] src/llama-model.cpp:1362; src/llama-graph.cpp:2145
+    [tiny OK] moe.used_array: experts per token: one value or per layer
+       real: ['scalar']  expert_used_count = 8, expert_count = 256
+       tiny: default: ['scalar']
+       [ec7630a] src/llama-model.cpp:1333
+       [79e2e74] src/llama-model.cpp:1361
+    [tiny OK] mimo.swa_pattern: sliding-window / full-attention layers from the required pattern array
+       real: ['full-attention layers', 'sliding-window layers']  window 128; full-attention trunk layers [0, 5, 11, 17, 23, 29, 35, 41, 47]; sliding-window 39 of 48; pattern entries of the MTP layers []; pattern length 48, block_count 48
+       tiny: default: ['full-attention layers', 'sliding-window layers']
+       [ec7630a] src/models/mimo2.cpp:12; src/models/mimo2.cpp:9
+       [79e2e74] src/models/mimo2.cpp:12; src/models/mimo2.cpp:9
+    [tiny OK] mimo.kv_heads: KV heads per layer (full and sliding-window layers differ)
+       real: ['per-layer KV heads, full != SWA']  head_count 64; KV heads by trunk layer kind {'full': [4], 'SWA': [8]}; MTP layers []
+       tiny: default: ['per-layer KV heads, full != SWA']
+       [ec7630a] src/llama-model.cpp:1404; src/models/mimo2.cpp:114,288
+       [79e2e74] src/llama-model.cpp:1432; src/models/mimo2.cpp:106,279
+    [tiny OK] mimo.head_dims: K and V head dims (key_length / value_length)
+       real: ['K head dim != V head dim']  key_length 192, value_length 128, key_length_swa None, value_length_swa None
+       tiny: default: ['K head dim != V head dim']
+       [ec7630a] src/llama-model.cpp:1443; src/models/mimo2.cpp:135,335
+       [79e2e74] src/llama-model.cpp:1471; src/models/mimo2.cpp:127,326
+    [tiny OK] mimo.rope: partial rotary and the two freq bases (full layers / SWA layers)
+       real: ['own SWA freq base (rope.freq_base_swa)', 'partial rotary (n_rot < K head dim)']  rope.dimension_count 64, key_length 192, freq_base 10000000.0, freq_base_swa 10000.0
+       tiny: default: ['own SWA freq base (rope.freq_base_swa)', 'partial rotary (n_rot < K head dim)']
+       [ec7630a] src/models/mimo2.cpp:10; src/llama-model.cpp:2330; src/llama-hparams.h:151
+       [79e2e74] src/models/mimo2.cpp:10; src/llama-model.cpp:2362; src/llama-hparams.h:154
+    [NOT IN TINY] mimo.value_scale: attn_out scaled by attention.value_scale (read only if != 1)
+       real: ['attn_out x value_scale']  attention.value_scale = 0.7070000171661377
+       tiny: default: ['no value scale']
+       [ec7630a] src/models/mimo2.cpp:15; src/models/mimo2.cpp:183,365
+       [79e2e74] src/models/mimo2.cpp:15; src/models/mimo2.cpp:175,356
+    [NOT IN TINY] mimo.sinks: attention sinks per layer kind (attn_sinks is TENSOR_NOT_REQUIRED)
+       real: ['SWA layers with sinks', 'full layers without sinks']  trunk layers with attn_sinks: 1-4, 6-10, 12-16, 18-22, 24-28, 30-34, 36-40, 42-46 (39 of 48; full-attention layers among them []); MTP layers with attn_sinks: []
+       tiny: default: ['SWA layers with sinks', 'full layers with sinks']
+       [ec7630a] src/models/mimo2.cpp:57; src/models/mimo2.cpp:175
+       [79e2e74] src/models/mimo2.cpp:51; src/models/mimo2.cpp:167
+    [NOT IN TINY] mimo.qkv: attention projections: fused attn_qkv or split attn_q/k/v
+       real: ['fused attn_qkv']  
+       tiny: default: ['split attn_q/k/v']
+       [ec7630a] src/models/mimo2.cpp:129
+       [79e2e74] src/models/mimo2.cpp:121
+    [tiny OK] mimo.ffn: dense FFN (no ffn_gate_inp) or MoE with sigmoid + bias routing
+       real: ['MoE (sigmoid + exp_probs_b, renormalised top-k)', 'dense FFN']  dense trunk layers [0]; expert_count 256, used 8, expert width 2048, dense width 16384
+       tiny: default: ['MoE (sigmoid + exp_probs_b, renormalised top-k)', 'dense FFN']
+       [ec7630a] src/models/mimo2.cpp:202; src/models/mimo2.cpp:222
+       [79e2e74] src/models/mimo2.cpp:194; src/models/mimo2.cpp:214
+    [tiny OK] mimo.mtp: MTP (NextN) layers: count; graph_mtp runs layer n_layer + nextn_layer_offset
+       real: ['nextn_predict_layers 0']  no MTP layers
+       tiny: default: ['nextn_predict_layers 0']
+       [ec7630a] src/models/mimo2.cpp:276; src/models/mimo2.cpp:278
+       [79e2e74] src/models/mimo2.cpp:267; src/models/mimo2.cpp:269
+    [tiny OK] mimo.mtp_block: what graph_mtp asserts of an MTP layer: fused attn_qkv and a dense FFN
+       real: ['no MTP layers']  
+       tiny: default: ['no MTP layers']
+       [ec7630a] src/models/mimo2.cpp:285; src/models/mimo2.cpp:375
+       [79e2e74] src/models/mimo2.cpp:276; src/models/mimo2.cpp:366
+    [tiny OK] mimo.mtp_head: MTP embedding / head / head norm: own NextN tensors or the fallbacks
+       real: ['no MTP tensors']  
+       tiny: default: ['no MTP tensors']
+       [ec7630a] src/models/mimo2.cpp:303; src/models/mimo2.cpp:394; src/models/mimo2.cpp:399
+       [79e2e74] src/models/mimo2.cpp:294; src/models/mimo2.cpp:385; src/models/mimo2.cpp:390
+    [tiny OK] mimo.file_layout: trunk + MTP, MTP-only or trunk-only file (loader flags)
+       real: ['trunk only (no nextn_predict_layers)']  
+       tiny: default: ['trunk only (no nextn_predict_layers)']
+       [ec7630a] src/models/mimo2.cpp:28; not found
+       [79e2e74] not found; src/models/mimo2.cpp:28
+  keys read without a default (llama_model_base::load_hparams body, load_arch_hparams, the vocabulary):
+    [ec7630a] 8 required, missing in the file: []; none conditional
+    [79e2e74] 8 required, missing in the file: []; none conditional
+  routed-expert types per projection (layers): {"ffn_down_exps": {"MXFP4": 47}, "ffn_gate_exps": {"MXFP4": 47}, "ffn_up_exps": {"MXFP4": 47}}
+
+(a) tools/gguf_quant_audit.py on the header-only shards (files total 167369465152 B = 155.875 GiB)
+  # MiMo-V2.6-Flash-MOPD-MXFP4-00001-of-00002.gguf (2 file(s)), architecture 'mimo2'
+  total 308.78B params, 155.87 GiB, 4.336 bpw
+    routed_experts   302.795B    149.81 GiB   4.250 bpw  [MXFP4 100.0%]
+    attention          4.483B      4.44 GiB   8.500 bpw  [Q8_0 100.0%, F32 0.0%]
+    dense_ffn          0.201B      0.20 GiB   8.500 bpw  [Q8_0 100.0%]
+    embedding          0.625B      0.62 GiB   8.500 bpw  [Q8_0 100.0%]
+    output_head        0.625B      0.62 GiB   8.500 bpw  [Q8_0 100.0%]
+    other              0.050B      0.19 GiB  32.000 bpw  [F32 100.0%]
+  verdict: PASS (routed experts >= 4.0 bpw, non-expert matrices >= 4.0 bpw: 0 failing tensors, 0 warnings)
+(f) ADR-012 D5 floor (>= 4.0 bpw, routed experts and non-expert matrices): PASS; lowest-bpw matrices: blk.1.ffn_down_exps.weight MXFP4 4.250, blk.1.ffn_gate_exps.weight MXFP4 4.250, blk.1.ffn_up_exps.weight MXFP4 4.250, blk.2.ffn_down_exps.weight MXFP4 4.250, blk.2.ffn_gate_exps.weight MXFP4 4.250, blk.2.ffn_up_exps.weight MXFP4 4.250
+
+=== mimo-v2.6-flash-mopd-ggml-org-mtp (third_party/gguf-headers/mimo-v2.6-flash-mopd-ggml-org-mtp)
+status ok, ggml-org/MiMo-V2.6-Flash-MOPD-GGUF @ e6d4bced739310a721eefad4c247ec7e0247c89d
+integrity: mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf OK
+mode mtp_files; NextN reference: request mimo-v2.6-flash-mopd-quantaplanta-mxfp4, blk.48; trunk request: mimo-v2.6-flash-mopd-ggml-org-mxfp4
+  mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf: 2383728864 B, LFS sha256 4589839383ca7524fa1bdf635b8cef0da59b7e909d84a433f6006f7b64fc17ec, header 5950944 B (sha256 8805a08513f9777f59845d1bfa486ef52eb3a77c63952cf6031eee55f28c413b), fetched 8388608 B, committed 1661660 B gz, 39 tensors, size check exact, offsets contiguous
+
+how llama.cpp attaches a separate MTP file:
+  [ec7630a] common/arg.cpp:4241: a local MTP file is given as the draft model: -md FILE (sets speculative.draft.mparams.path)
+  [ec7630a] common/arg.cpp:4249: --spec-type draft-mtp selects the MTP drafter
+  [ec7630a] common/speculative.cpp:37: the type name draft-mtp
+  [ec7630a] common/arg.cpp:3084: --mtp (download example): also fetch the repo's MTP sidecar
+  [ec7630a] common/download.cpp:616: -hf: the sidecar is the sibling file whose name starts with mtp-
+  [ec7630a] common/download.cpp:649: an mtp- file is never taken as the model
+  [ec7630a] common/arg.cpp:644: the downloaded sidecar becomes the draft model path
+  [ec7630a] common/speculative.cpp:2539: with a draft path the MTP file is loaded as its own llama_model (llama_model_load_from_file)
+  [ec7630a] common/speculative.cpp:2526: its context is an MTP context
+  [ec7630a] common/speculative.cpp:2560: without a draft path the MTP context runs on the target model's own NextN layers
+  [ec7630a] common/speculative.cpp:1376: the MTP model's output width must equal the target's (h_nextn rows)
+  [ec7630a] common/common.cpp:1625: draft-mtp sets load_mtp (otherwise NextN tensors are skipped)
+  [ec7630a] src/llama-vocab.cpp:1944: a separate model file needs its own tokenizer metadata (tokenizer.ggml.model is required)
+  [ec7630a] src/llama-model-loader.cpp:1398: every tensor in the file must be created by the arch loader
+  [ec7630a] src/llama-context.cpp:156: only EAGLE3 / DFlash drafts borrow the target's embeddings and head through ctx_other
+  [ec7630a] src/llama-model.cpp:2802,2809: an MTP context's KV cache holds only the NextN layers
+  [79e2e74] common/arg.cpp:4276: a local MTP file is given as the draft model: -md FILE (sets speculative.draft.mparams.path)
+  [79e2e74] common/arg.cpp:4284: --spec-type draft-mtp selects the MTP drafter
+  [79e2e74] common/speculative.cpp:76: the type name draft-mtp
+  [79e2e74] common/arg.cpp:3097: --mtp (download example): also fetch the repo's MTP sidecar
+  [79e2e74] common/download.cpp:605: -hf: the sidecar is the sibling file whose name starts with mtp-
+  [79e2e74] common/download.cpp:638: an mtp- file is never taken as the model
+  [79e2e74] common/arg.cpp:644: the downloaded sidecar becomes the draft model path
+  [79e2e74] common/speculative.cpp:2623: with a draft path the MTP file is loaded as its own llama_model (llama_model_load_from_file)
+  [79e2e74] common/speculative.cpp:2610: its context is an MTP context
+  [79e2e74] common/speculative.cpp:2644: without a draft path the MTP context runs on the target model's own NextN layers
+  [79e2e74] common/speculative.cpp:1437: the MTP model's output width must equal the target's (h_nextn rows)
+  [79e2e74] common/common.cpp:1690: draft-mtp sets load_mtp (otherwise NextN tensors are skipped)
+  [79e2e74] src/llama-vocab.cpp:2057: a separate model file needs its own tokenizer metadata (tokenizer.ggml.model is required)
+  [79e2e74] src/llama-model-loader.cpp:1398: every tensor in the file must be created by the arch loader
+  [79e2e74] src/llama-context.cpp:159: only EAGLE3 / DFlash drafts borrow the target's embeddings and head through ctx_other
+  [79e2e74] src/llama-model.cpp:2841,2848: an MTP context's KV cache holds only the NextN layers
+
+--- mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf: arch mimo2, block_count 51, nextn_predict_layers 3, n_layer 48; layout: MTP-only file
+  tokenizer: model gpt2, pre qwen2, 152576 tokens; embedded chat template: True
+  non-layer tensors: output.weight Q8_0 [4096, 152576], output_norm.weight F32 [4096], token_embd.weight Q8_0 [4096, 152576]
+  layers present: [48, 49, 50]
+  blk.48: 12 tensors: ['attn_norm.weight', 'attn_output.weight', 'attn_qkv.weight', 'attn_sinks.weight', 'ffn_down.weight', 'ffn_gate.weight', 'ffn_norm.weight', 'ffn_up.weight', 'layer_output_norm.weight', 'nextn.eh_proj.weight', 'nextn.enorm.weight', 'nextn.hnorm.weight']
+  blk.49: 12 tensors: ['attn_norm.weight', 'attn_output.weight', 'attn_qkv.weight', 'attn_sinks.weight', 'ffn_down.weight', 'ffn_gate.weight', 'ffn_norm.weight', 'ffn_up.weight', 'layer_output_norm.weight', 'nextn.eh_proj.weight', 'nextn.enorm.weight', 'nextn.hnorm.weight']
+  blk.50: 12 tensors: ['attn_norm.weight', 'attn_output.weight', 'attn_qkv.weight', 'attn_sinks.weight', 'ffn_down.weight', 'ffn_gate.weight', 'ffn_norm.weight', 'ffn_up.weight', 'layer_output_norm.weight', 'nextn.eh_proj.weight', 'nextn.enorm.weight', 'nextn.hnorm.weight']
+  vs the reference NextN layer: blk.48 missing [], missing optional [], extra []
+  vs the reference NextN layer: blk.49 missing [], missing optional [], extra []
+  vs the reference NextN layer: blk.50 missing [], missing optional [], extra []
+  vs the trunk (mimo2): arch keys that differ: attention.head_count_kv: trunk [48] 8 x39, 4 x9 / this [51] 8 x42, 4 x9; attention.sliding_window_pattern: trunk [48] 1 x39, 0 x9 / this [51] 1 x42, 0 x9; block_count: trunk 48 / this 51; nextn_predict_layers: trunk (absent) / this 3; token list equal: True; token_embd trunk [4096, 152576] / this [4096, 152576]
+  config.json cross-check: 22 of 22 OK
+  keys read without a default (llama_model_base::load_hparams body, load_arch_hparams, the vocabulary):
+    [ec7630a] 8 required, missing in the file: []; none conditional
+    [79e2e74] 8 required, missing in the file: []; none conditional
+  routed-expert types per projection (layers): {}
+  audit: PASS, 2.214 GiB, 8.501 bpw; output_head 8.500 bpw {'Q8_0': 624951296}, other 8.515 bpw {'F32': 65536, 'Q8_0': 100663296}, embedding 8.500 bpw {'Q8_0': 624951296}, attention 8.500 bpw {'Q8_0': 283115520, 'F32': 192}, dense_ffn 8.500 bpw {'Q8_0': 603979776}
+  loader [ec7630a]: loadable as a separate MTP model (PROVISIONAL: by reading, nothing loaded)
+      detect: src/models/mimo2.cpp:28
+      graph: src/models/mimo2.cpp:88
+  loader [79e2e74]: loadable as a separate MTP model (PROVISIONAL: by reading, nothing loaded)
+      detect: src/models/mimo2.cpp:28
+      graph: src/models/mimo2.cpp:82
+
+=== mimo-v2.6-flash-mopd-quantaplanta-mxfp4 (third_party/gguf-headers/mimo-v2.6-flash-mopd-quantaplanta-mxfp4)
+status ok, QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF @ ac33b3743d70ed57a8cc6b847698d2ebbddb7784
+integrity: MiMo-V2.6-Flash-MOPD-MXFP4.gguf OK
+  MiMo-V2.6-Flash-MOPD-MXFP4.gguf: 174908254272 B, LFS sha256 fc1b8122d1a31db98b20ed5c9ddb3d4d7e28d37b47cb2f1e843354788fbfeaa6, header 5980736 B (sha256 2e3a7ba2f0b09c1582dddb30f868edf0547569102908d6114aaec37fcc7d1980), fetched 8388608 B, committed 1665898 B gz, 508 tensors, size check exact, offsets contiguous
+
+(e) identity
+  architecture: mimo2
+  general.name: MiMo V2.6 Flash MOPD
+  tokenizer.ggml.model: gpt2
+  tokenizer.ggml.pre: qwen2
+  vocab (tokenizer.ggml.tokens): 152576
+  merges: 151387
+  token_embd shape: [4096, 152576]
+  output shape: [4096, 152576]
+  tokenizer.ggml.add_bos_token: false
+  tokenizer.ggml.add_eos_token: false
+  tokenizer.ggml.eos_token_id: 151645
+  tokenizer.ggml.padding_token_id: 151643
+  chat templates: ["tokenizer.chat_template"]
+  general.* keys: {"general.file_type": 38, "general.languages": ["en", "zh"], "general.license": "mit", "general.quantization_version": 2, "general.sampling.temp": 1.0, "general.sampling.top_p": 0.949999988079071, ...
+  [ec7630a] arch mimo2: src/llama-arch.cpp:149
+  [ec7630a] tokenizer model gpt2: src/llama-vocab.cpp:1993
+  [ec7630a] pre-tokenizer qwen2: src/llama-vocab.cpp:2259
+  [79e2e74] arch mimo2: src/llama-arch.cpp:151
+  [79e2e74] tokenizer model gpt2: src/llama-vocab.cpp:2106
+  [79e2e74] pre-tokenizer qwen2: src/llama-vocab.cpp:2376
+
+(d) expert_group_count = 1, expert_group_used_count = 1 (keys present: [True, True]): no group step in llama.cpp (absent or <= 1 -> n_expert_groups 0/1)
+  [ec7630a] src/llama-graph.cpp:2105
+  [79e2e74] src/llama-graph.cpp:2145
+
+(c) chat template vs None: no vendored template named in the request; embedded 3867 B sha256 11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059
+
+(b) hyperparameters, real vs tiny (tiny variants skipped: --fused-qkv --sinks swa --value-scale 0.75 --mtp (tools/tinygen/mimo2_tiny.py build() takes no ['fused_qkv', 'mtp', 'sinks', 'value_scale']))
+  attention.head_count                       | real: 64 | tiny default: 4
+  attention.head_count_kv                    | real: [51] 8 x42, 4 x9 | tiny default: [1, 2, 2, 2, 2, 1]
+  attention.key_length                       | real: 192 | tiny default: 24
+  attention.layer_norm_rms_epsilon           | real: 9.999999974752427e-07 | tiny default: 9.999999747378752e-06
+  attention.sliding_window                   | real: 128 | tiny default: 8
+  attention.sliding_window_pattern           | real: [51] 1 x42, 0 x9 | tiny default: [false, true, true, true, true, false]
+  attention.value_length                     | real: 128 | tiny default: 16
+  attention.value_scale                      | real: 0.7070000171661377 | tiny default: (absent)
+  block_count                                | real: 51 | tiny default: 6
+  context_length                             | real: 1048576 | tiny default: 512
+  embedding_length                           | real: 4096 | tiny default: 64
+  expert_count                               | real: 256 | tiny default: 8
+  expert_feed_forward_length                 | real: 2048 | tiny default: 32
+  expert_gating_func                         | real: 2 | tiny default: (absent)
+  expert_group_count                         | real: 1 | tiny default: (absent)
+  expert_group_used_count                    | real: 1 | tiny default: (absent)
+  expert_used_count                          | real: 8 | tiny default: 2
+  feed_forward_length                        | real: 16384 | tiny default: 96
+  nextn_predict_layers                       | real: 3 | tiny default: (absent)
+  rope.dimension_count                       | real: 64 | tiny default: 8
+  rope.freq_base                             | real: 10000000.0 | tiny default: 10000.0
+  rope.freq_base_swa                         | real: 10000.0 | tiny default: 5000.0
+  config.json cross-check:
+    OK     num_hidden_layers = 48  ->  layers = 48
+    OK     num_nextn_predict_layers = 3  ->  nextn_predict_layers = 3
+    OK     hidden_size = 4096  ->  embedding_length = 4096
+    OK     intermediate_size = 16384  ->  feed_forward_length = 16384
+    OK     moe_intermediate_size = 2048  ->  expert_feed_forward_length = 2048
+    OK     n_routed_experts = 256  ->  expert_count = 256
+    OK     num_experts_per_tok = 8  ->  expert_used_count = 8
+    OK     num_attention_heads = 64  ->  attention.head_count = 64
+    OK     hybrid_layer_pattern = [48] 1 x39, 0 x9 (swa_num_key_value_heads where 1 else num_key_value_heads, + SWA per MTP layer -> [51] 8 x42, 4 x9)  ->  attention.head_count_kv = [51] 8 x42, 4 x9
+    OK     head_dim = 192  ->  attention.key_length = 192
+    OK     v_head_dim = 128  ->  attention.value_length = 128
+    OK     sliding_window = 128  ->  attention.sliding_window = 128
+    OK     hybrid_layer_pattern = [48] 1 x39, 0 x9 (+ 1 per MTP layer -> [51] 1 x42, 0 x9)  ->  attention.sliding_window_pattern = [51] 1 x42, 0 x9
+    OK     partial_rotary_factor = 0.334 (int(head_dim x factor) -> 64)  ->  rope.dimension_count = 64
+    OK     rope_theta = 10000000.0  ->  rope.freq_base = 10000000.0
+    OK     swa_rope_theta = 10000.0  ->  rope.freq_base_swa = 10000.0
+    OK     attention_value_scale = 0.707  ->  attention.value_scale = 0.7070000171661377
+    OK     layernorm_epsilon = 1e-06  ->  attention.layer_norm_rms_epsilon = 9.999999974752427e-07
+    OK     max_position_embeddings = 1048576  ->  context_length = 1048576
+    OK     n_group = 1  ->  expert_group_count = 1
+    OK     topk_group = 1  ->  expert_group_used_count = 1
+    OK     vocab_size = 152576  ->  @vocab = {"tokens": 152576, "token_embd rows": 152576}
+  graph branches:
+    [tiny OK] moe.groups: group-limited routing (expert_group_count > 1)
+       real: ['no group step']  expert_group_count = 1, used = 1
+       tiny: default: ['no group step']
+       [ec7630a] src/llama-model.cpp:1334; src/llama-graph.cpp:2105
+       [79e2e74] src/llama-model.cpp:1362; src/llama-graph.cpp:2145
+    [tiny OK] moe.used_array: experts per token: one value or per layer
+       real: ['scalar']  expert_used_count = 8, expert_count = 256
+       tiny: default: ['scalar']
+       [ec7630a] src/llama-model.cpp:1333
+       [79e2e74] src/llama-model.cpp:1361
+    [tiny OK] mimo.swa_pattern: sliding-window / full-attention layers from the required pattern array
+       real: ['full-attention layers', 'sliding-window layers']  window 128; full-attention trunk layers [0, 5, 11, 17, 23, 29, 35, 41, 47]; sliding-window 39 of 48; pattern entries of the MTP layers [1, 1, 1]; pattern length 51, block_count 51
+       tiny: default: ['full-attention layers', 'sliding-window layers']
+       [ec7630a] src/models/mimo2.cpp:12; src/models/mimo2.cpp:9
+       [79e2e74] src/models/mimo2.cpp:12; src/models/mimo2.cpp:9
+    [tiny OK] mimo.kv_heads: KV heads per layer (full and sliding-window layers differ)
+       real: ['per-layer KV heads, full != SWA']  head_count 64; KV heads by trunk layer kind {'full': [4], 'SWA': [8]}; MTP layers [8, 8, 8]
+       tiny: default: ['per-layer KV heads, full != SWA']
+       [ec7630a] src/llama-model.cpp:1404; src/models/mimo2.cpp:114,288
+       [79e2e74] src/llama-model.cpp:1432; src/models/mimo2.cpp:106,279
+    [tiny OK] mimo.head_dims: K and V head dims (key_length / value_length)
+       real: ['K head dim != V head dim']  key_length 192, value_length 128, key_length_swa None, value_length_swa None
+       tiny: default: ['K head dim != V head dim']
+       [ec7630a] src/llama-model.cpp:1443; src/models/mimo2.cpp:135,335
+       [79e2e74] src/llama-model.cpp:1471; src/models/mimo2.cpp:127,326
+    [tiny OK] mimo.rope: partial rotary and the two freq bases (full layers / SWA layers)
+       real: ['own SWA freq base (rope.freq_base_swa)', 'partial rotary (n_rot < K head dim)']  rope.dimension_count 64, key_length 192, freq_base 10000000.0, freq_base_swa 10000.0
+       tiny: default: ['own SWA freq base (rope.freq_base_swa)', 'partial rotary (n_rot < K head dim)']
+       [ec7630a] src/models/mimo2.cpp:10; src/llama-model.cpp:2330; src/llama-hparams.h:151
+       [79e2e74] src/models/mimo2.cpp:10; src/llama-model.cpp:2362; src/llama-hparams.h:154
+    [NOT IN TINY] mimo.value_scale: attn_out scaled by attention.value_scale (read only if != 1)
+       real: ['attn_out x value_scale']  attention.value_scale = 0.7070000171661377
+       tiny: default: ['no value scale']
+       [ec7630a] src/models/mimo2.cpp:15; src/models/mimo2.cpp:183,365
+       [79e2e74] src/models/mimo2.cpp:15; src/models/mimo2.cpp:175,356
+    [NOT IN TINY] mimo.sinks: attention sinks per layer kind (attn_sinks is TENSOR_NOT_REQUIRED)
+       real: ['SWA layers with sinks', 'full layers without sinks']  trunk layers with attn_sinks: 1-4, 6-10, 12-16, 18-22, 24-28, 30-34, 36-40, 42-46 (39 of 48; full-attention layers among them []); MTP layers with attn_sinks: [48, 49, 50]
+       tiny: default: ['SWA layers with sinks', 'full layers with sinks']
+       [ec7630a] src/models/mimo2.cpp:57; src/models/mimo2.cpp:175
+       [79e2e74] src/models/mimo2.cpp:51; src/models/mimo2.cpp:167
+    [NOT IN TINY] mimo.qkv: attention projections: fused attn_qkv or split attn_q/k/v
+       real: ['fused attn_qkv']  
+       tiny: default: ['split attn_q/k/v']
+       [ec7630a] src/models/mimo2.cpp:129
+       [79e2e74] src/models/mimo2.cpp:121
+    [tiny OK] mimo.ffn: dense FFN (no ffn_gate_inp) or MoE with sigmoid + bias routing
+       real: ['MoE (sigmoid + exp_probs_b, renormalised top-k)', 'dense FFN']  dense trunk layers [0]; expert_count 256, used 8, expert width 2048, dense width 16384
+       tiny: default: ['MoE (sigmoid + exp_probs_b, renormalised top-k)', 'dense FFN']
+       [ec7630a] src/models/mimo2.cpp:202; src/models/mimo2.cpp:222
+       [79e2e74] src/models/mimo2.cpp:194; src/models/mimo2.cpp:214
+    [NOT IN TINY] mimo.mtp: MTP (NextN) layers: count; graph_mtp runs layer n_layer + nextn_layer_offset
+       real: ['nextn_predict_layers 3']  blk.48: 12 tensors, nextn ['nextn.eh_proj.weight', 'nextn.enorm.weight', 'nextn.hnorm.weight'], other ['attn_norm.weight', 'attn_output.weight', 'attn_qkv.weight', 'attn_sinks.weight', 'ffn_down.weight', 'ffn_gate.weight', 'ffn_norm.weight', 'ffn_up.weight', 'layer_output_norm.weight']; blk.49: 12 tensors, nextn ['nextn.eh_proj.weight', 'nextn.enorm.weight', 'nextn.hnorm.weight'], other ['attn_norm.weight', 'attn_output.weight', 'attn_qkv.weight', 'attn_sinks.weight', 'ffn_down.weight', 'ffn_gate.weight', 'ffn_norm.weight', 'ffn_up.weight', 'layer_output_norm.weight']; blk.50: 12 tensors, nextn ['nextn.eh_proj.weight', 'nextn.enorm.weight', 'nextn.hnorm.weight'], other ['attn_norm.weight', 'attn_output.weight', 'attn_qkv.weight', 'attn_sinks.weight', 'ffn_down.weight', 'ffn_gate.weight', 'ffn_norm.weight', 'ffn_up.weight', 'layer_output_norm.weight']
+       tiny: default: ['nextn_predict_layers 0']
+       [ec7630a] src/models/mimo2.cpp:276; src/models/mimo2.cpp:278
+       [79e2e74] src/models/mimo2.cpp:267; src/models/mimo2.cpp:269
+    [NOT IN TINY] mimo.mtp_block: what graph_mtp asserts of an MTP layer: fused attn_qkv and a dense FFN
+       real: ['MTP layer with a dense FFN', 'MTP layer with fused attn_qkv']  
+       tiny: default: ['no MTP layers']
+       [ec7630a] src/models/mimo2.cpp:285; src/models/mimo2.cpp:375
+       [79e2e74] src/models/mimo2.cpp:276; src/models/mimo2.cpp:366
+    [NOT IN TINY] mimo.mtp_head: MTP embedding / head / head norm: own NextN tensors or the fallbacks
+       real: ['head norm layer_output_norm', 'trunk output head', 'trunk token_embd']  
+       tiny: default: ['no MTP tensors']
+       [ec7630a] src/models/mimo2.cpp:303; src/models/mimo2.cpp:394; src/models/mimo2.cpp:399
+       [79e2e74] src/models/mimo2.cpp:294; src/models/mimo2.cpp:385; src/models/mimo2.cpp:390
+    [NOT IN TINY] mimo.file_layout: trunk + MTP, MTP-only or trunk-only file (loader flags)
+       real: ['trunk + MTP in one file']  
+       tiny: default: ['trunk only (no nextn_predict_layers)']
+       [ec7630a] src/models/mimo2.cpp:28; not found
+       [79e2e74] not found; src/models/mimo2.cpp:28
+  keys read without a default (llama_model_base::load_hparams body, load_arch_hparams, the vocabulary):
+    [ec7630a] 8 required, missing in the file: []; none conditional
+    [79e2e74] 8 required, missing in the file: []; none conditional
+  routed-expert types per projection (layers): {"ffn_down_exps": {"MXFP4": 47}, "ffn_gate_exps": {"MXFP4": 47}, "ffn_up_exps": {"MXFP4": 47}}
+
+(a) tools/gguf_quant_audit.py on the header-only shards (files total 174908254272 B = 162.896 GiB)
+  # MiMo-V2.6-Flash-MOPD-MXFP4.gguf (1 file(s)), architecture 'mimo2'
+  total 309.77B params, 162.89 GiB, 4.517 bpw
+    routed_experts   302.795B    149.81 GiB   4.250 bpw  [MXFP4 100.0%]
+    attention          4.766B      8.88 GiB  16.000 bpw  [BF16 100.0%, F32 0.0%]
+    dense_ffn          0.805B      1.50 GiB  16.000 bpw  [BF16 100.0%]
+    embedding          0.625B      1.16 GiB  16.000 bpw  [BF16 100.0%]
+    output_head        0.625B      1.16 GiB  16.000 bpw  [BF16 100.0%]
+    other              0.150B      0.37 GiB  21.292 bpw  [BF16 66.9%, F32 33.1%]
+  verdict: PASS (routed experts >= 4.0 bpw, non-expert matrices >= 4.0 bpw: 0 failing tensors, 0 warnings)
+(f) ADR-012 D5 floor (>= 4.0 bpw, routed experts and non-expert matrices): PASS; lowest-bpw matrices: blk.1.ffn_down_exps.weight MXFP4 4.250, blk.1.ffn_gate_exps.weight MXFP4 4.250, blk.1.ffn_up_exps.weight MXFP4 4.250, blk.2.ffn_down_exps.weight MXFP4 4.250, blk.2.ffn_gate_exps.weight MXFP4 4.250, blk.2.ffn_up_exps.weight MXFP4 4.250
+
+=== mimo-v2.6-flash-mopd-kernelpool-mxfp4 (third_party/gguf-headers/mimo-v2.6-flash-mopd-kernelpool-mxfp4)
+status ok, kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF @ 44d9191bb7a95125c8b971ce0593bd802ae6dd48
+integrity: MiMo-V2.6-Flash-MOPD-MXFP4.gguf OK
+  MiMo-V2.6-Flash-MOPD-MXFP4.gguf: 169005098944 B, LFS sha256 5e5dfb6d96466f40e73a235467949aa836e14d4de2310cff220409923937c99b, header 5980608 B (sha256 98002a80c3b0951ef5e9c1963ed47cbe3a57a9ff62fd7200da7c6c5351f36797), fetched 8388608 B, committed 1666380 B gz, 508 tensors, size check exact, offsets contiguous
+
+(e) identity
+  architecture: mimo2
+  general.name: MiMo V2.6 Flash MOPD
+  tokenizer.ggml.model: gpt2
+  tokenizer.ggml.pre: qwen2
+  vocab (tokenizer.ggml.tokens): 152576
+  merges: 151387
+  token_embd shape: [4096, 152576]
+  output shape: [4096, 152576]
+  tokenizer.ggml.add_bos_token: false
+  tokenizer.ggml.add_eos_token: false
+  tokenizer.ggml.eos_token_id: 151645
+  tokenizer.ggml.padding_token_id: 151643
+  chat templates: ["tokenizer.chat_template"]
+  general.* keys: {"general.alignment": 32, "general.source.revision": "2479e2d0029eca9a34cc7e7f55a121925f81908e", "general.source.url": "https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Flash-MOPD"}
+  [ec7630a] arch mimo2: src/llama-arch.cpp:149
+  [ec7630a] tokenizer model gpt2: src/llama-vocab.cpp:1993
+  [ec7630a] pre-tokenizer qwen2: src/llama-vocab.cpp:2259
+  [79e2e74] arch mimo2: src/llama-arch.cpp:151
+  [79e2e74] tokenizer model gpt2: src/llama-vocab.cpp:2106
+  [79e2e74] pre-tokenizer qwen2: src/llama-vocab.cpp:2376
+
+(d) expert_group_count = None, expert_group_used_count = None (keys present: [False, False]): no group step in llama.cpp (absent or <= 1 -> n_expert_groups 0/1)
+  [ec7630a] src/llama-graph.cpp:2105
+  [79e2e74] src/llama-graph.cpp:2145
+
+(c) chat template vs None: no vendored template named in the request; embedded 3867 B sha256 11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059
+
+(b) hyperparameters, real vs tiny (tiny variants skipped: --fused-qkv --sinks swa --value-scale 0.75 --mtp (tools/tinygen/mimo2_tiny.py build() takes no ['fused_qkv', 'mtp', 'sinks', 'value_scale']))
+  attention.head_count                       | real: 64 | tiny default: 4
+  attention.head_count_kv                    | real: [51] 8 x42, 4 x9 | tiny default: [1, 2, 2, 2, 2, 1]
+  attention.key_length                       | real: 192 | tiny default: 24
+  attention.layer_norm_rms_epsilon           | real: 9.999999974752427e-07 | tiny default: 9.999999747378752e-06
+  attention.sliding_window                   | real: 128 | tiny default: 8
+  attention.sliding_window_pattern           | real: [51] 1 x42, 0 x9 | tiny default: [false, true, true, true, true, false]
+  attention.value_length                     | real: 128 | tiny default: 16
+  attention.value_scale                      | real: 0.7070000171661377 | tiny default: (absent)
+  block_count                                | real: 51 | tiny default: 6
+  context_length                             | real: 1048576 | tiny default: 512
+  embedding_length                           | real: 4096 | tiny default: 64
+  expert_count                               | real: 256 | tiny default: 8
+  expert_feed_forward_length                 | real: 2048 | tiny default: 32
+  expert_gating_func                         | real: 2 | tiny default: (absent)
+  expert_used_count                          | real: 8 | tiny default: 2
+  expert_weights_norm                        | real: true | tiny default: (absent)
+  expert_weights_scale                       | real: 1.0 | tiny default: (absent)
+  feed_forward_length                        | real: 16384 | tiny default: 96
+  leading_dense_block_count                  | real: 1 | tiny default: (absent)
+  nextn_predict_layers                       | real: 3 | tiny default: (absent)
+  qkv_chunks                                 | real: 4 | tiny default: (absent)
+  quantization                               | real: released MXFP4 gate/up/down; Q8_0 attention/d... | tiny default: (absent)
+  rope.dimension_count                       | real: 64 | tiny default: 8
+  rope.freq_base                             | real: 10000000.0 | tiny default: 10000.0
+  rope.freq_base_swa                         | real: 10000.0 | tiny default: 5000.0
+  vocab_size                                 | real: 152576 | tiny default: (absent)
+  config.json cross-check:
+    OK     num_hidden_layers = 48  ->  layers = 48
+    OK     num_nextn_predict_layers = 3  ->  nextn_predict_layers = 3
+    OK     hidden_size = 4096  ->  embedding_length = 4096
+    OK     intermediate_size = 16384  ->  feed_forward_length = 16384
+    OK     moe_intermediate_size = 2048  ->  expert_feed_forward_length = 2048
+    OK     n_routed_experts = 256  ->  expert_count = 256
+    OK     num_experts_per_tok = 8  ->  expert_used_count = 8
+    OK     num_attention_heads = 64  ->  attention.head_count = 64
+    OK     hybrid_layer_pattern = [48] 1 x39, 0 x9 (swa_num_key_value_heads where 1 else num_key_value_heads, + SWA per MTP layer -> [51] 8 x42, 4 x9)  ->  attention.head_count_kv = [51] 8 x42, 4 x9
+    OK     head_dim = 192  ->  attention.key_length = 192
+    OK     v_head_dim = 128  ->  attention.value_length = 128
+    OK     sliding_window = 128  ->  attention.sliding_window = 128
+    OK     hybrid_layer_pattern = [48] 1 x39, 0 x9 (+ 1 per MTP layer -> [51] 1 x42, 0 x9)  ->  attention.sliding_window_pattern = [51] 1 x42, 0 x9
+    OK     partial_rotary_factor = 0.334 (int(head_dim x factor) -> 64)  ->  rope.dimension_count = 64
+    OK     rope_theta = 10000000.0  ->  rope.freq_base = 10000000.0
+    OK     swa_rope_theta = 10000.0  ->  rope.freq_base_swa = 10000.0
+    OK     attention_value_scale = 0.707  ->  attention.value_scale = 0.7070000171661377
+    OK     layernorm_epsilon = 1e-06  ->  attention.layer_norm_rms_epsilon = 9.999999974752427e-07
+    OK     max_position_embeddings = 1048576  ->  context_length = 1048576
+    ABSENT n_group = 1  ->  expert_group_count = null
+    ABSENT topk_group = 1  ->  expert_group_used_count = null
+    OK     vocab_size = 152576  ->  @vocab = {"tokens": 152576, "token_embd rows": 152576}
+  graph branches:
+    [tiny OK] moe.groups: group-limited routing (expert_group_count > 1)
+       real: ['no group step']  expert_group_count = None, used = None
+       tiny: default: ['no group step']
+       [ec7630a] src/llama-model.cpp:1334; src/llama-graph.cpp:2105
+       [79e2e74] src/llama-model.cpp:1362; src/llama-graph.cpp:2145
+    [tiny OK] moe.used_array: experts per token: one value or per layer
+       real: ['scalar']  expert_used_count = 8, expert_count = 256
+       tiny: default: ['scalar']
+       [ec7630a] src/llama-model.cpp:1333
+       [79e2e74] src/llama-model.cpp:1361
+    [tiny OK] mimo.swa_pattern: sliding-window / full-attention layers from the required pattern array
+       real: ['full-attention layers', 'sliding-window layers']  window 128; full-attention trunk layers [0, 5, 11, 17, 23, 29, 35, 41, 47]; sliding-window 39 of 48; pattern entries of the MTP layers [1, 1, 1]; pattern length 51, block_count 51
+       tiny: default: ['full-attention layers', 'sliding-window layers']
+       [ec7630a] src/models/mimo2.cpp:12; src/models/mimo2.cpp:9
+       [79e2e74] src/models/mimo2.cpp:12; src/models/mimo2.cpp:9
+    [tiny OK] mimo.kv_heads: KV heads per layer (full and sliding-window layers differ)
+       real: ['per-layer KV heads, full != SWA']  head_count 64; KV heads by trunk layer kind {'full': [4], 'SWA': [8]}; MTP layers [8, 8, 8]
+       tiny: default: ['per-layer KV heads, full != SWA']
+       [ec7630a] src/llama-model.cpp:1404; src/models/mimo2.cpp:114,288
+       [79e2e74] src/llama-model.cpp:1432; src/models/mimo2.cpp:106,279
+    [tiny OK] mimo.head_dims: K and V head dims (key_length / value_length)
+       real: ['K head dim != V head dim']  key_length 192, value_length 128, key_length_swa None, value_length_swa None
+       tiny: default: ['K head dim != V head dim']
+       [ec7630a] src/llama-model.cpp:1443; src/models/mimo2.cpp:135,335
+       [79e2e74] src/llama-model.cpp:1471; src/models/mimo2.cpp:127,326
+    [tiny OK] mimo.rope: partial rotary and the two freq bases (full layers / SWA layers)
+       real: ['own SWA freq base (rope.freq_base_swa)', 'partial rotary (n_rot < K head dim)']  rope.dimension_count 64, key_length 192, freq_base 10000000.0, freq_base_swa 10000.0
+       tiny: default: ['own SWA freq base (rope.freq_base_swa)', 'partial rotary (n_rot < K head dim)']
+       [ec7630a] src/models/mimo2.cpp:10; src/llama-model.cpp:2330; src/llama-hparams.h:151
+       [79e2e74] src/models/mimo2.cpp:10; src/llama-model.cpp:2362; src/llama-hparams.h:154
+    [NOT IN TINY] mimo.value_scale: attn_out scaled by attention.value_scale (read only if != 1)
+       real: ['attn_out x value_scale']  attention.value_scale = 0.7070000171661377
+       tiny: default: ['no value scale']
+       [ec7630a] src/models/mimo2.cpp:15; src/models/mimo2.cpp:183,365
+       [79e2e74] src/models/mimo2.cpp:15; src/models/mimo2.cpp:175,356
+    [NOT IN TINY] mimo.sinks: attention sinks per layer kind (attn_sinks is TENSOR_NOT_REQUIRED)
+       real: ['SWA layers with sinks', 'full layers without sinks']  trunk layers with attn_sinks: 1-4, 6-10, 12-16, 18-22, 24-28, 30-34, 36-40, 42-46 (39 of 48; full-attention layers among them []); MTP layers with attn_sinks: [48, 49, 50]
+       tiny: default: ['SWA layers with sinks', 'full layers with sinks']
+       [ec7630a] src/models/mimo2.cpp:57; src/models/mimo2.cpp:175
+       [79e2e74] src/models/mimo2.cpp:51; src/models/mimo2.cpp:167
+    [NOT IN TINY] mimo.qkv: attention projections: fused attn_qkv or split attn_q/k/v
+       real: ['fused attn_qkv']  
+       tiny: default: ['split attn_q/k/v']
+       [ec7630a] src/models/mimo2.cpp:129
+       [79e2e74] src/models/mimo2.cpp:121
+    [tiny OK] mimo.ffn: dense FFN (no ffn_gate_inp) or MoE with sigmoid + bias routing
+       real: ['MoE (sigmoid + exp_probs_b, renormalised top-k)', 'dense FFN']  dense trunk layers [0]; expert_count 256, used 8, expert width 2048, dense width 16384
+       tiny: default: ['MoE (sigmoid + exp_probs_b, renormalised top-k)', 'dense FFN']
+       [ec7630a] src/models/mimo2.cpp:202; src/models/mimo2.cpp:222
+       [79e2e74] src/models/mimo2.cpp:194; src/models/mimo2.cpp:214
+    [NOT IN TINY] mimo.mtp: MTP (NextN) layers: count; graph_mtp runs layer n_layer + nextn_layer_offset
+       real: ['nextn_predict_layers 3']  blk.48: 12 tensors, nextn ['nextn.eh_proj.weight', 'nextn.enorm.weight', 'nextn.hnorm.weight', 'nextn.shared_head_norm.weight'], other ['attn_norm.weight', 'attn_output.weight', 'attn_qkv.weight', 'attn_sinks.weight', 'ffn_down.weight', 'ffn_gate.weight', 'ffn_norm.weight', 'ffn_up.weight']; blk.49: 12 tensors, nextn ['nextn.eh_proj.weight', 'nextn.enorm.weight', 'nextn.hnorm.weight', 'nextn.shared_head_norm.weight'], other ['attn_norm.weight', 'attn_output.weight', 'attn_qkv.weight', 'attn_sinks.weight', 'ffn_down.weight', 'ffn_gate.weight', 'ffn_norm.weight', 'ffn_up.weight']; blk.50: 12 tensors, nextn ['nextn.eh_proj.weight', 'nextn.enorm.weight', 'nextn.hnorm.weight', 'nextn.shared_head_norm.weight'], other ['attn_norm.weight', 'attn_output.weight', 'attn_qkv.weight', 'attn_sinks.weight', 'ffn_down.weight', 'ffn_gate.weight', 'ffn_norm.weight', 'ffn_up.weight']
+       tiny: default: ['nextn_predict_layers 0']
+       [ec7630a] src/models/mimo2.cpp:276; src/models/mimo2.cpp:278
+       [79e2e74] src/models/mimo2.cpp:267; src/models/mimo2.cpp:269
+    [NOT IN TINY] mimo.mtp_block: what graph_mtp asserts of an MTP layer: fused attn_qkv and a dense FFN
+       real: ['MTP layer with a dense FFN', 'MTP layer with fused attn_qkv']  
+       tiny: default: ['no MTP layers']
+       [ec7630a] src/models/mimo2.cpp:285; src/models/mimo2.cpp:375
+       [79e2e74] src/models/mimo2.cpp:276; src/models/mimo2.cpp:366
+    [NOT IN TINY] mimo.mtp_head: MTP embedding / head / head norm: own NextN tensors or the fallbacks
+       real: ['head norm nextn.shared_head_norm', 'trunk output head', 'trunk token_embd']  
+       tiny: default: ['no MTP tensors']
+       [ec7630a] src/models/mimo2.cpp:303; src/models/mimo2.cpp:394; src/models/mimo2.cpp:399
+       [79e2e74] src/models/mimo2.cpp:294; src/models/mimo2.cpp:385; src/models/mimo2.cpp:390
+    [NOT IN TINY] mimo.file_layout: trunk + MTP, MTP-only or trunk-only file (loader flags)
+       real: ['trunk + MTP in one file']  
+       tiny: default: ['trunk only (no nextn_predict_layers)']
+       [ec7630a] src/models/mimo2.cpp:28; not found
+       [79e2e74] not found; src/models/mimo2.cpp:28
+  keys read without a default (llama_model_base::load_hparams body, load_arch_hparams, the vocabulary):
+    [ec7630a] 8 required, missing in the file: []; none conditional
+    [79e2e74] 8 required, missing in the file: []; none conditional
+  routed-expert types per projection (layers): {"ffn_down_exps": {"MXFP4": 47}, "ffn_gate_exps": {"MXFP4": 47}, "ffn_up_exps": {"MXFP4": 47}}
+
+(a) tools/gguf_quant_audit.py on the header-only shards (files total 169005098944 B = 157.398 GiB)
+  # MiMo-V2.6-Flash-MOPD-MXFP4.gguf (1 file(s)), architecture 'mimo2'
+  total 309.77B params, 157.39 GiB, 4.365 bpw
+    routed_experts   302.795B    149.81 GiB   4.250 bpw  [MXFP4 100.0%]
+    attention          4.766B      4.72 GiB   8.500 bpw  [Q8_0 100.0%, F32 0.0%]
+    dense_ffn          0.805B      0.80 GiB   8.500 bpw  [Q8_0 100.0%]
+    embedding          0.625B      1.16 GiB  16.000 bpw  [BF16 100.0%]
+    output_head        0.625B      0.62 GiB   8.500 bpw  [Q8_0 100.0%]
+    other              0.150B      0.28 GiB  16.273 bpw  [Q8_0 66.9%, F32 33.1%]
+  verdict: PASS (routed experts >= 4.0 bpw, non-expert matrices >= 4.0 bpw: 0 failing tensors, 0 warnings)
+(f) ADR-012 D5 floor (>= 4.0 bpw, routed experts and non-expert matrices): PASS; lowest-bpw matrices: blk.1.ffn_gate_exps.weight MXFP4 4.250, blk.1.ffn_up_exps.weight MXFP4 4.250, blk.1.ffn_down_exps.weight MXFP4 4.250, blk.2.ffn_gate_exps.weight MXFP4 4.250, blk.2.ffn_up_exps.weight MXFP4 4.250, blk.2.ffn_down_exps.weight MXFP4 4.250
+```
