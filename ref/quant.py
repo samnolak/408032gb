@@ -14,11 +14,11 @@ PLE table) and ggml_cast to F32 return exactly these values; the tests check tha
 
 Matrix products. ggml_compute_forward_mul_mat converts src1 (the f32 activations) row by row to the vec_dot_type of
 src0's type (C:1278-1279 vec_dot_type and its from_float, C:1360-1371 the conversion; mul_mat_id the same per
-token/slot row, C:1624, 1637) and then sums the products of weight blocks and activation blocks with integer dots
-scaled in f32. Exactly: sum over blocks of d_w d_a sum(q_w q_a) (minus the k-quant minimum terms), which is the dot
-product of the dequantized weight row with the dequantized activation row; only the f32 scaling and summation
-remain as rounding. So the oracle computes act_quant(x) @ W_deq.T in float64, with act_quant per vec_dot_type
-(type traits C:215-410):
+token/slot row, C:1631-1640 with the conversion at C:1637; C:1620-1629 is an #if 0 branch) and then sums the
+products of weight blocks and activation blocks with integer dots scaled in f32. Exactly: sum over blocks of
+d_w d_a sum(q_w q_a) (minus the k-quant minimum terms), which is the dot product of the dequantized weight row with
+the dequantized activation row; only the f32 scaling and summation remain as rounding. So the oracle computes
+act_quant(x) @ W_deq.T in float64, with act_quant per vec_dot_type (type traits C:215-410):
   F32                                   -> F32 (C:219): no conversion
   F16 (C:222-226)                       -> F16: ggml_cpu_fp32_to_fp16, round to nearest even (C:3480-3493)
   Q8_0, Q4_0, Q5_0, IQ4_NL, MXFP4       -> Q8_0 (C:275, 243, 263, 383, 290): quantize_row_q8_0, the AVX2 version
