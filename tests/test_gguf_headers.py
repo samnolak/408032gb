@@ -646,5 +646,154 @@ class Workflow(unittest.TestCase):
         self.assertEqual(self.text.count("HEAD:"), 1)
 
 
+# ------------------------------------------------------------------------------------------------ analyzer
+
+import analyze as A  # noqa: E402
+import branches as B  # noqa: E402
+
+GLM_TEMPLATE = os.path.join(ROOT, "third_party", "hf", "glm-5.3-flash-chat", "chat_template.jinja")
+
+
+def _src_pins():
+    """llama.cpp checkouts at the two pins, when available: the CI pin from LLAMA_CPP_GGUF_PY's checkout, the R1 pin
+    from LLAMA_CPP_SRC_79E2E74. Only checkouts whose HEAD is the pin are returned."""
+    want = {"ec7630a": ("ec7630a640789c393694fb194f1bbbf0369fc62d",
+                        os.path.dirname(os.path.abspath(GGUF_PY)) if GGUF_PY else None),
+            "79e2e74": ("79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6", os.environ.get("LLAMA_CPP_SRC_79E2E74"))}
+    return {n: p for n, (sha, p) in want.items() if p and A.git_head(p) == sha}
+
+
+class Analyzer(HubCase):
+    def fetch_model(self, name, shards, analysis, n=None):
+        files = {f"Q/{name}-0000{i + 1}-of-0000{len(shards)}.gguf": b for i, (b, _) in enumerate(shards)}
+        self.hub.add(f"org/{name}", files)
+        p = self.request(name, repo=f"org/{name}", files=[f"*{name}-*.gguf"], expect_count=len(shards),
+                         analysis=analysis)
+        rc, out = self.run_fetch(p)
+        self.assertEqual(rc, 0, out)
+        return self.dest(p)
+
+    def analyze(self, *args):
+        out = io.StringIO()
+        js = os.path.join(self.tmp, "a.json")
+        with contextlib.redirect_stdout(out):
+            rc = A.main(["--root", os.path.join(self.tmp, "out"), "--json", js, *args])
+        with open(js) as f:
+            return rc, out.getvalue(), json.load(f)["results"]
+
+    def glm_like(self, template, groups=(1, 1)):
+        with open(GLM_TEMPLATE, encoding="utf-8") as f:
+            tmpl = f.read() if template is None else template
+        kv = arch_kv(extra=[("glm5next.expert_group_used_count", G.T_UINT32, groups[1]),
+                            ("tokenizer.ggml.model", G.T_STRING, "gpt2"), ("tokenizer.ggml.pre", G.T_STRING, "glm4"),
+                            ("tokenizer.ggml.tokens", G.T_ARRAY, (G.T_STRING, ["a", "b", "c"])),
+                            ("tokenizer.ggml.eos_token_id", G.T_UINT32, 2),
+                            ("tokenizer.chat_template", G.T_STRING, tmpl)])
+        kv = [e if e[0] != "glm5next.expert_group_count" else (e[0], e[1], groups[0]) for e in kv]
+        split = lambda i: [("split.no", G.T_UINT16, i), ("split.count", G.T_UINT16, 2),  # noqa: E731
+                           ("split.tensors.count", G.T_INT32, len(TENSORS))]
+        return [make_gguf(kv + split(0), TENSORS[:3], seed=4),
+                make_gguf([("general.architecture", G.T_STRING, "glm5next")] + split(1), TENSORS[3:], seed=5)]
+
+    def test_template_groups_identity_and_audit(self):
+        an = {"graph": "glm5-next", "hf_chat_template": os.path.relpath(GLM_TEMPLATE, ROOT)}
+        shards = self.glm_like(None)
+        self.fetch_model("GLMa", shards, an)
+        with open(GLM_TEMPLATE, encoding="utf-8") as f:
+            changed = "{# changed #}" + f.read()
+        self.fetch_model("GLMb", self.glm_like(changed, groups=(8, 4)), an)
+        rc, out, res = self.analyze(*sum((["--src", f"{k}={v}"] for k, v in _src_pins().items()), []))
+        self.assertEqual(rc, 0, out)
+        a, b = res["GLMa"], res["GLMb"]
+        self.assertEqual([ok for _, ok in a["integrity"]], [True, True])
+        self.assertTrue(a["chat_template"]["byte_equal"])
+        self.assertIn("BYTE-EQUAL", out)
+        self.assertFalse(b["chat_template"]["byte_equal"])
+        self.assertEqual(b["chat_template"]["first_difference_at_byte"], 0)
+        self.assertEqual((a["groups"]["expert_group_count"], a["groups"]["expert_group_used_count"]), (1, 1))
+        self.assertIn("no group step", a["groups"]["llama.cpp"])
+        self.assertIn("group-limited", b["groups"]["llama.cpp"])
+        ident = a["identity"]["identity"]
+        self.assertEqual((ident["architecture"], ident["tokenizer.ggml.pre"], ident["vocab (tokenizer.ggml.tokens)"]),
+                         ("glm5next", "glm4", 3))
+        # the audit of the rebuilt header-only shards equals the audit of the full files
+        d = os.path.join(self.tmp, "full")
+        os.makedirs(d)
+        for i, (bb, _) in enumerate(shards):
+            with open(os.path.join(d, f"GLMa-0000{i + 1}-of-00002.gguf"), "wb") as f:
+                f.write(bb)
+        full = QA.audit(os.path.join(d, "GLMa-00001-of-00002.gguf"))
+        self.assertEqual((a["audit"]["verdict"], a["audit"]["classes"]), (full["verdict"], json.loads(
+            json.dumps(full["classes"]))))
+        self.assertEqual(a["audit"]["lowest_bpw_matrices"][0]["type"], "Q4_K")
+        for pin in _src_pins():
+            sup = a["identity"]["support"][pin]
+            self.assertEqual(sup["arch glm5next"], "not found")          # neither pin knows glm5next
+            self.assertRegex(sup["pre-tokenizer glm4"], r"^src/llama-vocab\.cpp:\d+")
+
+    def test_integrity_failure_is_reported(self):
+        d = self.fetch_model("GLMc", self.glm_like(None), {})
+        s = os.path.join(d, "GLMc-00001-of-00002.gguf.summary.json")
+        with open(s) as f:
+            txt = f.read()
+        with open(s, "w") as f:
+            f.write(txt.replace('"glm5next"', '"glm5-next"', 1))
+        rc, out, res = self.analyze()
+        self.assertEqual(rc, 1)
+        self.assertEqual([ok for _, ok in res["GLMc"]["integrity"]], [False, True])
+
+    def test_pending_and_unavailable_requests(self):
+        p = self.request("gone", repo="nobody/X", files=["*.gguf"], expect_count=1)
+        self.assertEqual(self.run_fetch(p)[0], 0)
+        os.makedirs(os.path.join(self.tmp, "out", "later"))
+        rc, out, res = self.analyze()
+        self.assertEqual(rc, 0)
+        self.assertEqual(res["gone"]["status"], "repo_unavailable")
+        self.assertTrue(res["later"]["status"].startswith("PENDING"))
+
+    @unittest.skipUnless(GGUF_PY and HAVE_NUMPY, "set LLAMA_CPP_GGUF_PY=<llama.cpp>/gguf-py (and install numpy)")
+    def test_tiny_models_exercise_their_own_branches(self):
+        sys.path.insert(0, GGUF_PY)
+        sys.path.insert(0, os.path.join(ROOT, "tools", "tinygen"))
+        glm, qwen = importlib.import_module("glm5next_tiny"), importlib.import_module("qwen4exp_tiny")
+        paths = {}
+        for name, mod, kw, arch in (("glm", glm, {"mtp": True, "dialect": "ik"}, "glm5next"),
+                                    ("qwen", qwen, {"mtp": True}, None)):
+            paths[name] = os.path.join(self.tmp, f"{name}.gguf")
+            saved = mod.ARCH
+            mod.ARCH = arch or saved
+            try:
+                mod.build(paths[name], cfg=dict(mod.DEFAULT, **({"n_layer": 12} if name == "glm" else {})), **kw)
+            finally:
+                mod.ARCH = saved
+            with open(paths[name], "rb") as f:
+                self.fetch_model(name, [(f.read(), None)], {"graph": "glm5-next" if name == "glm" else "qwen4exp",
+                                                            "tiny": "glm5next" if name == "glm" else "qwen4exp"})
+        rc, out, res = self.analyze(*sum((["--src", f"{k}={v}"] for k, v in _src_pins().items()), []))
+        self.assertEqual(rc, 0, out)
+        for name, graph in (("glm", "glm5-next"), ("qwen", "qwen4exp")):
+            br = res[name]["branches"]
+            self.assertEqual({b["id"] for b in br}, {p.id for p in B.PROBES if graph in p.graphs})
+            self.assertEqual([b["id"] for b in br if not b["exercised_by_tiny"]], [], out)
+            keys = {row["key"] for row in res[name]["hparams"]}
+            self.assertIn("block_count", keys)
+            self.assertIsNone(res[name]["tiny_note"])
+        self.assertIn("tiny OK", out)
+
+
+@unittest.skipUnless(_src_pins(), "llama.cpp sources at the pins: LLAMA_CPP_GGUF_PY's checkout at ec7630a and/or "
+                                  "LLAMA_CPP_SRC_79E2E74")
+class BranchAnchors(unittest.TestCase):
+    def test_every_anchor_is_where_its_pins_say(self):
+        bad = []
+        for pin, root in _src_pins().items():
+            for p in B.PROBES:
+                for rel, needle, pins in p.anchors:
+                    hits = A.locate(root, rel, needle)
+                    if bool(hits) != (pin in pins):
+                        bad.append((p.id, pin, rel, needle, hits))
+        self.assertEqual(bad, [])
+
+
 if __name__ == "__main__":
     unittest.main()
