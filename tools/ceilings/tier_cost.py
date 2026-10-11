@@ -75,7 +75,7 @@ class HW:
     L_p: float = 10e-6             # per-copy latency
     n_links_free: int = 1          # links able to deliver prefetch into this layer's GPU (no P2P: 1)
     B_s_drive: float = 7.45e9 * 0.6  # one NVMe, large O_DIRECT reads (vendor 7.45 GB/s x 0.6, PROVISIONAL)
-    n_drives: int = 4              # customer spec 2026-10-10: 4 x 1 TB (hardware/4x4080s-32g.json still lists 3)
+    n_drives: int = 4              # customer spec 2026-10-10: 4 x 1 TB, planned (hardware/4x4080s-32g.json since N24); count UNKNOWN until R0
     L_s: float = 80e-6             # service time of one random read at moderate queue depth in a VM (HYPOTHESIS)
     iops_drive: float = 1.0e6      # 4 KiB random-read IOPS per drive at high QD (vendor 1.2M at QD32, PROVISIONAL)
     gamma_mt: float = 0.2          # extra CPU compute per extra token sharing an expert (Strata, REPORTED 2.0-2.4x/3)
