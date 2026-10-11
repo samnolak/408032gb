@@ -14,7 +14,7 @@
 | C | Memory & Offload Research | СДЕЛАНО: R7 (KV/длинный контекст), R8 (ярусы, предсказание), модель затрат слоя с анализом чувствительности, перепроверка R11, N8 (персистентность сессий) | `research/R7…R8`, `tools/ceilings/tier_cost.py`, `docs/evidence/2026-10-10-tier-cost-model.md`, PR #4 |
 | D | Architecture Alternatives | СДЕЛАНО: шесть архитектур A–F, потолки с калибровкой по трём чужим замерам, go/no-go; два аудита (4 FAIL + 7 MINOR исправлены, повторная проверка — все исправлены) | `ARCHITECTURE-ALTERNATIVES.md` |
 | E | Engineering Experiments | СДЕЛАНО на CPU (ниже, раздел 2), включая трассы маршрутизации двух реальных прокси-моделей (`traces-real`) | evidence 2026-10-10-* |
-| F | Correctness Infrastructure | СДЕЛАНО: уровни 1–3 — 12 + 9 + 6 проверок, уровни 4–6 — NOT RUN; 37 проверок, ждущих GPU/сервер (B1–B37); закрыты на CPU пробелы 1 (паритет на пине R1), 4 (декод, откат, MTP для GLM — N9, PR #5), 3 (f16 KV + flash attention) и 2 (веса Q8_0/Q4_K_M) — N10, PR #6 | `CORRECTNESS.md`, `docs/evidence/2026-10-10-parity-r1-pin.md` |
+| F | Correctness Infrastructure | СДЕЛАНО: уровни 1–3 — 12 + 9 + 6 проверок, уровни 4–6 — NOT RUN; 37 проверок, ждущих GPU/сервер (B1–B37); закрыты на CPU пробелы 1 (паритет на пине R1), 4 (декод, откат, MTP для GLM — N9, PR #5), 3 (f16 KV + flash attention) и 2 (веса Q8_0/Q4_K_M) — N10, PR #6; 7 (инструменты замеров против настоящего сервера) — N11, PR #7 | `CORRECTNESS.md`, `docs/evidence/2026-10-10-parity-r1-pin.md` |
 | G | Offline Deployment Readiness | ведёт сессия PR #1: офлайн-набор движков, сборки ExLlamaV3 sm_89 из набора без сети, резервные бандлы | `docs/evidence/2026-10-10-offline-engine-kit.md`, `…-backup-bundle.md` (PR #1) |
 | H | Updated Project State | этот файл + абзацы N7/N8 в `PROJECT_STATE.md` (ветки N7/N8) | — |
 | I | Published GitHub State | раздел 6 | — |
@@ -44,6 +44,17 @@
   файла Qwen3.8-Flash-Next UNKNOWN. Трасса прогона N7 исправила его находку 7 (см. выше); первая смена токена совпадает
   с переворотом MoE на почти-ничьей (PROVISIONAL). Три раунда аудита. Модели крошечные, CPU.
   `docs/evidence/2026-10-10-quant-fa-parity.md` (ветка N10).
+* **N11** (PR #7): инструменты замеров R1 (`run_r1.py` с шаблоном `llamacpp-server.json`, `run_matrix.py`, `probes.py`,
+  `logprob_compare.py`, `slot_persist.py`, шлюз) впервые прогнаны против настоящего llama-server `79e2e74` на CPU
+  (крошечные модели со словарём для текста). Найдены и исправлены 4 ошибки и 1 путь ложного PASS в инструментах PR #1
+  (каждая — с тестом, падающим до исправления): `logprob_compare` не читал формат log-prob llama-server (падал на каждом
+  префиксе), «холодные» запросы `run_matrix` повторялись между прогонами и брались из кэша (1019 из 1023 токенов),
+  `run_r1` не создавал `artifacts/quality/` (V6 не мог получиться), `slot_persist` сравнивал декодированный текст.
+  Сессия PR #1 перенесла исправления в свою ветку (`cherry-pick -x`, голова `4541e75`). Смоук 23/23 в CI `server-cpu`.
+  Решения владельца (не менялись): вердикт pack на синтетической модели за настоящим движком — FAIL, а не NOT RUN, и
+  `quant_min_bpw` PASS на F32-файле; llama-server не отдаёт log-prob для токена с неполной UTF-8 последовательностью
+  (30–34 из 200 префиксов на случайных весах) — V6 с нулевым допуском даёт NOT RUN.
+  `docs/evidence/2026-10-11-n11-r1-tools-cpu-server.md` (ветка N11).
 * **Трассы маршрутизации на реальных моделях:** инструменты не писали трассу для графов, где последний слой оставляет
   только выходные строки (qwen3moe, deepseek2); исправлено, проверено на крошечной qwen3moe и в CI.
   `docs/evidence/2026-10-10-traces-real-fix.md`.
@@ -97,8 +108,9 @@
 * Трассы прокси-моделей сняты и разобраны (раздел 2). Следующее по трассам: R9 M1 — трассы самой GLM-5.3-Flash на
   агентных промптах 32K–128K (хост 3090 или сервер); сохранять файлы `.probe` в следующем прогоне CI, чтобы измерить
   recall предсказателей именно на промахах кэша (сейчас UNKNOWN); генерации длиннее 128 токенов.
-* Пробелы корректности на CPU (CORRECTNESS §3): 1–4 закрыты (N9, N10); остаются диалект `glm5next`/ik_llama.cpp (5),
-  шаблоны чата (6), инструменты против настоящего сервера (7), MXFP4/MiMo (12) и др.; на GPU — всё уровня 4–6.
+* Пробелы корректности на CPU (CORRECTNESS §3): 1–4 и 7 закрыты (N9, N10, N11); остаются диалект `glm5next`/ik_llama.cpp
+  (5), шаблоны чата (6), MXFP4/MiMo (12) и др.; на GPU — всё уровня 4–6.
+* Решения владельца из N11 (вердикт pack на синтетике, допуск ошибок V6) — в списке решений PR #1.
 * Без железа нельзя: всё уровня 4–6 (исполнение CUDA, производительность), held-out трассы GLM-5.3-Flash, P2P, DRAM.
 * **Следующий шаг при доступе к серверу (по ARCHITECTURE-ALTERNATIVES §6):** R0 — каналы DRAM, P2P в ВМ и задержка
   all-reduce, скорость AVX2-ядра экспертов Q4_K на ядро Zen 3, число NVMe; затем held-out трассы GLM на агентных сессиях
@@ -116,20 +128,23 @@
 | #4 | `claude/n8-session-store` | PR #2 | N8 |
 | #5 | `claude/n9-glm-decode-parity` | PR #3 | N9: паритет glm5-next — декод, откат, MTP на двух пинах |
 | #6 | `claude/n10-quant-fa-parity` | PR #5 | N10: паритет при f16 KV + flash attention и на квантованных весах |
+| #7 | `claude/n11-r1-tools-cpu-server` | PR #2 | N11: инструменты замеров R1 против настоящего llama-server на CPU |
 
 Головы в `origin` перед последним изменением этого файла (CONFIRMED, литеральный вывод; голова
 `claude/research-landscape` после коммита — в описании PR #3):
 
 ```
 $ git ls-remote origin 'refs/heads/claude/*' 'refs/heads/main'
-fbe726aa8c27110639563047c0d57e32481c57f0	refs/heads/claude/n10-quant-fa-parity
+0d4d582209f41ed8131cb49525aa3a08290cb90a	refs/heads/claude/n10-quant-fa-parity
+6680448bd3ab2091f7e9e73af143f4789328141c	refs/heads/claude/n11-r1-tools-cpu-server
 c2f6c912c00bec0c83ce301784ab2068dd36f1c2	refs/heads/claude/n7-server-hybrid-cpu
 c4c9015dbc278ec6be980be44f1864761a4f4edf	refs/heads/claude/n8-session-store
 af4db13f43f7027f20effb5401affcd0ca365a93	refs/heads/claude/n9-glm-decode-parity
-259081e2a85291660d45349dbf52ba587a900d20	refs/heads/claude/relaxed-dijkstra-1d7i5o
-5af53e098a8a14a861915f441d9dd35391f2125c	refs/heads/claude/research-landscape
+4541e7545cf192bfeca96cf2fd550630899f85eb	refs/heads/claude/relaxed-dijkstra-1d7i5o
+fd206baf56f7ebba00cdc9510fd258395cc6a9bd	refs/heads/claude/research-landscape
 eb59224c835581740a715ddcaa9abe101f90aa2f	refs/heads/main
 ```
 
-CI на этих головах (GitHub Actions): PR #2 `c2f6c91` — 14/14 зелёные; PR #3 `5af53e0` — 13/13 зелёные; PR #4 `c4c9015`
-(merge-коммит с исправлением N7) — 14/14 зелёные; PR #5 `af4db13` — зелёный; PR #6 `fbe726a` — 14/14 зелёные.
+CI на этих головах (GitHub Actions): PR #2 `c2f6c91` — 14/14 зелёные; PR #3 `fd206ba` — зелёный; PR #4 `c4c9015` —
+14/14 зелёные; PR #5 `af4db13` — зелёный; PR #6 `0d4d582` — mergeable_state clean; PR #7 `6680448` — 14/14 зелёные. PR #1
+(`4541e75`) ведёт другая сессия.
