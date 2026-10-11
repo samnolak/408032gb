@@ -956,7 +956,7 @@ gammas are 2-D with a width divisible by 32 and no `--tensor-type` override is u
 |---|---|
 | oracle of the quantized products | ref/quant.py: `QWeight` (a non-F32 GGUF tensor, dequantized; `x @ w.T` / `w @ x` apply `act_quant`, gathers and `np.asarray` read the dequantized values), `act_quant` (F16, Q8_0 as the AVX2 build, Q8_K; Q8_1 raises), `q8_0`, `q8_K`, `load`, `flip_bound` (bound for an input the test recomputes); ref/qwen4exp.py and ref/glm5next.py write every product as `w.T` (numerically unchanged for F32 arrays) |
 | generators | tools/tinygen/qwen4exp_tiny.py `--quant-dims` (n_embd 256, head_dim 64, ssm_state 64, FFN widths 256), tools/tinygen/glm5next_tiny.py `--quant-dims` (n_embd 256, KDA head_dim 64, q_lora 256, v_mla 64, FFN widths 256): every input width llama-quantize may quantize a multiple of 256; default outputs byte-identical (sha256 before / after, both generators, default, `--mtp`, `--seed 3`; glm5next also `--arch glm5next`) |
-| build | tools/g0/CMakeLists.txt adds the pinned checkout's tools/quantize (`EXCLUDE_FROM_ALL`): `llama-quantize` of the same pin, linked to the same libraries as `dump-tensors` |
+| build | tools/g0/CMakeLists.txt adds the pinned checkout's tools/quantize when configured with `-DG0_QUANTIZE=ON` (the driver passes it; `EXCLUDE_FROM_ALL`): `llama-quantize` of the same pin, linked to the same libraries as `dump-tensors`; the other users of tools/g0 configure as before |
 | driver | tools/tinygen/run_parity_quant.sh |
 | tests | tests/test_qwen4exp_quant_parity.py (with the shared `_QuantOpsBase`), tests/test_glm5next_quant_parity.py, tests/test_quant_ref.py (11 property tests, numpy only, in the CI unit step) |
 | mutation check, probes | docs/evidence/mutation-scripts/2026-10-10-n10-quant.py; 2026-10-10-n10-quant-e2e-probe.py, -quant-types.py, -quant-dumpdiff.py, -quant-abort-probe.sh, -quant-summary.py |
@@ -2480,4 +2480,34 @@ OK
 $ tools/tinygen/run_parity_glm5next_decode.sh <llama-ec7630a> <scratch>/n10/build-ec 2>&1 | grep -E "^(Ran|OK|FAILED)"
 Ran 52 tests in 5.630s
 OK (skipped=1)
+```
+
+The driver once more after `llama-quantize` became opt-in in tools/g0 (`6585325`; same build directories, the cache now
+holds `G0_QUANTIZE:BOOL=ON`), and the ec7630a tables against those of the first run (header line removed: `diff`
+printed nothing):
+
+```
+ec: Ran 99 tests in 42.727s OK real 0m58.491s
+G0_QUANTIZE:BOOL=ON
+r1: Ran 99 tests in 41.696s OK real 0m56.627s
+G0_QUANTIZE:BOOL=ON
+ec tables identical to the earlier run
+```
+
+Every other driver once more on `6585325` (a configure of tools/g0 without `-DG0_QUANTIZE` succeeds as well: rc=0, no
+`llama-quantize` target in the generated Makefile), `rc` and the `grep -E "^(Ran|OK|FAILED)|^real"` lines of each log:
+
+```
+ec run_parity.sh: rc=0 Ran 9 tests in 0.391s OK real 0m1.787s 
+ec run_parity_mimo.sh: rc=0 Ran 5 tests in 0.071s OK real 0m1.165s 
+ec run_parity_qwen4exp.sh: rc=0 Ran 17 tests in 0.303s OK real 0m1.584s 
+ec run_parity_qwen4exp_decode.sh: rc=0 Ran 54 tests in 3.162s OK real 0m9.544s 
+ec run_parity_glm5next_decode.sh: rc=0 Ran 52 tests in 5.674s OK (skipped=1) real 0m17.156s 
+ec run_parity_f16fa.sh: rc=0 Ran 170 tests in 21.287s OK real 0m44.931s 
+r1 run_parity.sh: rc=0 Ran 9 tests in 0.457s OK real 0m1.954s 
+r1 run_parity_mimo.sh: rc=0 Ran 5 tests in 0.087s OK real 0m1.288s 
+r1 run_parity_qwen4exp.sh: rc=0 Ran 17 tests in 0.311s OK real 0m1.569s 
+r1 run_parity_qwen4exp_decode.sh: rc=0 Ran 54 tests in 3.210s OK real 0m17.691s 
+r1 run_parity_glm5next_decode.sh: rc=0 Ran 58 tests in 5.445s OK real 0m17.412s 
+r1 run_parity_f16fa.sh: rc=0 Ran 170 tests in 19.988s OK real 0m28.136s 
 ```
