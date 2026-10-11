@@ -160,8 +160,8 @@ class FakeHub:
         self.httpd.shutdown()
         self.httpd.server_close()
 
-    def add(self, repo, files, sha=SHA):
-        self.repos[repo] = {"sha": sha, "files": dict(files)}
+    def add(self, repo, files, sha=SHA, gguf=None):
+        self.repos[repo] = {"sha": sha, "files": dict(files), "gguf": gguf}
 
     def blobs(self):
         return {hashlib.sha256(b).hexdigest(): b for r in self.repos.values() for b in r["files"].values()}
@@ -178,7 +178,8 @@ class FakeHub:
             r = self.repos.get(m.group(1))
             if r is None:
                 return h.send(self.status_missing, b'{"error":"Repository not found"}')
-            return j({"id": m.group(1), "sha": r["sha"], "gated": False, "tags": ["gguf", "license:mit"]})
+            return j({"id": m.group(1), "sha": r["sha"], "gated": False, "tags": ["gguf", "license:mit"],
+                      **({"gguf": r["gguf"]} if r.get("gguf") else {})})
         m = re.fullmatch(r"/api/models/([^/]+/[^/]+)/tree/([0-9a-f]{40})", u.path)
         if m:
             r = self.repos[m.group(1)]
@@ -582,6 +583,63 @@ class Fetch(HubCase):
         self.assertEqual(self.hub.bytes_sent(), 0)
         self.assertFalse(any("/resolve/" in x[0] for x in self.hub.log))
         self.assertTrue(all("expand=gguf" in x[0] for x in self.hub.log if x[0].startswith("/api/models?")))
+
+    def test_discover_lists_named_repos_and_reads_no_file(self):
+        """N18: a discover request may name repos; each is pinned like a headers request and its .gguf paths are
+        listed with size and LFS sha256, before (and not again by) the searches; a missing repo is recorded."""
+        sha2 = "89abcdef0123456789abcdef0123456789abcdef"
+        self.hub.add("org/MiMo-V2.6-Flash-MOPD-GGUF", {"Q4_K/m-00001-of-00002.gguf": b"GGUF1",
+                                                        "Q4_K/m-00002-of-00002.gguf": b"GGUF22",
+                                                        "mtp-m-Q8_0.gguf": b"GGUF333", "README.md": b"x"},
+                     sha=sha2, gguf={"architecture": "mimo2", "total": 7, "chat_template": "t"})
+        self.hub.search = [{"id": "org/MiMo-V2.6-Flash-MOPD-GGUF", "sha": sha2, "gguf": {"architecture": "mimo2"}},
+                           {"id": "org/M-GGUF", "sha": SHA, "gguf": {"architecture": "mimo2"}}]
+        self.hub.status_missing = 404
+        p = self.request("dn", kind="discover", list_files=True,
+                         repos=[{"repo": "org/MiMo-V2.6-Flash-MOPD-GGUF", "revision": sha2},
+                                {"repo": "org/M-GGUF"}, {"repo": "nobody/MiMo-GGUF", "revision": "main"}],
+                         searches=[{"search": "GGUF", "architectures": ["mimo2"]}])
+        rc, out = self.run_fetch(p)
+        self.assertEqual(rc, 0, out)
+        lst = self.load(p, "LISTING.json")
+        a, b, c = lst["repos"]
+        self.assertEqual((a["status"], a["revision"], a["gguf_architecture"]), ("ok", sha2, "mimo2"))
+        self.assertEqual(a["gguf_chat_template_sha256"], hashlib.sha256(b"t").hexdigest())
+        self.assertEqual(a["gguf_files"], [
+            {"path": "Q4_K/m-00001-of-00002.gguf", "size": 5, "lfs_sha256": hashlib.sha256(b"GGUF1").hexdigest()},
+            {"path": "Q4_K/m-00002-of-00002.gguf", "size": 6, "lfs_sha256": hashlib.sha256(b"GGUF22").hexdigest()},
+            {"path": "mtp-m-Q8_0.gguf", "size": 7, "lfs_sha256": hashlib.sha256(b"GGUF333").hexdigest()}])
+        self.assertEqual((b["status"], b["revision"], b["requested_revision"], len(b["gguf_files"])),
+                         ("ok", SHA, "main", 4))
+        self.assertEqual((c["status"], c["http_status"], c["revision"]), ("repo_unavailable", 404, None))
+        # the search still reports both matches, but lists the files of neither again
+        (s,) = lst["searches"]
+        self.assertEqual([r["id"] for r in s["results"]], ["org/MiMo-V2.6-Flash-MOPD-GGUF", "org/M-GGUF"])
+        self.assertTrue(all(r["arch_match"] and "gguf_files" not in r for r in s["results"]))
+        self.assertEqual(sum(1 for x in self.hub.log if "/tree/" in x[0] and "MiMo" in x[0] and "cursor=" not in x[0]),
+                         1)                                         # one listing (first pages only; pages of 3)
+        self.assertEqual(self.hub.bytes_sent(), 0)
+        self.assertFalse(any("/resolve/" in x[0] for x in self.hub.log))
+        rc, out = self.run_fetch(self.request("dp", kind="discover", repos=[{"repo": "org/M-GGUF"}]), plan=True)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("discover, 0 searches, 1 named repos, reads no file", out)
+
+    def test_discover_named_repo_revision_is_pinned_and_requests_are_checked(self):
+        self.hub.add("org/M-GGUF", {"a.gguf": b"GGUF"})
+        p = self.request("dx", kind="discover", repos=[{"repo": "org/M-GGUF", "revision": "f" * 40}])
+        rc, out = self.run_fetch(p)
+        self.assertEqual(rc, 1)
+        self.assertIn("the hub answered", self.load(p, "ERROR.json")["error"])
+        for bad in ({"kind": "discover"}, {"kind": "discover", "repos": []},
+                    {"kind": "discover", "repos": [{"repo": "no-slash"}]},
+                    {"kind": "discover", "repos": [{"repo": "a/b", "revision": "dev"}]},
+                    {"kind": "discover", "repos": [{"repo": "a/b"}, {"repo": "a/b"}]},
+                    {"kind": "discover", "repos": [{"repo": f"a/b{i}"} for i in range(F.MAX_LISTED_REPOS + 1)]}):
+            n = len(self.hub.log)
+            rc, out = self.run_fetch(self.request("bad", **bad), plan=True)
+            self.assertEqual(rc, 1, (bad, out))
+            self.assertIn("::error::", out)
+            self.assertEqual(len(self.hub.log), n)
 
 
 # ------------------------------------------------------------------------------------------------ tinygen models

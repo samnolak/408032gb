@@ -9,9 +9,13 @@ upstream bytes, never typed by an agent: third_party/README.md; agents' Edit/Wri
     {"repo": "org/name", "revision": "main" | <40 hex>, "files": ["<fnmatch glob over the repo path>", ...],
      "expect_count": N, "max_header_bytes": <= 64 MiB (default 64 MiB), "initial_bytes": (default 1 MiB),
      "analysis": {...}  (read by tools/gguf_headers/analyze.py only)}
-  kind "discover" (lists repos through the Hub search API, reads no file):
+  kind "discover" (lists repos through the Hub search API and/or by name, reads no file):
     {"kind": "discover", "searches": [{"search": "GLM-5.3-Flash", "architectures": ["glm5-next", "glm5next"]}],
-     "limit": 100, "list_files": true}
+     "limit": 100, "list_files": true,
+     "repos": [{"repo": "org/name", "revision": "main" | <40 hex>}, ...]}   (searches and/or repos, at least one)
+    A named repo is pinned like a headers request (revision API; a 40-hex request must come back unchanged; 401/403/404
+    recorded as "repo_unavailable") and its tree listed: every .gguf path with size and LFS sha256. Named repos are
+    listed first and count against the same per-request listing cap as the search matches.
 
 A request is pending while third_party/gguf-headers/<name>/ has no PIN.json (headers) / LISTING.json (discover).
 For a headers request:
@@ -186,10 +190,21 @@ def load_request(path):
         if not isinstance(init, int) or not MIN_INITIAL <= init <= (cap if isinstance(cap, int) else HARD_CAP):
             problems.append(f"initial_bytes {init} must be in [{MIN_INITIAL}, max_header_bytes]")
     elif kind == "discover":
-        s = req.get("searches")
-        if not isinstance(s, list) or not 1 <= len(s) <= MAX_SEARCHES or \
-                not all(isinstance(x, dict) and isinstance(x.get("search"), str) and x["search"] for x in s):
+        s, named = req.get("searches"), req.get("repos")
+        if s is None and named is None:
+            problems.append("a discover request needs searches and/or repos")
+        if s is not None and (not isinstance(s, list) or not 1 <= len(s) <= MAX_SEARCHES or
+                              not all(isinstance(x, dict) and isinstance(x.get("search"), str) and x["search"]
+                                      for x in s)):
             problems.append(f"searches must be 1..{MAX_SEARCHES} objects with a non-empty 'search'")
+        if named is not None:
+            if not isinstance(named, list) or not 1 <= len(named) <= MAX_LISTED_REPOS or \
+                    not all(isinstance(x, dict) and REPO_RE.match(str(x.get("repo", ""))) and
+                            REV_RE.match(str(x.get("revision", "main"))) for x in named):
+                problems.append(f"repos must be 1..{MAX_LISTED_REPOS} objects with an org/name 'repo' and a "
+                                "'revision' main or 40-hex")
+            elif len({x["repo"] for x in named}) != len(named):
+                problems.append("repos must not repeat a repo")
         lim = req.get("limit", 100)
         if not isinstance(lim, int) or not 1 <= lim <= MAX_LIMIT:
             problems.append(f"limit must be in [1, {MAX_LIMIT}]")
@@ -224,7 +239,8 @@ def plan(todo):
     rows, total = [], 0
     for p, req in todo:
         if req["kind"] == "discover":
-            rows.append(f"{p}: discover, {len(req['searches'])} searches, reads no file")
+            rows.append(f"{p}: discover, {len(req.get('searches') or [])} searches, "
+                        f"{len(req.get('repos') or [])} named repos, reads no file")
             continue
         cap = req.get("max_header_bytes", HARD_CAP)
         worst = cap * req["expect_count"]
@@ -386,11 +402,47 @@ def headers_request(path, req, out_dir):
 
 # ---------------------------------------------------------------------------------------------------------- discover
 
+def list_named_repo(spec):
+    """A named repo of a discover request: revision pinned like a headers request, .gguf paths with size and LFS sha256
+    from the tree listing. 401/403/404 of the revision API is recorded, not raised. Reads no file."""
+    repo, rev = spec["repo"], spec.get("revision", "main")
+    row = {"repo": repo, "requested_revision": rev}
+    try:
+        info, _ = api_json(f"{ENDPOINT}/api/models/{repo}/revision/{rev}")
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403, 404):
+            body = e.read(2048).decode("utf-8", errors="replace")
+            row.update(status="repo_unavailable", http_status=e.code, http_body=body, revision=None)
+            annotate("warning", f"discover {repo}: HTTP {e.code} for the revision API; recorded")
+            return row
+        raise
+    sha = info.get("sha")
+    if not SHA_RE.match(str(sha)):
+        raise FetchError(f"{repo}: revision API returned no commit sha")
+    if rev != "main" and sha != rev:
+        raise FetchError(f"{repo}: asked for {rev}, the hub answered {sha}")
+    g = info.get("gguf") or {}
+    tmpl = g.get("chat_template")
+    tree = list_tree(repo, sha)
+    row.update(status="ok", revision=sha, lastModified=info.get("lastModified"), gated=info.get("gated"),
+               gguf_architecture=g.get("architecture"), gguf_total_params=g.get("total"),
+               gguf_chat_template_sha256=hashlib.sha256(tmpl.encode()).hexdigest() if tmpl else None,
+               gguf_files=sorted(({"path": e["path"], "size": e.get("size"), "lfs_sha256": _lfs_sha(e)}
+                                  for e in tree if e["path"].endswith(".gguf")), key=lambda x: x["path"]))
+    return row
+
+
 def discover_request(path, req):
     out = {"request": req, "endpoint": ENDPOINT, "tool": "scripts/gguf_headers_fetch.py",
            "fetched_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "searches": []}
-    listed = 0
-    for s in req["searches"]:
+    if req.get("repos"):
+        out["repos"] = [list_named_repo(spec) for spec in req["repos"]]
+        annotate("notice", "discover named repos: " + ", ".join(
+            f"{r['repo']} @ {str(r['revision'])[:12]} ({len(r['gguf_files'])} .gguf, {r['gguf_architecture']})"
+            if r["status"] == "ok" else f"{r['repo']} ({r['status']})" for r in out["repos"]))
+    listed = len(out.get("repos", []))
+    named = {r["repo"] for r in out.get("repos", [])}
+    for s in req.get("searches") or []:
         q = {"search": s["search"], "filter": "gguf", "limit": str(req.get("limit", 100))}
         expand = ["gguf", "sha", "lastModified", "downloads", "gated", "tags"]
         url = f"{ENDPOINT}/api/models?{urllib.parse.urlencode(q)}&" + urllib.parse.urlencode([("expand", x) for x in expand])
@@ -415,7 +467,7 @@ def discover_request(path, req):
                    "gguf_chat_template_sha256": hashlib.sha256(tmpl.encode()).hexdigest() if tmpl else None,
                    "arch_match": g.get("architecture") in want if want else None}
             if req.get("list_files") and row["arch_match"] and listed < MAX_LISTED_REPOS and row["sha"] and \
-                    REPO_RE.match(str(row["id"])):
+                    REPO_RE.match(str(row["id"])) and row["id"] not in named:
                 tree = list_tree(row["id"], row["sha"])
                 row["gguf_files"] = sorted(({"path": e["path"], "size": e.get("size")} for e in tree
                                             if e["path"].endswith(".gguf")), key=lambda x: x["path"])
