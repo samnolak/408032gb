@@ -628,21 +628,22 @@ class Fetch(HubCase):
         self.assertIn("discover, 0 searches, 1 named repos, reads no file", out)
 
     def test_discover_named_repo_revision_is_pinned_and_requests_are_checked(self):
-        self.hub.add("org/M-GGUF", {"a.gguf": b"GGUF"})
-        p = self.request("dx", kind="discover", repos=[{"repo": "org/M-GGUF", "revision": "f" * 40}])
-        rc, out = self.run_fetch(p)
-        self.assertEqual(rc, 1)
-        self.assertIn("the hub answered", self.load(p, "ERROR.json")["error"])
+        # malformed requests first, against an untouched hub (the hub logs a request after answering it, so a count
+        # taken right after another fetch could miss its last entry)
         for bad in ({"kind": "discover"}, {"kind": "discover", "repos": []},
                     {"kind": "discover", "repos": [{"repo": "no-slash"}]},
                     {"kind": "discover", "repos": [{"repo": "a/b", "revision": "dev"}]},
                     {"kind": "discover", "repos": [{"repo": "a/b"}, {"repo": "a/b"}]},
                     {"kind": "discover", "repos": [{"repo": f"a/b{i}"} for i in range(F.MAX_LISTED_REPOS + 1)]}):
-            n = len(self.hub.log)
             rc, out = self.run_fetch(self.request("bad", **bad), plan=True)
             self.assertEqual(rc, 1, (bad, out))
             self.assertIn("::error::", out)
-            self.assertEqual(len(self.hub.log), n)
+        self.assertEqual(self.hub.log, [])
+        self.hub.add("org/M-GGUF", {"a.gguf": b"GGUF"})
+        p = self.request("dx", kind="discover", repos=[{"repo": "org/M-GGUF", "revision": "f" * 40}])
+        rc, out = self.run_fetch(p)
+        self.assertEqual(rc, 1)
+        self.assertIn("the hub answered", self.load(p, "ERROR.json")["error"])
 
 
 # ------------------------------------------------------------------------------------------------ tinygen models
