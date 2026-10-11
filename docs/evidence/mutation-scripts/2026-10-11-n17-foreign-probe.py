@@ -34,8 +34,7 @@ for gr in t.graphs:
     a = t.B[gr["g"]]["attn"]
     for r in np.nonzero(a["foreign"])[0]:
         fc = np.nonzero(a["foreign_cells"][r])[0]
-        P = t.stored[gr["g"]]                     # not needed for positions; recompute from the oracle's record
-        desc = ", ".join(f"{c}: {a['kpos'][c]}" for c in fc)
+        desc = ", ".join(f"{c}: {a['kpos'][c]} / {a['kv_pos'][c]}" for c in fc)
         got = t.dump(gr["g"], f"kqv_out-{nl}")[0].reshape(gr["n"], -1)[r]
         wb = a["kqv"][r]
         eb = float(np.abs(got - wb).max() / np.abs(wb).max())

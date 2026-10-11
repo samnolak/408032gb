@@ -360,7 +360,8 @@ def attention_layer(x, w, hp, il, pos, cache=None, slots=None, prec=None):
         # step (the MTP heads are not, module docstring and docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md)
         vis_ = visible(pos, kpos, hp["n_swa"] if swa else 0)
         foreign = vis_ & (cache["P"][il][:n][None, :] != kpos[None, :])
-        out.update(idxs=list(idxs), n_kv=n, foreign=foreign.any(axis=1), foreign_cells=foreign)
+        out.update(idxs=list(idxs), n_kv=n, foreign=foreign.any(axis=1), foreign_cells=foreign,
+                   kv_pos=cache["P"][il][:n].copy())
     scale = kq_scale(hp, prec)
     n_swa, sinks = hp["n_swa"] if swa else 0, w.get("attn_sinks.weight")
     if prec and F.kv_f16(prec) and not prec.get("fa"):
