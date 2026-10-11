@@ -22,7 +22,8 @@ there are no weights here.
 ## Result (round 3: MiMo-V2.6-Flash-MOPD)
 
 Run 38147482333 (bot commit `6161763`) read the headers of the four MiMo requests: 31 376 608 B fetched, integrity OK
-for all 5 files (section 13).
+for all 5 files, CONFIRMED (PIN.json, section 13). In this section a pair of line numbers `A` / `B` means ec7630a /
+79e2e74.
 
 1. **Hyperparameters against the vendored config** (`data/gguf-headers/mimo-v2.6-flash-config/config.json`, copy of
    bot `1ce4d32`), CONFIRMED for all four files (analyzer cross-check):
@@ -33,7 +34,7 @@ for all 5 files (section 13).
    - freq bases 1e7 (full) / 1e4 (SWA); value scale 0.707;
    - **sinks on the 39 SWA trunk layers and on the 3 NextN layers, on no full-attention layer**;
    - `nextn_predict_layers` 3 with the 3 NextN layers as SWA layers with 8 KV heads (converter: + 1 / + SWA KV per MTP
-     layer).
+     layer, `conversion/mimo.py:154-157` for the KV array and `:160` for the pattern, @ec7630a, identical at 79e2e74).
 
    | file | config.json cross-check | not in the file |
    |---|---|---|
@@ -44,9 +45,12 @@ for all 5 files (section 13).
 
 2. **Experts and D5**, CONFIRMED:
    - In all three MXFP4 files the routed experts are **MXFP4** in all 47 MoE layers (`ffn_{gate,up,down}_exps`).
-     - llama.cpp's converter writes exactly that from the checkpoint's MXFP4 store (`conversion/mimo.py:243`,
-       `raw_dtype=MXFP4`) and sets `MOSTLY_MXFP4_MOE` (`:338-340`; `= 38`, `include/llama.h:156@ec7630a` / `:157@79e2e74`).
-     - `llama-quantize … MXFP4_MOE` gives the same expert type (`src/llama-quant.cpp:512-523`).
+     - llama.cpp's converter writes exactly that from the checkpoint's MXFP4 store (`raw_dtype=MXFP4`,
+       `conversion/mimo.py:243@ec7630a`, identical at 79e2e74). It sets `MOSTLY_MXFP4_MOE`
+       (`conversion/mimo.py:338-340@ec7630a`, identical at 79e2e74), which is 38 (`include/llama.h:156@ec7630a` /
+       `:157@79e2e74`).
+     - `llama-quantize … MXFP4_MOE` gives the same expert type (`src/llama-quant.cpp:512-523@ec7630a`, identical at
+       79e2e74).
    - **D5 PASS** for all four, routed experts at 4.25 bpw.
 
    | file | non-expert matrices | total size | bpw |
@@ -81,7 +85,8 @@ for all 5 files (section 13).
        `:2076`).
      - **Risk, UNKNOWN:** `qkv_chunks = 4` suggests the fused `attn_qkv` rows are stored in 4 TP chunks.
        llama.cpp splits it as one `[Q | K | V]` (`src/models/mimo2.cpp:134-142@ec7630a`), and llama.cpp's converter
-       regroups TP chunks (`conversion/mimo.py:35-98`). If kernelpool did not regroup, llama.cpp would compute wrong
+       regroups TP chunks (`conversion/mimo.py:35-98@ec7630a`, identical at 79e2e74). If kernelpool did not regroup,
+       llama.cpp would compute wrong
        Q/K/V with this file. To confirm: compare the Q8_0 bytes of a few `blk.0.attn_qkv` rows of ggml-org and
        kernelpool (a data read, not a header).
 4. **Loader verdict per pin** (PROVISIONAL, by reading; nothing loaded):
@@ -118,7 +123,9 @@ for all 5 files (section 13).
      - N16: MXFP4 experts with Q8_0 matrices on the CPU, i.e. `llama-quantize MXFP4_MOE`, the ggml-org layout; the
        fused qkv, SWA-only sinks and value-scale path; one MTP head.
      - N17: the 3 MTP heads (offsets 0–2), f16 KV + flash attention with sinks, and K 192 / V 128 heads.
-   - **Not covered:**
+   - **Not covered**, PROVISIONAL. Derived from the real sizes and types of appendix B set against the tiny models
+     (appendix B's "tiny default" column, the `mimotiny` block counts of section 14), and from N16/N17's own evidence
+     for the weight types; the separate-file path is the `mimo.file_layout` probe of section 14:
      - the sizes: window 128 (tiny 8), 64 / 4 / 8 heads, 256 experts top-8, 48 layers;
      - BF16 matrices (QuantaPlanta) and BF16 `token_embd` (kernelpool);
      - a quantized (Q8_0) MTP block (N17 section 5);
@@ -143,7 +150,9 @@ for all 5 files (section 13).
 2. **The 6 Qwen MTP files** (`unsloth/Qwen3.8-Flash-Next-GGUF` @`38bb39e`, `MTP/`), CONFIRMED from the headers:
    - Each is `qwen4exp`, with `block_count` 49 and `nextn_predict_layers` 1.
    - Each holds only layer 48. That layer has 32 tensors, the same names as the NextN layer of the tiny
-     `qwen4exp --mtp` model, which loads at both pins.
+     `qwen4exp --mtp` model. That model loads and passes the MTP parity runs at both pins, CONFIRMED: N6
+     `docs/evidence/2026-10-10-qwen4exp-decode-parity.md` at ec7630a, `docs/evidence/2026-10-10-parity-r1-pin.md:113-114`
+     at 79e2e74.
    - Each carries the full tokenizer (248 320 tokens) and no `ple.*` keys.
    - Each embeds the **vendored HF chat template** (sha256 `c3cf9e34…`), not the fixed Unsloth template of the
      UD-Q4_K_XL (`12827f24…`).
@@ -160,10 +169,14 @@ for all 5 files (section 13).
      comment "the MTP block is a full-attention QSA layer too". So at the pins the MTP layer of these files runs dense
      full attention instead of QSA (PROVISIONAL, by reading): `qsa = inp_kpool != nullptr &&
      hparams.dsv4_compress_ratios[il] > 0`, `src/models/qwen4exp.cpp:942@ec7630a` / `:939@79e2e74`.
-     - The effect on the drafts is UNKNOWN. It can only appear when the context is longer than the QSA budget (2048).
+     - The effect on the drafts is UNKNOWN. It can only appear when more cells are visible than the QSA selection
+       keeps. `qwen4exp.attention.indexer.top_k` = 2048 in all 6 headers (CONFIRMED, decoded in section 4). With the
+       trunk's compress ratio 4 the selection keeps at most 4 × 512 + 3 = 2051 cells per token
+       (`src/models/qwen4exp.cpp:728@ec7630a` / `:722@79e2e74`; PROVISIONAL, by reading).
      - Which attention the HF model uses in its MTP layer is PROVISIONAL (from the converter's comment).
    - D5: PASS for all 6.
-3. **Separate MTP files at the pins** (CONFIRMED by reading; section 5).
+3. **Separate MTP files at the pins** (source lines CONFIRMED at both pins; which files load is PROVISIONAL, by
+   reading; section 5).
    - **How a file is attached:** as a draft model, `-md FILE --spec-type draft-mtp`. It is loaded as its own
      `llama_model` with an MTP context; its output width must equal the target's. The qwen4exp trunk emits the hidden
      state the drafter needs, also when it has no NextN layer.
@@ -190,7 +203,7 @@ for all 5 files (section 13).
      carries the same `{% set reasoning_content %}` block as the vendored template (N14 1(a)).
    - Config cross-check: 33 of 34 OK. `num_nextn_predict_layers` is ABSENT, as a trunk-only file should be.
    - Unlike unsloth's file, it writes `attention.indexer.types` (all true) and `kpool_select_tail` (true): the same
-     graph as the defaults.
+     graph as the defaults (PROVISIONAL, by reading; section 6).
    - **D5 audit: PASS.** Routed experts are 100 % Q4_K (4.500 bpw); 168.91 GiB at 4.631 bpw.
    - Not Q8_0, all above the floor:
      - BF16: the MLA `attn_k_b`, `attn_v_b`, `attn_kv_a_mqa`, the indexer `attn_k` / `attn_q_b`, the KDA
@@ -223,7 +236,8 @@ for all 5 files (section 13).
 7. **MiMo header requests (round 3):**
    - the ggml-org MOPD MXFP4 trunk (2 shards) and its `mtp-…-Q8_0`;
    - QuantaPlanta's and kernelpool's single MXFP4 files.
-   - Exact names and revisions from the listing. `--plan`: 4 pending, worst case 167 772 160 B (section 9).
+   - Exact names and revisions from the listing. `--plan`: 4 pending, worst case 167 772 160 B, CONFIRMED (section 9
+     output).
    - The cross-check config is a byte-exact copy of the vendored MOPD config in `data/gguf-headers/mimo-v2.6-flash-config/`
      (bot commit `1ce4d32`, `XiaomiMiMo/MiMo-V2.6-Flash-MOPD` @`b12f5573350bb1704513fcf119fca48e498b0423`; N16 not merged).
 
@@ -241,7 +255,7 @@ for all 5 files (section 13).
 - **Analyzer: mode `mtp_files`.** Each file is its own model. It is compared with a reference NextN layer and the trunk
   KV, and gets a loader verdict per pin from `gguf_branches.MTP_LOAD` / `MTP_ATTACH`, whose anchors are checked at the
   pins.
-- **Tests and mutation checks:** section 10. Commits: `git log` at the end of the report.
+- **Tests and mutation checks:** section 10 (rounds 1–2) and section 15 (round 3). Commits: section 16.
 
 ## 1. Inputs
 
@@ -399,7 +413,31 @@ $ for r in llama-ec7630a llama.cpp n12/ik-src; do echo "== $r $(git -C <S>/$r re
     `:590@79e2e74`). That builder selects QSA only when the layer's ratio is > 0 (`:942` / `:939`, `const bool qsa =
     inp_kpool != nullptr && hparams.dsv4_compress_ratios[il] > 0;`).
   - So with these files the NextN layer runs dense full attention (PROVISIONAL, by reading). The two differ only when
-    more cells are visible than the QSA selection (budget 2048).
+    more cells are visible than the QSA selection keeps: `indexer.top_k` 2048 in all 6 headers (CONFIRMED, below), at
+    most 4 × 512 + 3 = 2051 cells per token with the trunk's compress ratio 4 (`src/models/qwen4exp.cpp:728@ec7630a` /
+    `:722@79e2e74`, PROVISIONAL, by reading; printed back in section 14).
+
+```
+$ cd /home/user/wt-n18 && git log --oneline -n 1; python3 <S>/n18/r3/qwen-topk.py; echo "exit $?"
+edf1426 [model-analyst] CORRECTNESS: gap 9 status gains the N18 note (Qwen MTP files, ggml-org GLM trunk + mtp files, MiMo-V2.6-Flash-MOPD headers)
+mtp-Qwen3.8-Flash-Next-BF16.gguf.header.gz indexer.top_k 2048 compress ratios > 0: [4] [48] 0
+mtp-Qwen3.8-Flash-Next-Q4_K_M.gguf.header.gz indexer.top_k 2048 compress ratios > 0: [4] [48] 0
+mtp-Qwen3.8-Flash-Next-Q8_0.gguf.header.gz indexer.top_k 2048 compress ratios > 0: [4] [48] 0
+mtp-Qwen3.8-Flash-Next-shared-BF16.gguf.header.gz indexer.top_k 2048 compress ratios > 0: [4] [48] 0
+mtp-Qwen3.8-Flash-Next-shared-Q4_K_M.gguf.header.gz indexer.top_k 2048 compress ratios > 0: [4] [48] 0
+mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf.header.gz indexer.top_k 2048 compress ratios > 0: [4] [48] 0
+exit 0
+$ cat <S>/n18/r3/qwen-topk.py
+import gzip, sys, glob, os
+sys.path.insert(0, "tools/gguf_headers"); sys.path.insert(0, "tools")
+import gguf_header as G
+for p in sorted(glob.glob("third_party/gguf-headers/qwen3.8-flash-next-mtp/*.header.gz")):
+    kv = {e["key"]: e["value"] for e in G.parse(gzip.decompress(open(p, "rb").read())).kv}
+    cr = kv["qwen4exp.attention.compress_ratios"]
+    print(os.path.basename(p), "indexer.top_k", kv["qwen4exp.attention.indexer.top_k"],
+          "compress ratios > 0:", sorted({r for r in cr if r > 0}), "[48]", cr[48])
+```
+
   - Whether the HF model's MTP layer uses QSA is PROVISIONAL: llama.cpp's converter comment says so; the HF modelling
     code is not vendored. The effect on draft acceptance is UNKNOWN.
 - **Template**, CONFIRMED: all six embed the vendored HF template `c3cf9e34…`, not the fixed one of the UD-Q4_K_XL
@@ -619,7 +657,8 @@ this listing.
 
 ## 10. Tests and mutation checks
 
-Round 1, at `8c0b424` (reported to the lead then):
+Round 1, at `8c0b424`: PROVISIONAL (the round-1 report to the lead; not pasted here; superseded by the round-2/3
+outputs below and by the N15 re-run at `edf1426` at the end of this section):
 - full suite with gguf-py: `Ran 907 tests … OK (skipped=358)`;
 - hooks + check_unittest: `Ran 54 tests … OK`;
 - both gguf-headers modules with every optional environment: `Ran 47 … OK`, 47 ok, 0 skipped;
@@ -687,6 +726,56 @@ M37-value-scale-inverted KILLED  (N18Analyzer.test_mimo2_config_branches_keys_ex
 M38-trunk-probe-ignored KILLED  (N18Analyzer.test_separate_mtp_files_loader_verdicts_per_pin )
 M39-tiny-workdir-not-created KILLED  (N18Analyzer.test_mimo2_tiny_exercises_its_own_branches )
 ```
+
+N15 mutation check on this branch, re-run at `edf1426` (the N15 script
+`docs/evidence/mutation-scripts/2026-10-11-n15-mutations.sh` with `N`, `WT` and `MUTDIR` pointed at this worktree; the
+diff is printed first):
+
+```
+$ diff docs/evidence/mutation-scripts/2026-10-11-n15-mutations.sh <S>/n18/n15-mutations-on-n18.sh
+9c9
+< N=<S>/n15
+---
+> N=<S>/n18
+11,12c11,12
+< WT=/home/user/wt-n15
+< MUTDIR=${MUTDIR:-$N/mut}
+---
+> WT=/home/user/wt-n18
+> MUTDIR=${MUTDIR:-$N/mut15}
+$ export TMPDIR=<S>/n18/tmp; cd <S>/n18 && git -C /home/user/wt-n18 log --oneline -n 1 && bash <S>/n18/n15-mutations-on-n18.sh > mutations15-on-edf1426.log 2>&1; echo "exit $?"; head -2 mutations15-on-edf1426.log; grep -c KILLED mutations15-on-edf1426.log; grep -c "SURVIVED\|NOT APPLIED" mutations15-on-edf1426.log
+edf1426 [model-analyst] CORRECTNESS: gap 9 status gains the N18 note (Qwen MTP files, ggml-org GLM trunk + mtp files, MiMo-V2.6-Flash-MOPD headers)
+exit 0
+HEAD edf1426
+base exit 0 (Ran 39 tests in 17.152s, OK (skipped=1))
+19
+0
+$ cat <S>/n18/mutations15-on-edf1426.log
+HEAD edf1426
+base exit 0 (Ran 39 tests in 17.152s, OK (skipped=1))
+M1-no-data-padding KILLED  (Fetch.test_fetch_stops_at_the_header_and_pins_the_revision Parser.test_alignment_rules_of_gguf_cpp Parser.test_needmore_reports_the_exact_next_need Parser.test_size_check_of_tensor_and_metadata_only_shards Parser.test_summary_digests_big_arrays_and_keeps_the_rest Tinygen.test_offsets_agree_with_gguf_py )
+M2-pad-without-tensors KILLED  (N18Analyzer.test_mimo2_config_branches_keys_experts_audit Parser.test_alignment_rules_of_gguf_cpp Parser.test_rebuild_copies_values_byte_for_byte Parser.test_size_check_of_tensor_and_metadata_only_shards VocabOnly.test_vocab_only_file_keeps_the_tokenizer_bytes_and_renames_the_arch )
+M3-default-alignment-16 KILLED  (Fetch.test_fetch_stops_at_the_header_and_pins_the_revision Parser.test_summary_digests_big_arrays_and_keeps_the_rest Tinygen.test_offsets_agree_with_gguf_py )
+M4-ignore-alignment-key KILLED  (Parser.test_alignment_rules_of_gguf_cpp )
+M5-no-contiguity-check KILLED  (Parser.test_tensor_offsets_must_be_contiguous_like_gguf_cpp )
+M6-inline-big-arrays KILLED  (Parser.test_summary_digests_big_arrays_and_keeps_the_rest )
+M7-keep-infos-end-only KILLED  (Analyzer.test_integrity_failure_is_reported Analyzer.test_template_groups_identity_and_audit Analyzer.test_tiny_models_exercise_their_own_branches Fetch.test_fetch_stops_at_the_header_and_pins_the_revision Fetch.test_summary_round_trips_from_the_committed_header N18Analyzer.test_mimo2_config_branches_keys_experts_audit N18Analyzer.test_separate_mtp_files_loader_verdicts_per_pin Tinygen.test_offsets_agree_with_gguf_py )
+M8-no-cap KILLED  (Fetch.test_cap_exceeded_is_an_error_and_never_a_full_download )
+M9-accept-200 KILLED  (Fetch.test_a_server_that_ignores_range_is_rejected_unread )
+M10-no-total-check KILLED  (Fetch.test_a_range_of_another_file_size_is_rejected )
+M11-no-revision-pin-check KILLED  (Fetch.test_revision_mismatch_is_an_error )
+M12-refetch-done-requests KILLED  (Fetch.test_done_requests_are_not_fetched_again_and_errors_retry )
+M13-no-run-cap KILLED  (Fetch.test_plan_fails_before_any_request_on_caps )
+M14-no-hard-cap KILLED  (Fetch.test_plan_fails_before_any_request_on_caps )
+M15-etag-inverted KILLED  (Fetch.test_fetch_stops_at_the_header_and_pins_the_revision Fetch.test_wrong_etag_is_recorded_and_warned )
+M16-template-always-equal KILLED  (Analyzer.test_template_groups_identity_and_audit )
+M17-groups-threshold KILLED  (Analyzer.test_template_groups_identity_and_audit )
+M18-no-summary-rederivation KILLED  (Analyzer.test_integrity_failure_is_reported )
+M19-no-metadata-shard-padding KILLED  (Parser.test_size_check_of_tensor_and_metadata_only_shards )
+```
+
+19 of 19 killed. The command exits 1 (the runner's background report): the last `grep -c` finds no SURVIVED / NOT
+APPLIED line.
 
 ## 11. NOT RUN
 
@@ -1056,6 +1145,53 @@ echo "-- grep of kernelpool's extra keys in src/models/mimo2.cpp at both pins"; 
 echo "-- src/llama-model.cpp:3485 (79e2e74)"; sed -n 3485p $R/src/llama-model.cpp
 ```
 
+Converter and quantizer lines cited with "identical at 79e2e74", and the QSA selection size of qwen4exp:
+
+```
+$ bash <S>/n18/r3/identical-cmd.sh > <S>/n18/r3/identical.txt 2>&1; echo "rc=$?"; cat <S>/n18/r3/identical.txt
+rc=0
+-- conversion/mimo.py:154-160 (ec7630a)
+        # runtime arrays (sized to extended block_count) are fully populated.
+        hybrid = list(self.hparams["hybrid_layer_pattern"]) + [1] * self._n_nextn
+        n_head_kv_arr = [n_head_kv_swa if use_swa == 1 else n_head_kv for use_swa in hybrid]
+        self.gguf_writer.add_head_count_kv(n_head_kv_arr)
+
+        self.gguf_writer.add_sliding_window(self.hparams["sliding_window"])
+        self.gguf_writer.add_sliding_window_pattern(hybrid)
+conversion/mimo.py:243-243 ec7630a 95bdc39135b5 79e2e74 95bdc39135b5 identical
+conversion/mimo.py:338-340 ec7630a bf767899d453 79e2e74 bf767899d453 identical
+src/llama-quant.cpp:512-523 ec7630a ef472e15ca5a 79e2e74 ef472e15ca5a identical
+conversion/mimo.py:35-98 ec7630a af41bf7109b2 79e2e74 af41bf7109b2 identical
+conversion/mimo.py:154-160 ec7630a e4a6175318fc 79e2e74 e4a6175318fc identical
+-- src/models/qwen4exp.cpp:728 (ec7630a) / :722 (79e2e74)
+    inp->n_sel      = kpool*std::min<uint32_t>(n_pool, hparams.indexer_top_k / kpool) + kpool - 1;
+    inp->n_sel = kpool*std::min<uint32_t>(n_pool, hparams.indexer_top_k / kpool) + kpool - 1;
+-- src/models/qwen4exp.cpp:64-75 (ec7630a): kpool = the one compress ratio > 0
+    // QSA pools the indexer keys of blocks of compress_ratio cells, one block size for the whole model
+    hparams.indexer_kpool = 0;
+    for (uint32_t il = 0; il < hparams.n_layer_all; ++il) {
+        const uint32_t r = hparams.dsv4_compress_ratios[il];
+        if (r == 0) {
+            continue;
+        }
+        if (hparams.indexer_kpool != 0 && r != hparams.indexer_kpool) {
+            throw std::runtime_error(format("QSA layers must share one compress ratio, got %u and %u", hparams.indexer_kpool, r));
+        }
+        hparams.indexer_kpool = r;
+    }
+$ cat <S>/n18/r3/identical-cmd.sh
+S=<S>
+E=$S/llama-ec7630a; R=$S/llama.cpp
+echo "-- conversion/mimo.py:154-160 (ec7630a)"; sed -n 154,160p $E/conversion/mimo.py
+for spec in "conversion/mimo.py 243 243" "conversion/mimo.py 338 340" "src/llama-quant.cpp 512 523" "conversion/mimo.py 35 98" "conversion/mimo.py 154 160"; do
+    set -- $spec
+    a=$(sed -n "$2,$3p" $E/$1 | sha256sum | cut -c1-12); b=$(sed -n "$2,$3p" $R/$1 | sha256sum | cut -c1-12)
+    echo "$1:$2-$3 ec7630a $a 79e2e74 $b $([ "$a" = "$b" ] && echo identical || echo DIFFERENT)"
+done
+echo "-- src/models/qwen4exp.cpp:728 (ec7630a) / :722 (79e2e74)"; sed -n 728p $E/src/models/qwen4exp.cpp; sed -n 722p $R/src/models/qwen4exp.cpp
+echo "-- src/models/qwen4exp.cpp:64-75 (ec7630a): kpool = the one compress ratio > 0"; sed -n 64,75p $E/src/models/qwen4exp.cpp
+```
+
 ## 15. Round 3: tests and mutation check
 
 - Round-3 code changes:
@@ -1135,6 +1271,25 @@ NOT RUN in round 3:
 - reading `attn_qkv` rows to settle kernelpool's `qkv_chunks` question;
 - N16 / N17 parity runs: not re-run here; their results are their branches' evidence;
 - the BF16 and Q8_0-MTP numerics.
+
+## 16. Commits
+
+Taken while the audit fixes were uncommitted, so the commit that adds this section is not in it; the report to the lead
+carries the log after it.
+
+```
+$ git log --oneline -n 5
+edf1426 [model-analyst] CORRECTNESS: gap 9 status gains the N18 note (Qwen MTP files, ggml-org GLM trunk + mtp files, MiMo-V2.6-Flash-MOPD headers)
+556d7e8 [model-analyst] evidence: N18 round 3 - MiMo-V2.6-Flash-MOPD headers (bot 6161763): config cross-check, MXFP4 experts and D5, the three MXFP4 files and the mtp file, loader verdicts, N16/N17 tiny coverage
+0f61e10 [model-analyst] evidence scripts: N18 mutation M40 (mimo2 probes count trunk layers an MTP-only file does not hold)
+bc26480 [model-analyst] tests: facts of the N18 MiMo headers (bot 6161763): config cross-check, MXFP4 experts and D5, the three MXFP4 files and the mtp file compared
+7edc27f [model-analyst] evidence scripts: N18 facts printer gains mimopins, mimo (three MXFP4 files compared), mimotiny (N16/N17 tiny models), mimoloader
+$ git status --short
+ M docs/evidence/2026-10-11-n18-gguf-headers-mtp-mimo.md
+ M docs/reassessment/CORRECTNESS.md
+```
+
+Sections 10 and 15 name the code commits of rounds 2 and 3; `git log` of the branch lists every commit.
 
 ## Appendix A. `tools/gguf_headers/analyze.py` on the N18 headers, full output
 
