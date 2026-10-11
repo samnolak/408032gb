@@ -10,6 +10,13 @@ an MLA/DSA layer with a full indexer, MoE + shared expert and blk.<L>.nextn.{eh_
 (llama.cpp @79e2e74 src/models/glm5-next.cpp:79-80, 85-92, 143, 175-182 load_arch_tensors; graph_mtp 543-666); its weights
 are drawn after the trunk's, so the trunk equals the default model and the default output is unchanged.
 
+--quant-dims (N10, gap 2 of docs/reassessment/CORRECTNESS.md) writes the same architecture with the input width of
+every matrix llama-quantize may quantize a multiple of QK_K = 256 (src/llama-quant.cpp tensor_allows_quantization
+keeps hc_*, the indexer, ssm_f_*/ssm_g_*/ssm_beta, attn_kv_a_mqa, attn_k_b and attn_v_b of glm5-next unquantized;
+tensor_type_fallback gives a 32-block type or F16 to rows not divisible by the block size): n_embd 256, KDA
+head_dim 64 (d_inner = 4 * 64 = 256, the input of the KDA attn_output), q_lora 256 (attn_q_b), v_mla 64 (the DSA
+attn_output reads n_head * v_mla = 256), expert, shared-expert and dense FFN widths 256.
+
 Key and tensor names: llama.cpp @ec7630a src/llama-arch.cpp; shapes: src/models/glm5-next.cpp
 load_arch_tensors. numpy shapes are ggml ne reversed.
 Needs gguf-py from the same llama.cpp checkout on PYTHONPATH.
@@ -29,6 +36,9 @@ DEFAULT = dict(
     n_expert=8, n_expert_used=2, n_ff_exp=32, n_shared=1, n_dense_lead=1, n_ff=96,
     w_scale=2.5, swiglu_limit=0.5, hc=4, sinkhorn_iters=20, hc_eps=1e-6, rms_eps=1e-5,
 )
+
+# --quant-dims: every input width llama-quantize may quantize is a multiple of 256 (see the module docstring)
+QUANT = dict(DEFAULT, n_embd=256, kda_head_dim=64, q_lora=256, v_mla=64, n_ff_exp=256, n_ff=256)
 
 
 def layer_is_dsa(i):
@@ -180,7 +190,9 @@ if __name__ == "__main__":
                     help="GGUF architecture string and key prefix: glm5-next (llama.cpp master, default) or "
                          "glm5next (Unsloth UD files; what lighttransport/Strata reads, ADR-009)")
     ap.add_argument("--mtp", action="store_true", help="append the MTP block (nextn_predict_layers = 1)")
+    ap.add_argument("--quant-dims", action="store_true",
+                    help="input widths divisible by QK_K = 256 so that llama-quantize gives k-quants (QUANT)")
     a = ap.parse_args()
     ARCH = a.arch
-    build(a.out, cfg=dict(DEFAULT, n_layer=a.layers), seed=a.seed, mtp=a.mtp)
+    build(a.out, cfg=dict(QUANT if a.quant_dims else DEFAULT, n_layer=a.layers), seed=a.seed, mtp=a.mtp)
     print("wrote", a.out)
