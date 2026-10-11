@@ -14,8 +14,10 @@ No dumps needed. Checked here:
     the checker);
   * the committed expectations file: well formed, its entry exists for the pin every workflow step runs at
     (ec7630a in ci.yml, tools/engines/pins.json in parity-r1-pin.yml), every parity step of jobs cpu-parity, parity and
-    ik-glm5next goes through the checker with a known step id, the modules listed per step are the ones the step
-    runs, and the step's real test modules run without their environment are rejected at every pin.
+    ik-glm5next goes through the checker with a known step id, on the checkout --checkout names (the driver's first
+    argument, or LLAMA_CPP_GGUF_PY of an inline command), the modules listed per step are the ones the step runs, every
+    other step of those jobs is on an explicit allow-list, and the step's real test modules run without their
+    environment are rejected at every pin.
 """
 import io
 import json
@@ -413,7 +415,7 @@ def workflow_steps(path):
             if cur is not None:
                 out.append((job, "\n".join(cur)))
             cur = [line]
-        elif cur is not None:
+        elif cur is not None and not line.strip().startswith("#"):      # comments are not part of a step
             cur.append(line)
     if cur is not None:
         out.append((job, "\n".join(cur)))
@@ -422,6 +424,34 @@ def workflow_steps(path):
 
 PARITY_JOBS = {".github/workflows/ci.yml": ["cpu-parity"],
                ".github/workflows/parity-r1-pin.yml": ["parity", "ik-glm5next"]}
+# the only steps of those jobs allowed to run without tools/ci/check_unittest.py: checkouts and deps (no tests), the
+# unit-test discover step (it skips every dump test by design, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md
+# section 6) and the two G0 smoke scripts (no unittest: set -euo pipefail and assert). A new step in these jobs must be
+# wrapped or added here with its reason.
+ALLOWED_UNWRAPPED = {
+    (".github/workflows/ci.yml", "cpu-parity"): {
+        "uses: actions/checkout@v4", "llama.cpp at the pinned commit", "deps", "unit tests",
+        "G0 per-token routing tracer + cache simulator on the tiny glm5-next model (CPU smoke)",
+        "G0 trace + probe on a tiny qwen3moe (last layer keeps only output rows; predict_eval self-checks) (CPU smoke)"},
+    (".github/workflows/parity-r1-pin.yml", "parity"): {
+        "uses: actions/checkout@v4", "deps", "llama.cpp at the R1 engine pin (tools/engines/pins.json)"},
+    (".github/workflows/parity-r1-pin.yml", "ik-glm5next"): {
+        "uses: actions/checkout@v4", "deps",
+        "llama.cpp at the R1 engine pin (its gguf-py writes and reads the tiny GGUF)",
+        "ik_llama.cpp at its R1 engine pin (tools/engines/pins.json)"},
+}
+
+
+def step_name(text):
+    """`name:` of a step, or `uses: <action>` for an unnamed action step."""
+    m = re.match(r"^      - (?:name: (.*)|uses: (.*))$", text.splitlines()[0])
+    assert m, text.splitlines()[0]
+    return m[1].strip() if m[1] is not None else "uses: " + m[2].strip()
+
+
+def one_line(text):
+    """A step's text with shell line continuations joined and whitespace collapsed."""
+    return re.sub(r"\s+", " ", text.replace("\\\n", " "))
 
 
 def parity_steps():
@@ -470,6 +500,28 @@ class ExpectationsFile(unittest.TestCase):
                 if st["driver"].startswith("tools/"):
                     self.assertIn(st["driver"], text)
                 self.assertEqual(driver_modules(text), st["modules"])
+                # the command runs on the checkout --checkout names (the checker also compares the commits at run time)
+                m = re.search(r"--checkout (\S+) -- (\S+) (\S+)", one_line(text))
+                self.assertIsNotNone(m, text)
+                checkout, prog, first = m[1], m[2], m[3]
+                if prog.startswith("tools/tinygen/run_parity"):
+                    self.assertEqual(first, checkout, f"{prog} runs on {first}, the step checks {checkout}")
+                else:   # inline unittest: the pinned gguf-py of the same checkout
+                    self.assertEqual((prog, first), ("python3", "-m"), text)
+                    self.assertIn(f"LLAMA_CPP_GGUF_PY={checkout}/gguf-py ", one_line(text))
+
+    def test_every_step_is_wrapped_or_allow_listed(self):
+        for wf, jobs in PARITY_JOBS.items():
+            for job in jobs:
+                steps = [(step_name(t), t) for j, t in workflow_steps(ROOT / wf) if j == job]
+                allowed = ALLOWED_UNWRAPPED[(wf, job)]
+                self.assertLessEqual(allowed, {n for n, _ in steps}, f"{wf} {job}: stale allow-list entries")
+                for name, text in steps:
+                    with self.subTest(wf=wf, job=job, step=name):
+                        wrapped = re.search(r"tools/ci/check_unittest\.py --step [\w-]+", text) is not None
+                        self.assertTrue(wrapped != (name in allowed),
+                                        f"{wf} {job}: step '{name}' must go through tools/ci/check_unittest.py or be "
+                                        f"in ALLOWED_UNWRAPPED with its reason (wrapped={wrapped})")
 
     def test_expectations_exist_for_the_pin_each_step_runs_at(self):
         used = set()
