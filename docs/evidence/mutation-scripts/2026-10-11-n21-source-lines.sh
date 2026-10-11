@@ -35,9 +35,12 @@ show $R1 common/arg.cpp 4190 4190
 show $R1 common/arg.cpp 4233 4241
 show $R1 common/arg.cpp 4284 4292
 show $R1 common/common.cpp 1725 1725
+show $R1 common/arg.cpp 1405 1406
+show $R1 tools/server/server.cpp 168 173
 show $R1 common/sampling.cpp 689 721
 show $R1 common/sampling.cpp 732 735
 show $R1 common/sampling.cpp 790 803
+show $R1 tools/server/server-context.cpp 56 60
 show $R1 tools/server/server-context.cpp 504 506
 show $R1 tools/server/server-context.cpp 713 716
 show $R1 tools/server/server-common.cpp 99 102
