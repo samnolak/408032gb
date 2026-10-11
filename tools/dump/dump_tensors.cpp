@@ -60,6 +60,14 @@
 //                  llama_memory_set_slot_replay(mem, h > 0), so heads 1..H-1 write their layers under exactly the cells
 //                  head 0 was given. One MTP manifest record (kind process) per chunk and head; the manifest says
 //                  "slot_replay": true. Without the patch the tool refuses this option.
+//   DUMP_MTP_REPLAY_PROBE 1 = (N21, with DUMP_MTP_FIX) after the plan (and DUMP_MTP_DRAFT), four head-0 calls of one token
+//                  at the next position P (MTP manifest kind "probe", the target's last row as h): (a) replay off: a
+//                  plain search, recorded as the cells to replay; then seq_rm(P) and replay on: (b) the same token at P,
+//                  whose recorded cell is free again, so the replay is taken; (c) the token at P + 1 with replay still
+//                  on: the recorded cell now holds P, so llama_kv_cache must refuse the replay (warning "slot replay
+//                  refused") and search; then replay off, seq_rm(P + 1), (d) the token at P + 1 by a plain search.
+//                  (a) = (b) and (c) = (d) bit for bit if a refused replay falls back to the plain search; a replay
+//                  onto the taken cell would purge P and everything before it (apply_ubatch) and (c) would see no window.
 //   DUMP_MTP_SPEC  1 = (N21) the MTP calls go through llama.cpp's own common/speculative.cpp (common_speculative_init
 //                  with COMMON_SPECULATIVE_TYPE_DRAFT_MTP, the target and MTP contexts above, greedy, CPU sampling):
 //                  common_speculative_process after every target call, common_speculative_draft for "d<n>" and
@@ -358,6 +366,12 @@ int main(int argc, char ** argv) {
 #endif
     if (mtp_fix && mtp_spec) {
         std::fprintf(stderr, "DUMP_MTP_FIX and DUMP_MTP_SPEC exclude each other (with SPEC the real code decides)\n");
+        return 2;
+    }
+    const char * probe_env = std::getenv("DUMP_MTP_REPLAY_PROBE");
+    const bool mtp_probe = probe_env && std::strcmp(probe_env, "0") != 0 && *probe_env;
+    if (mtp_probe && !mtp_fix) {
+        std::fprintf(stderr, "DUMP_MTP_REPLAY_PROBE needs DUMP_MTP_FIX\n");
         return 2;
     }
     const char * kvu_env = std::getenv("DUMP_KV_UNIFIED");
@@ -852,6 +866,26 @@ int main(int argc, char ** argv) {
         // common/speculative.cpp draft(): the target's greedy token after the last position with the last target row
         if (!draft_at(argmax(last_logits.data(), n_vocab), pos, n_draft)) return 1;
     }
+#ifdef LLAMA_EXT_HAS_SLOT_REPLAY
+    if (mtp_probe) {
+        // the refusal path of the slot replay (header): (a) plain, (b) replay of a freed cell, (c) replay onto a taken
+        // cell, which must fall back to the search, (d) plain at the position of (c)
+        auto * mem = llama_get_memory(mtp_ctx.get());
+        const int id = argmax(last_logits.data(), n_vocab);
+        const std::vector<const float *> row = {pending.data()};
+        llama_memory_seq_rm(mem, 0, pos, -1);                  // the final draft's positions, as the server does
+        llama_set_nextn_layer_offset(mtp_ctx.get(), 0);
+        bool ok = mtp_call("probe", {id}, pos, row, 0, {});                         // (a)
+        llama_memory_seq_rm(mem, 0, pos, -1);
+        ok = ok && llama_memory_set_slot_replay(mem, true);
+        ok = ok && mtp_call("probe", {id}, pos, row, 0, {});                        // (b)
+        ok = ok && mtp_call("probe", {id}, pos + 1, row, 0, {});                    // (c)
+        llama_memory_set_slot_replay(mem, false);
+        llama_memory_seq_rm(mem, 0, pos + 1, -1);
+        ok = ok && mtp_call("probe", {id}, pos + 1, row, 0, {});                    // (d)
+        if (!ok) { LOG_ERR("DUMP_MTP_REPLAY_PROBE failed\n"); return 1; }
+    }
+#endif
     if (mtp) {
         mtp_lo.close(); mtp_h_in.close(); mtp_h_out.close(); h_tgt_out.close();
         // N21 modes only (the manifests of the other modes stay as they were)

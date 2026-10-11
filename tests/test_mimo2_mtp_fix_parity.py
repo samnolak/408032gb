@@ -409,6 +409,62 @@ class SpecReplay(unittest.TestCase):
             print(f"\n{plan}: draft at {where}: fixed {on[where]}, upstream {off[where]}", file=sys.stderr)
 
 
+class ReplayRefusal(unittest.TestCase):
+    """The fallback of patches/llama.cpp/0001 when a replay cannot be honoured (run fix/probe, DUMP_MTP_REPLAY_PROBE=1,
+    tools/dump/dump_tensors.cpp header): after 40, 1 (and the final draft, removed), head 0 runs one token at P = 41
+    (a) by a plain search, (b) by replay of (a)'s cell after seq_rm(41), (c) at 42 with replay still on, where (a)'s cell
+    holds 41, so llama_kv_cache::prepare must refuse the replay and search, (d) at 42 by a plain search after seq_rm(42).
+    A replay onto the taken cell would make apply_ubatch purge position 41 and every one before it."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not (DUMP and GGUF_PY):
+            raise unittest.SkipTest(SKIP)
+        if not patched():
+            raise unittest.SkipTest(SKIP_UNPATCHED)
+        cls.dir = pathlib.Path(DUMP, "fix", "probe", "mtp")
+        cls.man = mtp_manifest("fix/probe")
+        cls.probes = [c for c in cls.man["calls"] if c["kind"] == "probe"]
+        cls.log = pathlib.Path(DUMP, "fix_probe.log").read_text()
+
+    def graph(self, k):
+        g0, g1 = self.probes[k]["graphs"]
+        self.assertEqual(g1 - g0, 1)
+        return self.dir / f"g{g0:03d}"
+
+    def same(self, i, j):
+        a, b = self.graph(i), self.graph(j)
+        names = sorted(p.name for p in a.iterdir())
+        self.assertEqual(names, sorted(p.name for p in b.iterdir()))
+        self.assertGreater(len(names), 40)
+        for n in names:
+            self.assertEqual((a / n).read_bytes(), (b / n).read_bytes(), (i, j, n))
+        return len(names)
+
+    def test_the_probe_calls(self):
+        self.assertEqual([(c["pos0"], c["n"], c["head"]) for c in self.probes], [(41, 1, 0), (41, 1, 0), (42, 1, 0),
+                                                                                  (42, 1, 0)])
+
+    def test_replay_of_a_freed_cell_equals_the_search(self):
+        """(b) = (a) bit for bit (every dumped tensor of the graph)."""
+        self.same(0, 1)
+
+    def test_refused_replay_falls_back_to_the_search(self):
+        """(c) = (d) bit for bit; llama.cpp warned once per cache of the iSWA pair (the base and the SWA cache both
+        refuse); (c) attends to its whole window (8 positions, 35..42)."""
+        n = self.same(2, 3)
+        self.assertEqual(self.log.count("prepare: slot replay refused"), 2, self.log[-3000:])
+        g = self.graph(2)
+        j = json.loads((g / "kq_soft_max-6__0.json").read_text())
+        ne = j["ne"]                                              # [n_kv, n_tokens, n_head, 1]
+        sm = np.fromfile(g / "kq_soft_max-6__0.bin", dtype=np.float32).reshape(ne[2], ne[1], ne[0])
+        self.assertEqual(sm.shape[:2], (4, 1))                    # 4 query heads, one query row
+        self.assertEqual({int((sm[h] > 0).sum()) for h in range(sm.shape[0])}, {8})
+        print(f"\nreplay probe: (a) = (b) and (c) = (d) bit for bit ({n} tensors each), refused in both caches, (c) "
+              f"sees 8 cells",
+              file=sys.stderr)
+
+
 def tearDownModule():
     H.tearDownModule()
 

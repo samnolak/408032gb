@@ -16,6 +16,8 @@
 #   fix/<plan>         the patched order replayed (DUMP_MTP_FIX=1)
 #   fix/fa-mtp3        the same at the R1 default precision (-ctk f16 -ctv f16 -fa on)
 #   spec-off/<plan>    the patched common/speculative.cpp with LLAMA_SPEC_MTP_NO_SLOT_REPLAY=1 (the upstream order)
+#   fix/probe          40, 1 and DUMP_MTP_REPLAY_PROBE=1: a replay onto a taken cell must be refused and fall back to
+#                      the plain search (tools/dump/dump_tensors.cpp header)
 # -> tests/test_mimo2_mtp_fix_parity.py (the fixed runs against ref/mimo2.py's fixed process and the full-sequence
 # oracle; spec runs bit for bit against the replay of the same order), tests/test_mimo2_mtp_fix_ref.py (numpy only),
 # tests/test_gguf_mtp_heads.py (tools/gguf_mtp_heads.py, the one-head workaround, on the tiny models).
@@ -68,6 +70,8 @@ if $PATCHED; then
   P="$PFX,cache_k_l,cache_v_l" EXTRA="DUMP_MTP_FIX=1" run fix/fa-mtp3 "$TOK_MTP" "$F16FA" "$PLAN_MTP"
   EXTRA="DUMP_MTP_SPEC=1 LLAMA_SPEC_MTP_NO_SLOT_REPLAY=1" run spec-off/mtp3  "$TOK_MTP" "$F32" "$PLAN_MTP"
   EXTRA="DUMP_MTP_SPEC=1 LLAMA_SPEC_MTP_NO_SLOT_REPLAY=1" run spec-off/mtp3b "$TOK_B"   "$F32" "$PLAN_B"
+  # the refusal path of the slot replay: 40, 1, a 3-step draft, then the four probe calls at 41 and 42
+  EXTRA="DUMP_MTP_FIX=1 DUMP_MTP_REPLAY_PROBE=1" run fix/probe "$(seq_py "s=t[:41]")" "$F32" "40,1"
 fi
 echo "{\"patched\": $PATCHED}" > "$WORK/n21/n21.json"
 echo "patched: $PATCHED"
