@@ -14,7 +14,7 @@
 | C | Memory & Offload Research | СДЕЛАНО: R7 (KV/длинный контекст), R8 (ярусы, предсказание), модель затрат слоя с анализом чувствительности, перепроверка R11, N8 (персистентность сессий) | `research/R7…R8`, `tools/ceilings/tier_cost.py`, `docs/evidence/2026-10-10-tier-cost-model.md`, PR #4 |
 | D | Architecture Alternatives | СДЕЛАНО: шесть архитектур A–F, потолки с калибровкой по трём чужим замерам, go/no-go; два аудита (4 FAIL + 7 MINOR исправлены, повторная проверка — все исправлены) | `ARCHITECTURE-ALTERNATIVES.md` |
 | E | Engineering Experiments | СДЕЛАНО на CPU (ниже, раздел 2), включая трассы маршрутизации двух реальных прокси-моделей (`traces-real`) | evidence 2026-10-10-* |
-| F | Correctness Infrastructure | СДЕЛАНО: уровни 1–3 — 12 + 9 + 6 проверок, уровни 4–6 — NOT RUN; 37 проверок, ждущих GPU/сервер (B1–B37); закрыты пробел 1 (паритет на пине R1) и пробел 4 (декод, откат, MTP для GLM — N9, PR #5) | `CORRECTNESS.md`, `docs/evidence/2026-10-10-parity-r1-pin.md` |
+| F | Correctness Infrastructure | СДЕЛАНО: уровни 1–3 — 12 + 9 + 6 проверок, уровни 4–6 — NOT RUN; 37 проверок, ждущих GPU/сервер (B1–B37); закрыты на CPU пробелы 1 (паритет на пине R1), 4 (декод, откат, MTP для GLM — N9, PR #5), 3 (f16 KV + flash attention) и 2 (веса Q8_0/Q4_K_M) — N10, PR #6 | `CORRECTNESS.md`, `docs/evidence/2026-10-10-parity-r1-pin.md` |
 | G | Offline Deployment Readiness | ведёт сессия PR #1: офлайн-набор движков, сборки ExLlamaV3 sm_89 из набора без сети, резервные бандлы | `docs/evidence/2026-10-10-offline-engine-kit.md`, `…-backup-bundle.md` (PR #1) |
 | H | Updated Project State | этот файл + абзацы N7/N8 в `PROJECT_STATE.md` (ветки N7/N8) | — |
 | I | Published GitHub State | раздел 6 | — |
@@ -23,6 +23,8 @@
 
 * **N7** (PR #2): llama-server пина R1 (`79e2e74`) на крошечных гибридных моделях — кэш префиксов, откат к чекпойнтам,
   слоты с перезапуском, два слота, MTP; `--cache-reuse` бесполезен (убран в PR #1). `docs/evidence/2026-10-10-n7-server-hybrid-cpu.md`.
+  Находка 7 N7 исправлена 2026-10-11 (`c2f6c91`): «0.4–0.5 к f32 на том же промпте» сравнивало ответы на разные промпты
+  (трасса N10); на одном промпте 1.5e-3, токены не меняются.
 * **N8** (PR #4): llama-server восстанавливает повреждённые файлы слотов без контрольной суммы (26/26 приняты, 5 изменили
   токены); `tools/kv/session_store.py` отвергает 26/26 до сервера; два аудита, найдено и исправлено 4 дефекта хранилища
   (дедлок, перезапись карантина, два варианта гонки вытеснения). `docs/evidence/2026-10-10-n8-session-store.md`.
@@ -34,6 +36,14 @@
   нормированная ошибка 4.431e-05; мутации 12/15 и 14/15 (каждый пропуск — путь, которого на пине нет); на `ec7630a`
   найден второй путь DSA для ubatch ≤ 16 (убран в `79e2e74`). Модель крошечная, f32, CPU.
   `docs/evidence/2026-10-10-glm5next-decode-parity.md` (ветка N9).
+* **N10** (PR #6): точность R1 по умолчанию (`-ctk f16 -ctv f16 -fa on`) и квантованные веса (Q8_0, Q4_K_M) для
+  qwen4exp и glm5-next на обоих пинах: f16/FA 170/170, кванты 99/99 (на `ec7630a` и `79e2e74`), мутации 14/14 и 13/14,
+  18/18 и 18/18. Найдено: у flash attention на CPU два численно разных пути (меньше 64 строк — q и аккумулятор V в f16);
+  `-ctk f16` округляет и кэши индексера; деквантования весов мало — нужна эмуляция квантования активаций на CPU, иначе
+  ошибка 2.6e-4…5.8e-2; `llama-quantize` делает qwen4exp неисполнимой на CPU (квантует 2-D `ple_norm`) — для реального
+  файла Qwen3.8-Flash-Next UNKNOWN. Трасса прогона N7 исправила его находку 7 (см. выше); первая смена токена совпадает
+  с переворотом MoE на почти-ничьей (PROVISIONAL). Три раунда аудита. Модели крошечные, CPU.
+  `docs/evidence/2026-10-10-quant-fa-parity.md` (ветка N10).
 * **Трассы маршрутизации на реальных моделях:** инструменты не писали трассу для графов, где последний слой оставляет
   только выходные строки (qwen3moe, deepseek2); исправлено, проверено на крошечной qwen3moe и в CI.
   `docs/evidence/2026-10-10-traces-real-fix.md`.
@@ -87,8 +97,8 @@
 * Трассы прокси-моделей сняты и разобраны (раздел 2). Следующее по трассам: R9 M1 — трассы самой GLM-5.3-Flash на
   агентных промптах 32K–128K (хост 3090 или сервер); сохранять файлы `.probe` в следующем прогоне CI, чтобы измерить
   recall предсказателей именно на промахах кэша (сейчас UNKNOWN); генерации длиннее 128 токенов.
-* Пробелы корректности на CPU (CORRECTNESS §3): квантованные веса, f16 KV + flash attention (декод/откат/MTP для GLM
-  закрыты в N9, PR #5).
+* Пробелы корректности на CPU (CORRECTNESS §3): 1–4 закрыты (N9, N10); остаются диалект `glm5next`/ik_llama.cpp (5),
+  шаблоны чата (6), инструменты против настоящего сервера (7), MXFP4/MiMo (12) и др.; на GPU — всё уровня 4–6.
 * Без железа нельзя: всё уровня 4–6 (исполнение CUDA, производительность), held-out трассы GLM-5.3-Flash, P2P, DRAM.
 * **Следующий шаг при доступе к серверу (по ARCHITECTURE-ALTERNATIVES §6):** R0 — каналы DRAM, P2P в ВМ и задержка
   all-reduce, скорость AVX2-ядра экспертов Q4_K на ядро Zen 3, число NVMe; затем held-out трассы GLM на агентных сессиях
@@ -105,20 +115,21 @@
 | #3 | `claude/research-landscape` | PR #1 | этот этап: R5–R12, A, B, C, D, F, инструменты, паритет на пине R1, трассы |
 | #4 | `claude/n8-session-store` | PR #2 | N8 |
 | #5 | `claude/n9-glm-decode-parity` | PR #3 | N9: паритет glm5-next — декод, откат, MTP на двух пинах |
+| #6 | `claude/n10-quant-fa-parity` | PR #5 | N10: паритет при f16 KV + flash attention и на квантованных весах |
 
 Головы в `origin` перед последним изменением этого файла (CONFIRMED, литеральный вывод; голова
 `claude/research-landscape` после коммита — в описании PR #3):
 
 ```
 $ git ls-remote origin 'refs/heads/claude/*' 'refs/heads/main'
-090ca7111913a8b68cfa414df926dbb3643b2de5	refs/heads/claude/n7-server-hybrid-cpu
-ec1e061a7cfbd48bf897d4f9c081ea9fa4f29f4e	refs/heads/claude/n8-session-store
+fbe726aa8c27110639563047c0d57e32481c57f0	refs/heads/claude/n10-quant-fa-parity
+c2f6c912c00bec0c83ce301784ab2068dd36f1c2	refs/heads/claude/n7-server-hybrid-cpu
+c4c9015dbc278ec6be980be44f1864761a4f4edf	refs/heads/claude/n8-session-store
 af4db13f43f7027f20effb5401affcd0ca365a93	refs/heads/claude/n9-glm-decode-parity
 259081e2a85291660d45349dbf52ba587a900d20	refs/heads/claude/relaxed-dijkstra-1d7i5o
-091424485311dec9faed34a3f6d946ab49e5b9aa	refs/heads/claude/research-landscape
+5af53e098a8a14a861915f441d9dd35391f2125c	refs/heads/claude/research-landscape
 eb59224c835581740a715ddcaa9abe101f90aa2f	refs/heads/main
 ```
 
-CI на этих головах (GitHub Actions): PR #2 `090ca71` — 13/13 зелёные; PR #3 — 13/13 зелёные на `506c14c` (`0914244` —
-коммит данных от `github-actions[bot]`, он сам CI не запускает); PR #4 — зелёный на `ec1e061`; PR #5 — зелёный на
-`af4db13`; `traces-real` run 38079738013 — success (результаты в `0914244`).
+CI на этих головах (GitHub Actions): PR #2 `c2f6c91` — 14/14 зелёные; PR #3 `5af53e0` — 13/13 зелёные; PR #4 `c4c9015`
+(merge-коммит с исправлением N7) — 14/14 зелёные; PR #5 `af4db13` — зелёный; PR #6 `fbe726a` — 14/14 зелёные.
