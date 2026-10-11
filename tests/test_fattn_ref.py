@@ -109,6 +109,17 @@ class AttentionModes(unittest.TestCase):
         p = F.f16(p / p.sum())
         self.assertLess(abs(got[t, h] - p @ vc).max(), 1e-12)
 
+    def test_mm16_bound_covers_the_probability_rounding(self):
+        """mm16 against the same product with unrounded probabilities: within mm16_bound (one spacing per p and v)."""
+        q, k, v, cells = case(10)
+        k, v = F.f16(k), F.f16(v)
+        got = F.attend(q, k, v, cells, 0.25, "mm16")
+        q16 = F.f16(q)
+        ex = F.attend(q16, k, v, cells, 0.25, "exact")          # q rounded the same way, p not rounded
+        bound = F.mm16_bound(q, k, v, cells, 0.25)
+        self.assertTrue((np.abs(got - ex) <= bound).all())
+        self.assertGreater(np.abs(got - ex).max(), 0.0)
+
     def test_gqa_head_mapping(self):
         """Query head h reads kv head h // (H / Hkv): moving kv head 1 changes only query heads 2 and 3."""
         q, k, v, cells = case(8)

@@ -321,6 +321,7 @@ def dsa_layer_full(x, w, hp, cells_override=None, prec=None):
     kqv = mla_attention(r["q_abs"], store(r["latent"], prec), cells,
                         np.asarray(w["attn_v_b.weight"], dtype=np.float64), hp["k_mla"], modes)
     r.update(pooled_raw=pooled_raw, pooled=pooled, scores=scores, cells=cells, kqv=kqv, modes=modes,
+             stored={key: store(r[key], prec) for key in ("latent", "ik", "ig")},
              out=kqv @ w["attn_output.weight"].T)
     return r
 
@@ -345,8 +346,10 @@ def dsa_layer_chunk(x, w, hp, pos, st, cells_override=None, prec=None):
     modes = row_modes(prec, pos) if prec else None
     kqv = mla_attention(r["q_abs"], st["latent"], cells, np.asarray(w["attn_v_b.weight"], dtype=np.float64),
                         hp["k_mla"], modes)
+    T = x.shape[0]
     r.update(pooled_new=new.reshape(-1, hp["idx_dim"]), pool_range=(b0, b1), pooled=st["pooled"].copy(),
-             scores=scores, cells=cells, kqv=kqv, modes=modes, out=kqv @ w["attn_output.weight"].T)
+             scores=scores, cells=cells, kqv=kqv, modes=modes, out=kqv @ w["attn_output.weight"].T,
+             stored={key: st[key][st[key].shape[0] - T:] for key in ("latent", "ik", "ig")})     # as cached
     return r
 
 

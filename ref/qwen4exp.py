@@ -397,9 +397,11 @@ def attn_layer(x, w, hp, qsa, cells_override=None, prec=None):
         elif cells_override is not None:
             cells = cells_override
         r.update(k_raw=k_raw, pooled_raw=pooled_raw, pooled=pooled, iq=iq, scores=scores, cells=cells)
+        r.setdefault("stored", {})["k_raw"] = store(k_raw, prec)
     if prec:
         modes = row_modes(prec, np.arange(T))
         r.update(modes=modes, k_cache=store(k, prec), v_cache=store(v, prec))
+        r.setdefault("stored", {}).update(k=r["k_cache"], v=r["v_cache"])
         pre = attend_rows(q, r["k_cache"], r["v_cache"], cells, 1.0 / np.sqrt(D), modes).reshape(T, -1)
     else:
         pre = attention(q, k, v, cells, 1.0 / np.sqrt(D))
@@ -643,7 +645,8 @@ def attn_layer_chunk(x, w, hp, qsa, pos, kvc, idxc, cells_override=None, prec=No
     v = (x @ w["attn_v.weight"].T).reshape(T, Hkv, D)
     kvc["k"] = np.concatenate([kvc["k"], store(k, prec)])
     kvc["v"] = np.concatenate([kvc["v"], store(v, prec)])
-    r = dict(q_full=qf.reshape(T, -1), q_normed=q_normed, q=q, k_lin=k_lin, k=k, v=v, gate=gate)
+    r = dict(q_full=qf.reshape(T, -1), q_normed=q_normed, q=q, k_lin=k_lin, k=k, v=v, gate=gate,
+             stored=dict(k=kvc["k"][kvc["k"].shape[0] - T:], v=kvc["v"][kvc["v"].shape[0] - T:]))   # as cached
     cells = [list(range(0, t + 1)) for t in np.asarray(pos).tolist()]
     if qsa:
         kp, nh, d = hp["kpool"], hp["idx_heads"], hp["idx_dim"]
@@ -662,6 +665,7 @@ def attn_layer_chunk(x, w, hp, qsa, pos, kvc, idxc, cells_override=None, prec=No
             cells = [cells_override.get(int(t), c) for t, c in zip(np.asarray(pos).tolist(), cells)]
         r.update(k_raw=k_raw, pooled_new=new, pool_range=(b0, b1), pooled=idxc["pooled"].copy(), iq=iq,
                  scores=scores)
+        r["stored"]["k_raw"] = idxc["k_raw"][idxc["k_raw"].shape[0] - T:]
     if prec:
         r["modes"] = modes = row_modes(prec, pos)
         pre = attend_rows(q, kvc["k"], kvc["v"], cells, 1.0 / np.sqrt(D), modes).reshape(T, -1)

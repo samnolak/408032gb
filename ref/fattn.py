@@ -174,3 +174,22 @@ def attend(q, k, v, cells, scale, mode="exact"):
                 p = f16(p)
             out[t, hs] = p @ vc
     return out
+
+
+def mm16_bound(q, k, v, cells, scale):
+    """Per output element of attend(..., "mm16"): sum over the cells of spacing(p16_i) |v_i| + p16_i spacing(v_i), the
+    change if each f16 probability (llama.cpp rounds its f32 softmax, the oracle its float64 one) and each f16 value
+    of v sat one binary16 spacing away. (T, H, DV)."""
+    q, k, v = (np.asarray(a, dtype=np.float64) for a in (q, k, v))
+    T, H, _ = q.shape
+    r = H // k.shape[1]
+    out = np.empty((T, H, v.shape[2]))
+    for t, idx in enumerate(_cells(cells, T)):
+        idx = np.sort(idx)
+        for h in range(H):
+            kc, vc = k[idx, h // r], v[idx, h // r]
+            sc = f16(q[t, h]) @ kc.T * scale
+            p = np.exp(sc - sc.max())
+            p = f16(p / p.sum())
+            out[t, h] = ulp16(p) @ np.abs(vc) + p @ ulp16(vc)
+    return out

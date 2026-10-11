@@ -12,7 +12,7 @@ flash-attention mode the ubatch takes (ref/fattn.py: one_chunk with an f16 accum
 f32 at 64 and more). Added here:
   test_cache_contents     (a) the store: the cache rows a graph wrote (dumped from the cache tensors, ggml_type f16)
                           equal f16 of its own dumped pre-store values (Kcur, Vcur, indexer_k_raw, indexer_pool_k_new),
-                          every element; (b) every cached row against f16(oracle)
+                          every element; (b) every cached row against the rows the oracle stored
   test_flash_attention_op ref/fattn.py attend() on llama.cpp's own q, cached K/V and selection mask reproduces the
                           dumped attention output (attn_pregate = kqv_out of build_attn_qsa / build_attn)
   test_attention_path     flash attention (no kq_soft_max node) iff PARITY_FA=on; the cache tensors' type
@@ -37,9 +37,10 @@ Tolerances (normwise relative error max|got - want| / max|want|, as N6; U16 = 2^
     state reads only those layers) and, on that layer, what is computed before the attention reads the cache.
   * MoE expert sets and QSA selections: equal, or a valid top-k within TOL of the oracle's own scores (the scores
     carry that error), replayed and counted (TIE_RTOL = MOE_TIE_RTOL = TOL; N6 keeps 1e-6 and no MoE replay).
-  * cache store (a): exact. Cache rows against the oracle (b): within one spacing of f16(oracle) plus the tolerance of
-    the pre-store value (tol_for of Kcur, Vcur, indexer_k_raw, indexer_pool_k_new); the share of exactly equal elements
-    is printed.
+  * cache store (a): exact. Cache rows against the rows the oracle stored (b): within one spacing plus the tolerance
+    of the pre-store value (tol_for of Kcur, Vcur, indexer_k_raw, indexer_pool_k_new), and at least CACHE_AGREE = 50 %
+    of the elements of each cached quantity exactly equal (they differ only where the two pre-store values straddle a
+    rounding boundary; measured >= 85 % overall; an oracle that stored unrounded values would match almost none).
   * flash-attention op on llama.cpp's own inputs: one_chunk <= 1 binary16 spacing of each output element (the f16
     accumulator, its rounding at f32 vs float64), tiled and mm16 1e-5 normwise (f32 arithmetic after the f16 roundings).
   * exact checks of N6 (embedding and PLE gathers) stay exact.
@@ -60,8 +61,8 @@ ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT_DIR))
 from ref import fattn as F  # noqa: E402
 from tests import test_qwen4exp_decode_parity as base  # noqa: E402
-from tests.f16fa import (FA, KV, U16, F16Mixin, Recorder, cache_check, print_tables, store_check,  # noqa: E402
-                         ulp_diff)
+from tests.f16fa import (FA, KV, U16, F16Mixin, Recorder, cache_check, cache_share,  # noqa: E402
+                         print_tables, store_check, ulp_diff)
 
 DUMP = os.environ.get("QWEN4EXP_F16FA_DUMP")
 GGUF = os.environ.get("QWEN4EXP_F16FA_GGUF")
@@ -126,24 +127,25 @@ class _F16(F16Mixin, base._RunParity):
                     self.assertEqual(m["ggml_type"], KV, f"cache_idx_k_l{il} type")
 
     def _cache_rows(self, gr, il):
-        """Oracle cache contents after graph gr: {position: (k, v, k_raw)} from the latest graph that wrote it."""
+        """The oracle's cache contents after graph gr, as it stored them: {position: (k, v, k_raw)} from the latest
+        graph that wrote the cell."""
         rows = {}
         for g2 in self.R.graphs:
             if g2["g"] > gr["g"]:
                 break
-            a = self.B[g2["g"]]["layers"][il]["attn"]
+            st = self.B[g2["g"]]["layers"][il]["attn"]["stored"]
             for r, p in enumerate(g2["pos"]):
-                rows[p] = (a["k"][r], a["v"][r], a.get("k_raw", [None] * g2["n"])[r])
+                rows[p] = (st["k"][r], st["v"][r], st["k_raw"][r] if "k_raw" in st else None)
         return rows
 
     def test_cache_contents(self):
         """The caches after every graph (the set_rows outputs, ggml order [row, cell]): (a) the store itself, the rows
         this graph wrote equal f16 of its own dumped pre-store values (Kcur, Vcur, indexer_k_raw, indexer_pool_k_new
         into the slot of each pool it completed, a pool's last member's cell); (b) every cached row so far against the
-        oracle: K, V, the raw indexer key and the pooled key of every complete pool."""
+        oracle as it stored them: K, V, the raw indexer key and the pooled key of every complete pool."""
         R, hp = self.R, self.hp
         kp, d = hp["kpool"], hp["idx_dim"]
-        stats, n_store = [0, 0], 0
+        stats, n_store = {}, 0
         for gr in R.graphs:
             g, n, end = gr["g"], gr["n"], gr["p0"] + gr["n"]
             for il in self.ATT:
@@ -181,9 +183,7 @@ class _F16(F16Mixin, base._RunParity):
                                 stats, self.tol_for("indexer_pool_k_new", il))
         self.TABLE.append((self.RUN, f"cache store: {n_store} elements equal to the rounded pre-store value", -1, -1,
                            0.0, 0.0, ()))
-        if KV == "f16":
-            self.TABLE.append((self.RUN, f"cache rows equal to f16(oracle): {stats[0]}/{stats[1]}", -1, -1, 0.0,
-                               1.0 - stats[0] / stats[1], ()))
+        cache_share(self, stats)
 
     def test_flash_attention_op(self):
         """ref/fattn.py on llama.cpp's own inputs: the dumped rotated q (Qcur), the K/V the attention read from the
@@ -221,6 +221,11 @@ class _F16(F16Mixin, base._RunParity):
                     n_one += int((u > 0.5).sum())
                     n_all += u.size
                     self.assertLessEqual(float(u.max()), 1.0, f"flash attention L{il} g{g}: {u.max():.2f} spacings")
+                    self.close(f"flash attention op ({mode}, own inputs)", il, g, got, want)
+                elif mode == "mm16":      # f16 probabilities of llama.cpp's f32 softmax: each within one spacing
+                    bound = F.mm16_bound(q, k, v, cells, 1.0 / np.sqrt(D)) + 1e-6 * np.abs(want).max()
+                    r = float((np.abs(got - want) / bound).max())
+                    self.assertLessEqual(r, 1.0, f"mm16 L{il} g{g}: {r:.2f} x the one-spacing bound")
                     self.close(f"flash attention op ({mode}, own inputs)", il, g, got, want)
                 else:
                     self.close(f"flash attention op ({mode}, own inputs)", il, g, got, want, 1e-5)

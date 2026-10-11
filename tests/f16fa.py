@@ -37,22 +37,36 @@ def store_check(t, what, il, g, cache_rows, pre_store):
     return want.size
 
 
-def cache_check(t, what, il, g, got, want, stats, tol_pre):
-    """Cache rows llama.cpp holds (got) against the oracle's values before the store (want). f16 cache: within one
-    binary16 spacing of f16(want) plus the tolerance tol_pre * max|want| the same quantity has before the store (the
-    oracle's pre-store value may differ from llama.cpp's by that much, e.g. Kcur, kv_cmpr); the exact matches are
-    counted in stats and reported. f32 cache: tol_pre normwise."""
+def cache_check(t, what, il, g, got, stored, stats, tol_pre):
+    """Cache rows llama.cpp holds (got) against the rows the oracle stored (stored: f16 values with an f16 cache).
+    Every element within one binary16 spacing plus tol_pre * max|stored|, the tolerance the same quantity has before
+    the store (the oracle's pre-store value may differ from llama.cpp's by that much, e.g. Kcur, kv_cmpr, and then
+    round to the neighbouring binary16 value); the exactly equal elements are counted per quantity in stats
+    ({what: [equal, total]}), cache_share() asserts their share. f32 cache: tol_pre normwise."""
+    stored = np.asarray(stored, dtype=np.float64).reshape(np.shape(got))
     if KV == "f16":
-        w16 = F.f16(want)
-        d = np.abs(got - w16)
-        stats[0] += int((d == 0).sum())
-        stats[1] += d.size
-        bound = F.ulp16(w16) + tol_pre * float(np.abs(want).max())
+        d = np.abs(got - stored)
+        st = stats.setdefault(what, [0, 0])
+        st[0] += int((d == 0).sum())
+        st[1] += d.size
+        bound = F.ulp16(stored) + tol_pre * float(np.abs(stored).max())
         t.assertTrue((d <= bound).all(), f"{what} L{il} g{g}: {float((d / bound).max()):.2f} x (1 spacing + "
-                                         f"{tol_pre:.1e} max|want|)")
-        t.close(f"{what} (cache rows vs oracle)", il, g, got, w16)
+                                         f"{tol_pre:.1e} max|stored|)")
+        t.close(f"{what} (cache rows vs oracle)", il, g, got, stored)
     else:
-        t.close(f"{what} (cache rows vs oracle)", il, g, got, want, tol_pre)
+        t.close(f"{what} (cache rows vs oracle)", il, g, got, stored, tol_pre)
+
+
+def cache_share(t, stats):
+    """Per cached quantity, the share of elements equal to what the oracle stored: >= CACHE_AGREE (f16 cache)."""
+    if KV != "f16" or not stats:
+        return
+    eq, n = sum(v[0] for v in stats.values()), sum(v[1] for v in stats.values())
+    low = min(stats, key=lambda w: stats[w][0] / stats[w][1])
+    t.TABLE.append((t.RUN, f"cache rows equal to the oracle's stored rows: {eq}/{n}; lowest {low} "
+                           f"{stats[low][0]}/{stats[low][1]}", -1, -1, 0.0, 1.0 - eq / n, ()))
+    for what, (e, m) in stats.items():
+        t.assertGreaterEqual(e / m, t.CACHE_AGREE, f"{what}: the oracle stores other values ({e} of {m} equal)")
 
 
 class Recorder:
@@ -78,6 +92,10 @@ class F16Mixin:
     F32 = None
     MISMATCH = None          # {(run, kind): count}: discrete choices and recorded checks that differ (printed)
     BASE_TESTS = ()
+    # share of the cached elements of each quantity the oracle stores exactly as llama.cpp does (f16 cache): an
+    # element differs only when the two pre-store values straddle a rounding boundary; measured >= 0.85 overall
+    # (docs/evidence/2026-10-10-quant-fa-parity.md); an oracle that does not round its store matches almost none
+    CACHE_AGREE = 0.5
 
     @classmethod
     def setUpClass(cls):
@@ -137,7 +155,7 @@ class F16Mixin:
             rel = mx / (float(np.abs(want).max()) + 1e-30) if d.size else 0.0
             self.F32.rows.append((self.RUN, what, il, g, mx, rel))
             return
-        if tol is None or tol > 1e-200:          # exact comparisons (tol 1e-300) stay exact
+        if tol is None:                          # explicit tolerances (exact 1e-300, op-level ones) are kept
             tol = self.tol_for(what, il)
         super().close(what, il, g, got, want, tol)
 

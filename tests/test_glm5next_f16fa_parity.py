@@ -13,7 +13,7 @@ more); the ec7630a gather path (ubatches of <= 16 tokens) never runs flash atten
 Added here, as for qwen4exp (tests/test_qwen4exp_f16fa_parity.py):
   test_cache_contents     (a) the store: the MLA latent, indexer key | gate and pooled-key rows a graph wrote equal f16
                           of its own dumped pre-store values (kv_cmpr, indexer_k, indexer_gate, indexer_pool_k_new);
-                          (b) every cached row against f16(oracle)
+                          (b) every cached row against the rows the oracle stored
   test_flash_attention_op ref/fattn.py on llama.cpp's own q_absorbed, cached latents and selection mask, times W_v_b,
                           reproduces the dumped kqv_out (mask path only)
   test_attention_path     flash attention (fattn_mla, no kq_soft_max) iff PARITY_FA=on on the mask path; the gather
@@ -40,7 +40,8 @@ ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT_DIR))
 from ref import fattn as F  # noqa: E402
 from tests import test_glm5next_decode_parity as base  # noqa: E402
-from tests.f16fa import FA, KV, U16, F16Mixin, Recorder, cache_check, print_tables, store_check  # noqa: E402
+from tests.f16fa import (FA, KV, U16, F16Mixin, Recorder, cache_check, cache_share,  # noqa: E402
+                         print_tables, store_check)
 from tests.test_qwen4exp_f16fa_parity import find  # noqa: E402
 
 DUMP = os.environ.get("GLM5NEXT_F16FA_DUMP")
@@ -101,10 +102,11 @@ class _F16(F16Mixin, base._RunParity):
         """The caches after every graph (the set_rows outputs, ggml order [row, cell]): (a) the store itself, the rows
         this graph wrote equal f16 of its own dumped pre-store values (kv_cmpr, indexer_k, indexer_gate,
         indexer_pool_k_new into the slot of each pool it completed, a pool's last member's cell); (b) every cached row
-        so far against the oracle: the MLA latent, the indexer key | gate rows and the pooled key of every pool."""
+        so far against the oracle as it stored them: the MLA latent, the indexer key | gate rows and the pooled key
+        of every pool."""
         R, hp = self.R, self.hp
         kp, d, Lr = hp["kpool"], hp["idx_dim"], hp["kv_lora"]
-        stats, n_store = [0, 0], 0
+        stats, n_store = {}, 0
         for gr in R.graphs:
             g, n, end = gr["g"], gr["n"], gr["p0"] + gr["n"]
             for il in self.DSA:
@@ -112,9 +114,9 @@ class _F16(F16Mixin, base._RunParity):
                 for g2 in R.graphs:
                     if g2["g"] > g:
                         break
-                    D2 = self.B[g2["g"]]["layers"][il]["dsa"]
+                    st = self.B[g2["g"]]["layers"][il]["dsa"]["stored"]     # the oracle's rows as cached
                     for r, p in enumerate(g2["pos"]):
-                        rows[p] = (D2["latent"][r], D2["ik"][r], D2["ig"][r])
+                        rows[p] = (st["latent"][r], st["ik"][r], st["ig"][r])
                 want = [np.stack([rows[p][j] for p in range(end)]) for j in range(3)]
                 _, lat = find(R, g, f"cache_k_l{il} (view)", lambda ne: ne[1] == 512)
                 lat = lat.reshape(512, -1)
@@ -139,9 +141,7 @@ class _F16(F16Mixin, base._RunParity):
                                 stats, self.tol_for("indexer_pool_k_new", il))
         self.TABLE.append((self.RUN, f"cache store: {n_store} elements equal to the rounded pre-store value", -1, -1,
                            0.0, 0.0, ()))
-        if KV == "f16":
-            self.TABLE.append((self.RUN, f"cache rows equal to f16(oracle): {stats[0]}/{stats[1]}", -1, -1, 0.0,
-                               1.0 - stats[0] / stats[1], ()))
+        cache_share(self, stats)
 
     def test_flash_attention_op(self):
         """Mask-path graphs: ref/fattn.py attend() on the dumped q_absorbed, the latents the attention read (get_k
@@ -171,6 +171,12 @@ class _F16(F16Mixin, base._RunParity):
                     r = float((np.abs(got - want) / bound).max())
                     worst = max(worst, r)
                     self.assertLessEqual(r, 1.0, f"flash attention L{il} g{g}: {r:.2f} x the one-spacing bound")
+                    self.close(f"flash attention op ({mode}, own inputs)", il, g, got, want)
+                elif mode == "mm16":      # f16 probabilities of llama.cpp's f32 softmax: each within one spacing
+                    ob = F.mm16_bound(q, k, k, cells, 1.0 / np.sqrt(hp["k_mla"]))
+                    bound = np.einsum("hvl,thl->thv", np.abs(wv), ob).reshape(n, -1) + 1e-6 * np.abs(want).max()
+                    r = float((np.abs(got - want) / bound).max())
+                    self.assertLessEqual(r, 1.0, f"mm16 L{il} g{g}: {r:.2f} x the one-spacing bound")
                     self.close(f"flash attention op ({mode}, own inputs)", il, g, got, want)
                 else:
                     self.close(f"flash attention op ({mode}, own inputs)", il, g, got, want, 1e-5)
