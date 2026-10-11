@@ -1,0 +1,23 @@
+{
+ "_doc": "N18 (a): the separate MTP GGUFs of the R1 Qwen revision (the UD-Q4_K_XL files have no NextN block, N15). Names taken verbatim from the committed listing third_party/gguf-headers/qwen3.8-flash-next-ud-q4_k_xl/PIN.json:77-102 (gguf_listing of unsloth/Qwen3.8-Flash-Next-GGUF @38bb39ee97821de2c9009abb7e93950eec396e66). Headers only, by Range reads (scripts/gguf_headers_fetch.py); each file is analysed as its own model (analysis mode mtp_files): layout, NextN layer against the tiny qwen4exp --mtp model, KV against the UD-Q4_K_XL trunk, and what each llama.cpp pin's loader asks of a separate MTP file. docs/reassessment/CORRECTNESS.md gap 9.",
+ "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+ "revision": "38bb39ee97821de2c9009abb7e93950eec396e66",
+ "files": [
+  "MTP/mtp-Qwen3.8-Flash-Next-BF16.gguf",
+  "MTP/mtp-Qwen3.8-Flash-Next-Q4_K_M.gguf",
+  "MTP/mtp-Qwen3.8-Flash-Next-Q8_0.gguf",
+  "MTP/mtp-Qwen3.8-Flash-Next-shared-BF16.gguf",
+  "MTP/mtp-Qwen3.8-Flash-Next-shared-Q4_K_M.gguf",
+  "MTP/mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf"
+ ],
+ "expect_count": 6,
+ "max_header_bytes": 33554432,
+ "initial_bytes": 262144,
+ "analysis": {
+  "mode": "mtp_files",
+  "graph": "qwen4exp",
+  "trunk": "qwen3.8-flash-next-ud-q4_k_xl",
+  "mtp_reference": {"tiny": "qwen4exp", "variant": "--mtp"},
+  "hf_config": "third_party/hf/qwen3.8-flash-next-chat/config.json"
+ }
+}

@@ -1,0 +1,17 @@
+{
+ "_doc": "N18 (b): file lists of MiMo-V2.6-Flash GGUFs (mimo2). The N15 discovery found them (third_party/gguf-headers/discover-glm-mimo/LISTING.json:3549, 3729, 3765, 3777) but listed no MiMo files (its 25-repo cap went to GLM). Named repos, each pinned through the revision API and its .gguf paths listed with size and LFS sha256: the ggml-org MOPD and RL files for llama.cpp mainline, the two most-downloaded MOPD MXFP4 files, and two unsloth names (not in the N15 listing; 404 is recorded, not an error). The vendored config is of the MOPD model (XiaomiMiMo/MiMo-V2.6-Flash-MOPD @b12f557, bot commit 1ce4d32 on claude/n16-mimo-decode-parity). The search (no architecture filter, so it lists no files) refreshes the repo list. Reads no file; header requests for one quant per repo follow from this listing. docs/reassessment/CORRECTNESS.md gap 9.",
+ "kind": "discover",
+ "limit": 100,
+ "list_files": true,
+ "repos": [
+  {"repo": "ggml-org/MiMo-V2.6-Flash-MOPD-GGUF", "revision": "main"},
+  {"repo": "ggml-org/MiMo-V2.6-Flash-RL-GGUF", "revision": "main"},
+  {"repo": "QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF", "revision": "main"},
+  {"repo": "kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF", "revision": "main"},
+  {"repo": "unsloth/MiMo-V2.6-Flash-MOPD-GGUF", "revision": "main"},
+  {"repo": "unsloth/MiMo-V2.6-Flash-GGUF", "revision": "main"}
+ ],
+ "searches": [
+  {"search": "MiMo-V2.6-Flash"}
+ ]
+}
