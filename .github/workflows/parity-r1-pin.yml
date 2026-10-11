@@ -52,5 +52,5 @@ jobs:
         run: tools/tinygen/run_parity_glm5next_decode.sh ../llama.cpp ../build-tools
       - name: N10 R1 default precision (-ctk f16 -ctv f16 -fa on) of qwen4exp and glm5-next at the R1 pin (CPU)
         run: tools/tinygen/run_parity_f16fa.sh ../llama.cpp ../build-tools
-      - name: N10 quantized weights (Q8_0, Q4_K_M by the R1 pin's llama-quantize), qwen4exp products (CPU)
+      - name: N10 quantized weights (Q8_0, Q4_K_M by the R1 pin's llama-quantize), qwen4exp and glm5-next products (CPU)
         run: tools/tinygen/run_parity_quant.sh ../llama.cpp ../build-tools

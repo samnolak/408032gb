@@ -35,7 +35,7 @@ jobs:
         run: tools/tinygen/run_parity_glm5next_decode.sh ../llama.cpp ../build-tools
       - name: N10 R1 default precision (-ctk f16 -ctv f16 -fa on) - qwen4exp and glm5-next runs against the precision-aware oracles (CPU)
         run: tools/tinygen/run_parity_f16fa.sh ../llama.cpp ../build-tools
-      - name: N10 quantized weights (Q8_0, Q4_K_M by the pinned llama-quantize) - every qwen4exp matrix product against ref/quant.py (CPU)
+      - name: N10 quantized weights (Q8_0, Q4_K_M by the pinned llama-quantize) - every qwen4exp and glm5-next matrix product against ref/quant.py (CPU)
         run: tools/tinygen/run_parity_quant.sh ../llama.cpp ../build-tools
       - name: G0 per-token routing tracer + cache simulator on the tiny glm5-next model (CPU smoke)
         run: tools/g0/run_trace_smoke.sh ../llama.cpp ../build-tools
