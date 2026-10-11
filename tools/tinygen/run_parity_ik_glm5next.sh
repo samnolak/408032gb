@@ -42,9 +42,11 @@ run() {   # run <name> <-ub> <DUMP_CALLS or ""> <ik flags...>; model in $MODEL
   echo "$* " > "$WORK/n12/$name/flags.txt"
   echo "$name: $(tail -n 1 "$WORK/n12/$name.log") [$*]"
 }
-# ik cannot keep the MLA latent in f32 on the CPU: with -fa off it takes the -ctv type, which must be f16 or bf16
-# (src/llama.cpp:1496-1497, 9257-9259); with -fa on an f32 K/V cache aborts (ggml/src/iqk/iqk_flash_attn.cpp:280-298).
-# The closest to the reference contract: -fa off, -ctk f32, -ctv f16 (the latent in f16), indexer cache f32 (-ictk).
+# ik keeps no f32 MLA latent for both K and V on the CPU: with -fa off and -mla 2/3 (default 3) the latent takes the
+# -ctv type, which must be f16 or bf16 (src/llama.cpp:1496-1497, 9257-9259); with -mla 1 -fa off K can be f32 but V is
+# read from a transposed -ctv copy (:1513-1516; not run here); with -fa on an f32 K/V cache aborts
+# (ggml/src/iqk/iqk_flash_attn.cpp:280-298). The closest to the reference contract used here: -fa off, -ctk f32,
+# -ctv f16 (the latent in f16, default -mla 3), indexer cache f32 (-ictk).
 REF=(-fa off -ctk f32 -ctv f16 -ictk f32)
 run p64      64  ""             "${REF[@]}" --dsa      # one 64-token ubatch, DSA k-pool selection on (opt-in, --dsa)
 run ub16     16  ""             "${REF[@]}" --dsa      # one call, 4 ubatches
