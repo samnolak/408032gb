@@ -12,8 +12,9 @@ export TMPDIR=$S/n21/tmp
 cd $WT
 echo "worktree HEAD $(git -C $WT rev-parse HEAD); status: $(git -C $WT status --short | wc -l) changed or untracked files"
 pin() { case $1 in ec) echo $S/llama-ec7630a;; r1) echo $S/llama.cpp;; r1p) echo $S/n21/llama-r1-patched;; esac; }
-step() {  # step <id> <driver> <pin> [work env var]
+step() {  # step <id> <driver> <pin> [work env var]; ONLY=<regex> runs only the steps whose id matches
   local id=$1 drv=$2 p=$3 wv=${4:-}
+  if [ -n "${ONLY:-}" ] && ! [[ $id =~ $ONLY ]]; then return 0; fi
   local L; L=$(pin $p); local B=$S/n21/build-$p; local W=$S/n21/tmp/work-$id-$p
   rm -rf $W; mkdir -p $W
   local t0; t0=$(date +%s)

@@ -382,6 +382,20 @@ class SpecReplay(unittest.TestCase):
             self.assertEqual(len(cells_replay(ma, 3, 64, fixed=a.startswith("spec/") and patched()).log),
                              len(ma["graphs"]), a)
 
+    def test_target_independent_of_the_mtp_order(self):
+        """On the patched build: the target's dumps (every graph, logits, h_nextn) of the upstream and the fixed replay
+        of the same plan are identical: the order of the MTP calls never touches the target context."""
+        if not patched():
+            self.skipTest(SKIP_UNPATCHED)
+        for plan in ("mtp3", "mtp3b"):
+            ra, rb = pathlib.Path(DUMP, plan), pathlib.Path(DUMP, "fix", plan)
+            fa = sorted(p.relative_to(ra) for p in ra.rglob("*") if p.is_file() and p.relative_to(ra).parts[0] != "mtp")
+            fb = sorted(p.relative_to(rb) for p in rb.rglob("*") if p.is_file() and p.relative_to(rb).parts[0] != "mtp")
+            self.assertEqual(fa, fb, plan)
+            self.assertGreater(len(fa), 1000)
+            for f in fa:
+                self.assertEqual((ra / f).read_bytes(), (rb / f).read_bytes(), (plan, f))
+
     def test_fix_changes_drafts(self):
         """On the patched build: the fixed and the upstream code draft different tokens exactly where the upstream head
         0 read foreign K/V (the draft at 259 in mtp3, at 307 in mtp3b); every other draft is the same."""
