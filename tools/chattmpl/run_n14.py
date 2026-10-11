@@ -43,7 +43,28 @@ TEMPLATES = {
             "turn_end": ""},
     "qwen": {"dir": ROOT / "third_party/hf/qwen3.8-flash-next-chat", "model_arg": "qwen_gguf",
              "turn_end": "<|im_end|>"},
+    # N23: our corrected GLM template (templates/glm-5.3-flash/chat_template.jinja, the loop-scope fix) is what the
+    # server loads; the jinja2 reference that defines the format ("reference": None = <dir>/chat_template.jinja) stays
+    # the official HF template, so every section compares the server with our file against the official format
+    "glm_n23": {"dir": ROOT / "third_party/hf/glm-5.3-flash-chat", "template": ROOT / "templates/glm-5.3-flash/chat_template.jinja",
+                "reference": None, "model_arg": "glm_gguf", "turn_end": ""},
 }
+
+
+def template_path(name):
+    """The template file of TEMPLATES[name]: its own "template" entry, else <dir>/chat_template.jinja."""
+    t = TEMPLATES[name]
+    return pathlib.Path(t["template"]) if t.get("template") else pathlib.Path(t["dir"]) / "chat_template.jinja"
+
+
+def reference_template(name):
+    """The template file the jinja2 reference renders for TEMPLATES[name]: its "reference" entry if present (None =
+    <dir>/chat_template.jinja), else the server's template_path(name)."""
+    t = TEMPLATES[name]
+    if "reference" in t:
+        return pathlib.Path(t["reference"]) if t["reference"] else pathlib.Path(t["dir"]) / "chat_template.jinja"
+    return template_path(name)
+
 
 # name -> (jinja2 kwargs, server chat_template_kwargs, extra request body fields). The server maps the request kwarg
 # preserve_reasoning to preserve_thinking / clear_thinking / ... (common/jinja/caps.cpp:22-27) and the body field
@@ -72,6 +93,9 @@ VARIANTS = {
 }
 
 
+VARIANTS["glm_n23"] = VARIANTS["glm"]
+
+
 def no_reasoning(conv):
     out = copy.deepcopy(conv)
     for m in out:
@@ -95,7 +119,7 @@ def warnings_of(log):
 
 class Renderers:
     def __init__(self, name, srv):
-        self.tmpl = hf_render.Template(TEMPLATES[name]["dir"])
+        self.tmpl = hf_render.Template(TEMPLATES[name]["dir"], reference_template(name))
         self.srv = srv
 
     def hf(self, hkw, tools):
@@ -137,19 +161,23 @@ def compare_row(name, vname, cname, agp, ref, eref, got, egot):
     return row
 
 
-def section_render(args, name, out):
+VARIANT_CASES = ("reasoning", "agent_session", "reasoning_mixed", "reasoning_empty")
+
+
+def section_render(args, name, out, cases=None, variant_cases=VARIANT_CASES):
     """Rows: server vs jinja2 per variant, case and add_generation_prompt. Rows of the variants that turn thinking off
     (effort_none, server_flag_reasoning_off) also carry same_as_server_default: the server's prompt equals its prompt
-    with the defaults (GLM's template does not read enable_thinking)."""
+    with the defaults (GLM's template does not read enable_thinking). cases: dict like convs.CASES (default it);
+    variant_cases: the cases rendered under every variant, the others under the default only."""
+    cases = C.CASES if cases is None else cases
     rows = []
-    tdir = TEMPLATES[name]["dir"]
     default_prompt = {}
-    with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(tdir / "chat_template.jinja"),
+    with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(template_path(name)),
                   os.path.join(out, "render-" + name)) as srv:
         R = Renderers(name, srv)
         for vname, (hkw, skw, extra) in VARIANTS[name].items():
-            for cname, case in C.CASES.items():
-                if vname != "default" and cname not in ("reasoning", "agent_session", "reasoning_mixed", "reasoning_empty"):
+            for cname, case in cases.items():
+                if vname != "default" and cname not in variant_cases:
                     continue
                 msgs = case["messages"] if vname != "enable_thinking_false" else no_reasoning(case["messages"])
                 tools = C.TOOLS if case.get("tools") else None
@@ -164,12 +192,12 @@ def section_render(args, name, out):
                     rows.append(row)
         logs = {"default": warnings_of(srv.log_text())}
     for vname, flags, like in SERVER_FLAG_RUNS:
-        with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(tdir / "chat_template.jinja"),
+        with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(template_path(name)),
                       os.path.join(out, "render-%s-%s" % (name, vname)), extra=flags) as srv:
             R = Renderers(name, srv)
             hkw = VARIANTS[name][like][0]
             for cname in ("reasoning", "agent_session"):
-                case = C.CASES[cname]
+                case = C.CASES[cname]  # always the N14 cases: the flag runs compare two server configurations
                 tools = C.TOOLS if case.get("tools") else None
                 ref, eref = try_render(R.hf(hkw, tools), case["messages"], True)
                 got, egot = try_render(R.server(None, None, tools), case["messages"], True)
@@ -189,17 +217,16 @@ PREFIX_SESSIONS = {  # session name -> (variant of VARIANTS, conversation)
 }
 
 
-def section_prefix(args, name, out):
+def section_prefix(args, name, out, sessions=None):
     """history_checks and loop_checks: jinja2 alone, the server alone, and the server's prompts with the turns a model
     trained on the reference template writes (server_prompts+jinja2_turns). The server runs with
     --no-prefill-assistant so that a history ending with an assistant turn renders as history (with the default
     --prefill-assistant it is a continuation, and one with tool calls is refused)."""
     res = {}
-    tdir = TEMPLATES[name]["dir"]
-    with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(tdir / "chat_template.jinja"),
+    with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(template_path(name)),
                   os.path.join(out, "prefix-" + name), extra=["--no-prefill-assistant"]) as srv:
         R = Renderers(name, srv)
-        for sname, (vname, conv_fn) in PREFIX_SESSIONS.items():
+        for sname, (vname, conv_fn) in (PREFIX_SESSIONS if sessions is None else sessions).items():
             hkw, skw, extra = VARIANTS[name][vname]
             conv = conv_fn()
             sfn, hfn = R.server(skw, extra, C.TOOLS), R.hf(hkw, C.TOOLS)
@@ -261,7 +288,7 @@ def section_parse(args, name, out):
     if not args.harness:
         return {"skipped": "no --harness"}
     tdir = TEMPLATES[name]["dir"]
-    tmpl = hf_render.Template(tdir)
+    tmpl = hf_render.Template(tdir, reference_template(name))
     conv = C.AGENT_SESSION
     hf = lambda m, add_generation_prompt=False: tmpl.render(m, tools=C.TOOLS, add_generation_prompt=add_generation_prompt)  # noqa: E731
     turn_end = TEMPLATES[name]["turn_end"]
@@ -288,7 +315,7 @@ def section_parse(args, name, out):
     reqs.append({"id": "%s-nothink" % name, "messages": C.to_openai(C.CASES["system_user"]["messages"]),
                  "kwargs": {"enable_thinking": False}})
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, dir=out) as f:
-        json.dump({"template_file": str(tdir / "chat_template.jinja"), "requests": reqs}, f, ensure_ascii=False)
+        json.dump({"template_file": str(template_path(name)), "requests": reqs}, f, ensure_ascii=False)
         spec = f.name
     proc = subprocess.run([args.harness, spec], capture_output=True, text=True, cwd=out, timeout=600,
                           env=dict(os.environ, CHATTMPL_DEBUG="1"))
@@ -300,7 +327,7 @@ def section_parse(args, name, out):
                       if "Using specialized template" in ln or "using differential autoparser" in ln})
     res = {"requests": [], "notools": by_id.get("%s-notools" % name), "nothink": by_id.get("%s-nothink" % name),
            "handler_log": handler}
-    with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(tdir / "chat_template.jinja"),
+    with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(template_path(name)),
                   os.path.join(out, "parse-" + name)) as srv:
         R = Renderers(name, srv)
         srender = R.server(None, None, C.TOOLS)
@@ -371,7 +398,7 @@ LIVE_CONFIGS = [  # tag, variant of VARIANTS, conversation, extra server flags
 ]
 
 
-def section_live(args, name, out):
+def section_live(args, name, out, configs=None):
     """The agent session through /v1/chat/completions. Each request k sends conv[:k]; the assistant turn conv[k] is
     forced byte for byte (GBNF literal of the turn as the jinja2 reference renders it after the generation prompt,
     up to and including the template's end-of-turn text if it writes one, then EOS). With a bytes-only vocabulary
@@ -381,15 +408,14 @@ def section_live(args, name, out):
     shared == held: the next request should reuse all of held (cache_n = held); otherwise the server restores the
     newest context checkpoint at or before `shared` (n_tokens in the trace) or re-processes from 0."""
     res = {}
-    tdir = TEMPLATES[name]["dir"]
     turn_end = TEMPLATES[name]["turn_end"]
-    for tag, vname, conv_fn, xflags in LIVE_CONFIGS:
+    for tag, vname, conv_fn, xflags in (LIVE_CONFIGS if configs is None else configs):
         hkw, skw, extra = VARIANTS[name][vname]
         conv = conv_fn()
         flags = ["-c", "16384", "-lv", "4"] + xflags
         wd = os.path.join(out, "live-%s-%s" % (name, tag))
         rows = []
-        with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(tdir / "chat_template.jinja"),
+        with S.Server(args.server_bin, getattr(args, TEMPLATES[name]["model_arg"]), str(template_path(name)),
                       wd, extra=flags) as srv:
             R = Renderers(name, srv)
             hf, sv = R.hf(hkw, C.TOOLS), R.server(skw, extra, C.TOOLS)

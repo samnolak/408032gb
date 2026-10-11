@@ -57,10 +57,14 @@ def make_env():
 
 
 class Template:
-    def __init__(self, directory):
+    """directory: a vendored HF directory (tokenizer_config.json, and chat_template.jinja unless template is given);
+    template: another template file rendered with that directory's special tokens (e.g. templates/glm-5.3-flash/)."""
+
+    def __init__(self, directory, template=None):
         directory = pathlib.Path(directory)
         self.directory = directory
-        self.source = (directory / "chat_template.jinja").read_text(encoding="utf-8")
+        self.template_path = pathlib.Path(template) if template else directory / "chat_template.jinja"
+        self.source = self.template_path.read_text(encoding="utf-8")
         self.tokenizer_config = json.loads((directory / "tokenizer_config.json").read_text(encoding="utf-8"))
         self.special = special_tokens(self.tokenizer_config)
         self._tmpl = make_env().from_string(self.source)

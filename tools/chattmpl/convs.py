@@ -143,3 +143,75 @@ def to_openai(messages):
             if not isinstance(args, str):
                 call["function"]["arguments"] = json.dumps(args, ensure_ascii=False)
     return out
+
+
+# N23 (corrected GLM template, templates/glm-5.3-flash/chat_template.jinja): conversations aimed at the loop-scope bug
+# of llama.cpp's Jinja engine at 79e2e74 (a {% set %} in a {% for %} body survives into the next iteration) - assistant
+# turns without reasoning, with an empty one (llama-server drops "" from the message, common/chat.cpp:202-204), with
+# None, with reasoning inline in content, in tool loops and over several user rounds. Texts are invented.
+def _asst(content="", reasoning=..., calls=None):
+    m = {"role": "assistant", "content": content}
+    if reasoning is not ...:
+        m["reasoning_content"] = reasoning
+    if calls:
+        m["tool_calls"] = calls
+    return m
+
+
+AGENT_LOOP_MIXED = [  # two user rounds, parallel calls; reasoning present / empty / missing / whitespace
+    {"role": "system", "content": SYSTEM},
+    {"role": "user", "content": "Count the TODO markers in src and tests."},
+    _asst("", "Search both trees at once.", [tc("c1", "grep", {"pattern": "TODO", "paths": ["src"], "ignore_case": True}),
+                                            tc("c2", "grep", {"pattern": "TODO", "paths": ["tests"], "ignore_case": True})]),
+    tool("c1", "src/a.py:1:# TODO\nsrc/b.py:7:# todo"),
+    tool("c2", ""),
+    _asst("", "", [tc("c3", "read_file", {"path": "/work/src/b.py", "max_lines": 10})]),
+    tool("c3", "x = 1\n# todo: rename\n"),
+    _asst("Checking the README too.", ..., [tc("c4", "read_file", {"path": "/work/README.md"})]),
+    tool("c4", "No TODO here («нет»)."),
+    _asst("", "Run the TODO tests.", [tc("c5", "run_tests", {"verbose": False, "timeout_s": 3, "only": "todo"})]),
+    tool("c5", "0 passed"),
+    _asst("Two markers, both in src.", "Done: a.py and b.py."),
+    {"role": "user", "content": "Remove them."},
+    _asst("", ..., [tc("c6", "write_file", {"path": "/work/src/a.py", "content": "", "options": {"mode": "w"}})]),
+    tool("c6", "ok"),
+    _asst("", "  \n", [tc("c7", "write_file", {"path": "/work/src/b.py", "content": "x = 1\n"})]),
+    tool("c7", "ok"),
+    _asst("Both removed.", ...),
+    {"role": "user", "content": "Thanks."},
+]
+
+N23_CASES = {
+    "missing_first": {"messages": [  # first assistant turn without reasoning, second with
+        {"role": "user", "content": "u1"}, _asst("a1"), {"role": "user", "content": "u2"},
+        _asst("a2", "R2"), {"role": "user", "content": "u3"}]},
+    "missing_after_two": {"messages": [  # R1, R2, then a turn without: which one would leak?
+        {"role": "user", "content": "u1"}, _asst("a1", "R1"), {"role": "user", "content": "u2"},
+        _asst("a2", "R2"), {"role": "user", "content": "u3"}, _asst("a3"), {"role": "user", "content": "u4"}]},
+    # reasoning_content None (JSON null): llama-server @79e2e74 answers HTTP 500 "type must be string, but is null"
+    # (common/chat.cpp:422-423 reads it as a string), with either template; jinja2 renders an empty think block
+    "reasoning_null": {"messages": [
+        {"role": "user", "content": "u1"}, _asst("a1", "R1"), {"role": "user", "content": "u2"},
+        _asst("a2", None), {"role": "user", "content": "u3"}]},
+    "reasoning_whitespace_then_missing": {"messages": [
+        {"role": "user", "content": "u1"}, _asst("a1", " \n "), {"role": "user", "content": "u2"},
+        _asst("a2"), {"role": "user", "content": "u3"}]},
+    "inline_then_missing": {"messages": [  # reasoning only inline in content, then a turn without any
+        {"role": "user", "content": "u1"}, _asst("<think>R1</think>a1"), {"role": "user", "content": "u2"},
+        _asst("a2"), {"role": "user", "content": "u3"}]},
+    "inline_empty_then_missing": {"messages": [
+        {"role": "user", "content": "u1"}, _asst("<think></think>a1"), {"role": "user", "content": "u2"},
+        _asst("a2"), {"role": "user", "content": "u3"}]},
+    "tools_reasoning_empty": {"tools": True, "messages": [  # tool loop: R1, "", then missing
+        {"role": "user", "content": "List and read."},
+        _asst("", "R1", [tc("t1", "list_files", {"path": "/work"})]), tool("t1", "a.txt"),
+        _asst("", "", [tc("t2", "read_file", {"path": "/work/a.txt"})]), tool("t2", "hello"),
+        _asst("", ..., [tc("t3", "read_file", {"path": "/work/b.txt"})]), tool("t3", "missing"),
+        _asst("Read a.txt; b.txt is missing.", ...), {"role": "user", "content": "ok"}]},
+    "tools_no_reasoning_at_all": {"tools": True, "messages": [
+        {"role": "user", "content": "List."}, _asst("", ..., [tc("t1", "list_files", {"path": "/"})]),
+        tool("t1", "work/"), _asst("One directory.", ...), {"role": "user", "content": "ok"}]},
+    "agent_loop_mixed": {"tools": True, "messages": AGENT_LOOP_MIXED},
+    "agent_loop_mixed_open": {"tools": True, "messages": AGENT_LOOP_MIXED[:15]},  # ends with a tool result
+    "agent_session_empty_reasoning": {"tools": True, "messages": AGENT_SESSION_EMPTY_REASONING},
+}

@@ -4,6 +4,8 @@
 # third_party/hf/<name>/ on the claude/* branch that triggered the run (scripts/vendor_hf_new.py). vendor-hf.yml (main)
 # vendors only third_party/hf/*/REQUEST.json and pushes to main; this one never touches main (AGENTS.md "Git and sync":
 # agents publish only claude/* branches). The agent sandbox cannot reach huggingface.co.
+# N23: a request may also pin LFS tokenizer files ("lfs_files"): downloaded, sha256-checked against the LFS oid and
+# recorded in PIN.json, never committed (scripts/vendor_hf_files.py, scripts/hf_lfs_fetch.py).
 name: vendor-hf-branch
 on:
   workflow_dispatch:
@@ -44,3 +46,14 @@ jobs:
             sleep 15
           done
           exit 1
+  # N23: the token-level checks on the branch as the vendor job left it (with the tokenizer pins it may just have
+  # committed: that push does not start workflows by itself, and a workflow that is not on main cannot be dispatched).
+  # Read-only; the called workflow only warns while the pins are missing.
+  token-level:
+    needs: vendor
+    if: startsWith(github.ref_name, 'claude/')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/token-level.yml
+    with:
+      ref: ${{ github.ref_name }}
