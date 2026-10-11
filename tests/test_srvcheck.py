@@ -2,7 +2,8 @@
 
 The stand-in (tests/fixtures/srvcheck/stub_llama_server.py) is started as a process with the same command line as the
 real binary; each fault it can inject must fail exactly the check meant to catch it, and the healthy stand-in must
-pass everything. The run against the real llama-server is tests/test_srvcheck_llama.py (needs a build).
+pass everything. The run against the real llama-server is tools/srvcheck/run_n7.sh (needs a llama.cpp build; CI:
+the N7 step of .github/workflows/server-cpu.yml).
 """
 import contextlib
 import io
