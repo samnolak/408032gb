@@ -9,6 +9,9 @@ No dumps needed. Checked here:
   * end to end through the command wrapper on a generated module shaped like the dump-parity tests: complete dumps
     pass, the legitimate pin-dependent skip passes at its pin only, a missing environment, an empty dump directory and
     a partial dump fail, a failing command keeps its status;
+  * the command is bound to the step's commit: a driver pointed at a checkout of another commit, or an inline command
+    whose LLAMA_CPP_GGUF_PY lies in one, fails before it runs (the drivers' own PARITY_LLAMA_COMMIT is not visible to
+    the checker);
   * the committed expectations file: well formed, its entry exists for the pin every workflow step runs at
     (ec7630a in ci.yml, tools/engines/pins.json in parity-r1-pin.yml), every parity step of jobs cpu-parity, parity and
     ik-glm5next goes through the checker with a known step id, the modules listed per step are the ones the step
@@ -304,6 +307,91 @@ class Wrapper(_Tmp):
             self.assertEqual(C.main(argv), 0)
             self.assertEqual(C.main(argv + ["--commit", SHA_B]), 2)     # disagrees with the pin variable
         self.assertIn("::error::check_unittest: no commit", printed.getvalue())
+
+
+def make_repo(path, msg):
+    """A git repository with one empty commit; returns its full sha."""
+    g = ["git", "-C", str(path), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    subprocess.run(g + ["commit", "-q", "--allow-empty", "-m", msg], check=True)
+    return subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True,
+                          check=True).stdout.strip()
+
+
+class CommandCommit(_Tmp):
+    """The command must run on the step's commit: the drivers export PARITY_LLAMA_COMMIT only to their own unittest
+    process, so --checkout of one commit around a driver pointed at another checkout must not pass (audit of 19d09d2,
+    FAIL 1). The driver here is a shell script taking the checkout as its first argument, like run_parity*.sh."""
+
+    def setUp(self):
+        super().setUp()
+        self.a, self.b = self.tmp / "llama-a", self.tmp / "llama-b"
+        self.sha_a, self.sha_b = make_repo(self.a, "a"), make_repo(self.b, "b")
+        (self.a / "gguf-py").mkdir()
+        (self.b / "gguf-py").mkdir()
+        (self.tmp / "fake_parity.py").write_text(FAKE)
+        exp = {"ran": 6, "skipped": [], "source": "unit test"}
+        (self.tmp / "expect.json").write_text(json.dumps({"steps": {
+            "fake": {"pin": "llama.cpp", "driver": "fake", "modules": ["fake_parity"],
+                     "expect": {self.sha_a: exp, self.sha_b: exp}},
+            "fake-ik": {"pin": "ik_llama.cpp", "driver": "fake", "modules": ["fake_parity"],
+                        "expect": {self.sha_a: exp}}}}))
+        for r in ("pf", "decode", "mtp"):
+            (self.tmp / "dump" / r).mkdir(parents=True)
+            (self.tmp / "dump" / r / "manifest.json").write_text("{}")
+        self.driver = self.tmp / "run_parity_fake.sh"
+        self.driver.write_text('#!/bin/sh\n# <checkout> <build>: the checkout is not read, like a driver whose tests '
+                               'ignore it\nexec "$PY" -m unittest fake_parity -v\n')
+        self.driver.chmod(0o755)
+        self.notgit = self.tmp / "plain-dir"
+        self.notgit.mkdir()
+
+    def step(self, *args, step="fake", **env):
+        env = clean_env(FAKE_DUMP=str(self.tmp / "dump"), PY=sys.executable, **env)
+        out = subprocess.run([sys.executable, str(CHECKER), "--step", step, "--expect", str(self.tmp / "expect.json")]
+                             + list(args), cwd=self.tmp, env=env, capture_output=True, text=True)
+        return out.returncode, out.stdout + out.stderr
+
+    def test_command_target(self):
+        d = str(self.a)
+        self.assertEqual(C.command_target(["tools/tinygen/run_parity.sh", d, "../build-tools"]), d)
+        self.assertEqual(C.command_target(["env", "X=1", "Y=2", "run_parity.sh", d, "b"]), d)
+        self.assertIsNone(C.command_target([sys.executable, "-m", "unittest", "tests.x", "-v"]))
+        self.assertIsNone(C.command_target(["run_parity.sh", str(self.tmp / "missing"), "b"]))
+        self.assertIsNone(C.command_target(["run_parity.sh"]))
+
+    def test_driver_on_the_checkout_of_the_step_passes(self):
+        rc, out = self.step("--checkout", str(self.a), "--", str(self.driver), str(self.a), "build")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"Ran 6, skipped 0 as expected; the driver's checkout {self.a} is at {self.sha_a[:7]}", out)
+
+    def test_driver_on_another_checkout_fails_before_running(self):
+        for args in (("--checkout", str(self.a)), ("--commit", self.sha_a)):
+            rc, out = self.step(*args, "--", str(self.driver), str(self.b), "build")
+            self.assertEqual(rc, 2, out)
+            self.assertIn(f"the driver's checkout {self.b} is at {self.sha_b}, but the step's commit", out)
+            self.assertNotIn("Ran ", out)                       # nothing ran
+        rc, out = self.step("--checkout", str(self.a), "--", str(self.driver), str(self.notgit), "build")
+        self.assertEqual(rc, 2, out)
+        self.assertIn(f"cannot read the commit of {self.notgit}", out)
+
+    def test_inline_command_is_bound_through_llama_cpp_gguf_py(self):
+        cmd = ["--", sys.executable, "-m", "unittest", "fake_parity", "-v"]
+        rc, out = self.step("--checkout", str(self.a), *cmd, LLAMA_CPP_GGUF_PY=str(self.a / "gguf-py"))
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"; LLAMA_CPP_GGUF_PY {self.a / 'gguf-py'} is at {self.sha_a[:7]}", out)
+        rc, out = self.step("--checkout", str(self.a), *cmd, LLAMA_CPP_GGUF_PY=str(self.b / "gguf-py"))
+        self.assertEqual(rc, 2, out)
+        self.assertIn(f"LLAMA_CPP_GGUF_PY {self.b / 'gguf-py'} is at {self.sha_b}", out)
+        # an ik step's gguf-py comes from llama.cpp, not from the ik checkout: not compared
+        rc, out = self.step("--checkout", str(self.a), *cmd, step="fake-ik", LLAMA_CPP_GGUF_PY=str(self.b / "gguf-py"))
+        self.assertEqual(rc, 0, out)
+
+    def test_pin_variable_of_the_checker_environment_must_agree(self):
+        rc, out = self.step("--checkout", str(self.a), "--", str(self.driver), str(self.a), "build",
+                            PARITY_LLAMA_COMMIT=self.sha_b)
+        self.assertEqual(rc, 2, out)
+        self.assertIn(f"PARITY_LLAMA_COMMIT={self.sha_b} disagrees", out)
 
 
 def workflow_steps(path):

@@ -14,9 +14,13 @@ tools/ci/parity_expectations.json says:
     `... skipped '<reason>'` line of the log is attributed (K lines), and each matches a distinct expected entry by
     test id and by reason (re.fullmatch). A legitimate pin-dependent skip (the glm5-next MTP class at ec7630a, whose
     graph has no glm5-next MTP) is listed for that commit only.
-The commit is the full sha of --checkout (git rev-parse HEAD, what the drivers export as PARITY_LLAMA_COMMIT /
-PARITY_IK_COMMIT) or --commit; if the step's pin variable is set in the environment it must agree. A commit without
-expectations fails: a new pin needs one run whose counts are reviewed and committed.
+The commit is the full sha of --checkout (git rev-parse HEAD) or --commit. Before the command runs, the checkout it
+runs on must be at that commit: a driver's first argument when it is a directory (tools/tinygen/run_parity*.sh
+<checkout> <build>), else, for an inline unittest command of a llama.cpp step, the checkout holding LLAMA_CPP_GGUF_PY
+(the pinned gguf-py the tests read); a mismatch is an error and nothing runs. The drivers export PARITY_LLAMA_COMMIT /
+PARITY_IK_COMMIT only to their own unittest process, so the checker does not see that; if the step's pin variable is
+set in the checker's own environment, it must agree too. A commit without expectations fails: a new pin needs one run
+whose counts are reviewed and committed.
 
 Usage (CI wraps the step's command; its output is streamed unchanged):
   python3 tools/ci/check_unittest.py --step n9-glm5next-decode --checkout ../llama.cpp -- \\
@@ -192,7 +196,10 @@ def git_head(checkout):
 
 
 def resolve_commit(step, commit=None, checkout=None, env=None):
-    """The full commit the step's dumps come from: --commit, else the checkout's HEAD, else the pin variable."""
+    """The full commit the step's dumps come from: --commit, else the checkout's HEAD, else the pin variable.
+
+    The pin variable is read from the checker's own environment only (the drivers export theirs to their unittest
+    process); in CI it is unset, and the binding of the command to the commit is check_command_commit()."""
     env = os.environ if env is None else env
     var = PIN_ENV[step["pin"]]
     if commit and checkout:
@@ -205,6 +212,37 @@ def resolve_commit(step, commit=None, checkout=None, env=None):
     if env.get(var) and env[var] != sha:
         raise ConfigError(f"{var}={env[var]} disagrees with the commit {sha}")
     return sha
+
+
+def command_target(cmd):
+    """The directory a wrapped driver runs on: its first argument when that is an existing directory, after an optional
+    `env VAR=value ...` prefix (tools/tinygen/run_parity*.sh <checkout> <build>); None for other commands."""
+    args = list(cmd)
+    if args and os.path.basename(args[0]) == "env":
+        args = args[1:]
+        while args and re.match(r"\w+=", args[0]):
+            args = args[1:]
+    if len(args) >= 2 and os.path.isdir(args[1]):
+        return args[1]
+    return None
+
+
+def check_command_commit(step, sha, cmd, env=None):
+    """The checkout the wrapped command runs on must be at the step's commit (--checkout / --commit): the driver's
+    checkout argument, or, for an inline unittest command of a llama.cpp step, the checkout holding LLAMA_CPP_GGUF_PY.
+    Returns a description of what was compared, or None if the command names no checkout (the binding then rests on
+    the workflow text, tests/test_check_unittest.py). Raises ConfigError on a mismatch."""
+    env = os.environ if env is None else env
+    target, what = command_target(cmd), "the driver's checkout"
+    if target is None and step["pin"] == "llama.cpp" and env.get("LLAMA_CPP_GGUF_PY"):
+        target, what = env["LLAMA_CPP_GGUF_PY"], "LLAMA_CPP_GGUF_PY"
+    if target is None:
+        return None
+    head = git_head(target)
+    if head != sha:
+        raise ConfigError(f"{what} {target} is at {head}, but the step's commit (--checkout / --commit) is {sha}: "
+                          f"the expectations would be those of another commit")
+    return f"{what} {target}"
 
 
 def expectation(data, name, sha):
@@ -264,6 +302,7 @@ def main(argv=None):
             raise ConfigError(f"unknown step '{a.step}' (known: {', '.join(sorted(data['steps']))})")
         sha = resolve_commit(data["steps"][a.step], a.commit, a.checkout)
         where = f"{a.step} @ {data['steps'][a.step]['pin']} {sha[:7]}"
+        bound = check_command_commit(data["steps"][a.step], sha, cmd) if cmd else None
         if cmd:
             rc, text = run_streamed(cmd, a.log_out)
             if rc != 0:
@@ -276,7 +315,7 @@ def main(argv=None):
             result = parse(text)
         except CheckError as e:
             raise CheckError([f"{where}: {p}" for p in e.problems]) from None
-        annotate("notice", check(result, exp, where))
+        annotate("notice", check(result, exp, where) + (f"; {bound} is at {sha[:7]}" if bound else ""))
         return 0
     except CheckError as e:
         annotate("error", *e.problems)
