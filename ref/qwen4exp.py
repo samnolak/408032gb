@@ -135,9 +135,9 @@ def hc_mix(res, w_norm, w_down, w_up, w_inject, eps):
     """res (T, hc, n). Returns dict norm (T, hc*n), gate (T, hc*n), mixed (T, n), inject (T, hc) or None."""
     T, hc, n = res.shape
     xn = grouped_rms_norm(res, w_norm, eps).reshape(T, hc * n)
-    gate = silu((xn @ np.asarray(w_down).T) / hc) @ np.asarray(w_up).T
+    gate = silu((xn @ w_down.T) / hc) @ w_up.T
     mixed = (xn * sigmoid(gate)).reshape(T, hc, n).sum(axis=1) / hc
-    inject = None if w_inject is None else xn @ np.asarray(w_inject).T
+    inject = None if w_inject is None else xn @ w_inject.T
     return dict(norm=xn, gate=gate, mixed=mixed, inject=inject)
 
 
@@ -191,8 +191,8 @@ def dilated_causal_dwconv(x, w, dilation):
 def ple_forward(emb, res, w_key, w_value, w_norm_key, w_norm_query, w_norm_conv, w_conv, eps, ngram):
     """emb (T, n); res (T, hc, n). Returns dict gate (T, hc), gated (T, hc, n), conv_out (T, hc, n), out."""
     T, hc, n = res.shape
-    key = grouped_rms_norm((emb @ np.asarray(w_key).T).reshape(T, hc, n), w_norm_key, eps)
-    value = emb @ np.asarray(w_value).T
+    key = grouped_rms_norm((emb @ w_key.T).reshape(T, hc, n), w_norm_key, eps)
+    value = emb @ w_value.T
     query = grouped_rms_norm(res, w_norm_query, eps)
     s = (key * query).sum(-1) / np.sqrt(n)
     gate = sigmoid(np.sign(s) * np.sqrt(np.maximum(np.abs(s), 1e-6)))
@@ -591,8 +591,8 @@ def ple_forward_chunk(emb, res, w_key, w_value, w_norm_key, w_norm_query, w_norm
     """ple_forward on one ubatch; st = dict(hist=((K-1)*ngram, hc*n)) carried in, replaced on return (G:1405-1455:
     the history of the earlier ubatches is prepended, so a chunked prefill matches a single-shot one)."""
     T, hc, n = res.shape
-    key = grouped_rms_norm((emb @ np.asarray(w_key).T).reshape(T, hc, n), w_norm_key, eps)
-    value = emb @ np.asarray(w_value).T
+    key = grouped_rms_norm((emb @ w_key.T).reshape(T, hc, n), w_norm_key, eps)
+    value = emb @ w_value.T
     query = grouped_rms_norm(res, w_norm_query, eps)
     s = (key * query).sum(-1) / np.sqrt(n)
     gate = sigmoid(np.sign(s) * np.sqrt(np.maximum(np.abs(s), 1e-6)))
@@ -788,7 +788,7 @@ def mtp_forward_chunk(tokens, h_prev, W, hp, cache, overrides=None, prec=None):
     e = rms_norm(W["token_embd.weight"][tokens], eps, w["nextn.enorm.weight"])
     h_norm = grouped_rms_norm(np.asarray(h_prev, dtype=np.float64).reshape(T, hc, n), w["nextn.hnorm.weight"], eps)
     e_rep = np.repeat(e[:, None, :], hc, axis=1)
-    res = np.concatenate([e_rep, h_norm], axis=-1) @ np.asarray(w["nextn.eh_proj.weight"]).T          # (T, hc, n)
+    res = np.concatenate([e_rep, h_norm], axis=-1) @ w["nextn.eh_proj.weight"].T                     # (T, hc, n)
     out = dict(pos=pos, e_norm=e_rep, h_norm=h_norm, eh_proj=res)
     out["mix_attn"] = m = hc_mix(res, w["hc_attn_norm.weight"], w["hc_attn_down.weight"], w["hc_attn_up.weight"],
                                  w["hc_attn_inject.weight"], eps)
