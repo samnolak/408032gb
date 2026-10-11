@@ -46,6 +46,8 @@ jobs:
         run: python3 tools/ci/check_unittest.py --step n10-f16fa --checkout ../llama.cpp -- tools/tinygen/run_parity_f16fa.sh ../llama.cpp ../build-tools
       - name: N10 quantized weights (Q8_0, Q4_K_M by the pinned llama-quantize) - every qwen4exp and glm5-next matrix product against ref/quant.py (CPU)
         run: python3 tools/ci/check_unittest.py --step n10-quant --checkout ../llama.cpp -- tools/tinygen/run_parity_quant.sh ../llama.cpp ../build-tools
+      - name: N16 mimo2 (MiMo) ubatches, decode past the SWA cache, rollbacks, MTP and MXFP4 experts against the real mimo2 graph (CPU)
+        run: python3 tools/ci/check_unittest.py --step n16-mimo2-decode --checkout ../llama.cpp -- tools/tinygen/run_parity_mimo2_decode.sh ../llama.cpp ../build-tools
       - name: G0 per-token routing tracer + cache simulator on the tiny glm5-next model (CPU smoke)
         run: tools/g0/run_trace_smoke.sh ../llama.cpp ../build-tools
       - name: G0 trace + probe on a tiny qwen3moe (last layer keeps only output rows; predict_eval self-checks) (CPU smoke)

@@ -13,19 +13,21 @@
 # N13 (gap 11 (a)): every step runs through tools/ci/check_unittest.py, which fails it unless the unittest run is OK with
 # exactly the tests and skips tools/ci/parity_expectations.json lists for the checkout's commit; after a pin change in
 # tools/engines/pins.json the steps fail until the new counts are reviewed and added there.
+# N16 (gap 12): mimo2 (MiMo) several ubatches, decode past the 256-cell SWA cache, rollbacks, the MTP block and MXFP4
+# routed experts (MXFP4_MOE by the pin's llama-quantize), tools/tinygen/run_parity_mimo2_decode.sh.
 # CPU only, tiny random-weight models.
 name: parity-r1-pin
 on:
   workflow_dispatch:
   push:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
-            tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py,
+            tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py, tests/test_mimo2_*.py, tests/test_mxfp4_ref.py,
             tests/f16fa.py, tests/test_fattn_ref.py, tests/test_quant_ref.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/ik/**, tools/engines/pins.json, tools/ci/**,
             .github/workflows/parity-r1-pin.yml]
   pull_request:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
-            tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py,
+            tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py, tests/test_mimo2_*.py, tests/test_mxfp4_ref.py,
             tests/f16fa.py, tests/test_fattn_ref.py, tests/test_quant_ref.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/ik/**, tools/engines/pins.json, tools/ci/**,
             .github/workflows/parity-r1-pin.yml]
@@ -61,6 +63,8 @@ jobs:
         run: python3 tools/ci/check_unittest.py --step n10-f16fa --checkout ../llama.cpp -- tools/tinygen/run_parity_f16fa.sh ../llama.cpp ../build-tools
       - name: N10 quantized weights (Q8_0, Q4_K_M by the R1 pin's llama-quantize), qwen4exp and glm5-next products (CPU)
         run: python3 tools/ci/check_unittest.py --step n10-quant --checkout ../llama.cpp -- tools/tinygen/run_parity_quant.sh ../llama.cpp ../build-tools
+      - name: N16 mimo2 ubatches, decode past the SWA cache, rollbacks, MTP and MXFP4 experts at the R1 pin (CPU)
+        run: python3 tools/ci/check_unittest.py --step n16-mimo2-decode --checkout ../llama.cpp -- tools/tinygen/run_parity_mimo2_decode.sh ../llama.cpp ../build-tools
   ik-glm5next:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
