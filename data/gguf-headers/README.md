@@ -27,3 +27,8 @@ gap 9.
 | `glm-5.3-flash-ggml-org-q4_k` | N18: `ggml-org/GLM-5.3-Flash-GGUF` @`c259a9f` Q4_K, 2 shards (`glm5-next`, llama.cpp mainline) |
 | `glm-5.3-flash-ggml-org-mtp` | N18: its separate MTP files `mtp-GLM-5.3-Flash-{Q4_0,Q8_0}.gguf` |
 | `discover-mimo` | N18: file lists of 4 named MiMo-V2.6-Flash GGUF repos (ggml-org MOPD / RL, 2 MOPD MXFP4) and 2 unsloth names; reads no file |
+| `mimo-v2.6-flash-mopd-ggml-org-mxfp4` | N18: `ggml-org/MiMo-V2.6-Flash-MOPD-GGUF` @`e6d4bce` MXFP4, 2 shards (`mimo2`, llama.cpp mainline) |
+| `mimo-v2.6-flash-mopd-ggml-org-mtp` | N18: its separate MTP file `mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf` |
+| `mimo-v2.6-flash-mopd-quantaplanta-mxfp4` | N18: `QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF` @`ac33b37`, one MXFP4 file |
+| `mimo-v2.6-flash-mopd-kernelpool-mxfp4` | N18: `kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF` @`44d9191`, one MXFP4 file |
+| `mimo-v2.6-flash-config` | not a request: copy of the vendored MOPD `config.json` for the analyzer cross-check (`SOURCE.md`) |

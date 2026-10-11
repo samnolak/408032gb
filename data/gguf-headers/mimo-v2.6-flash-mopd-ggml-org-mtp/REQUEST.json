@@ -1,0 +1,16 @@
+{
+ "_doc": "N18 (b): the separate MTP file (Q8_0) of ggml-org/MiMo-V2.6-Flash-MOPD-GGUF @e6d4bced739310a721eefad4c247ec7e0247c89d (third_party/gguf-headers/discover-mimo/LISTING.json:488, 2383728864 B; the repo also ships BF16 and Q4_0 ones). Headers only, by Range reads (scripts/gguf_headers_fetch.py). The file is analysed as its own model (analysis mode mtp_files): layout, NextN layers against the first NextN layer of the QuantaPlanta single-file MXFP4 GGUF (its hub-parsed total is 987820224 params above ggml-org's; PROVISIONAL: the 3 NextN layers), KV against the ggml-org MXFP4 trunk, and what each llama.cpp pin's loader asks of a separate MTP file. docs/reassessment/CORRECTNESS.md gap 9.",
+ "repo": "ggml-org/MiMo-V2.6-Flash-MOPD-GGUF",
+ "revision": "e6d4bced739310a721eefad4c247ec7e0247c89d",
+ "files": ["mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf"],
+ "expect_count": 1,
+ "max_header_bytes": 33554432,
+ "initial_bytes": 262144,
+ "analysis": {
+  "mode": "mtp_files",
+  "graph": "mimo2",
+  "trunk": "mimo-v2.6-flash-mopd-ggml-org-mxfp4",
+  "mtp_reference": {"request": "mimo-v2.6-flash-mopd-quantaplanta-mxfp4"},
+  "hf_config": "data/gguf-headers/mimo-v2.6-flash-config/config.json"
+ }
+}

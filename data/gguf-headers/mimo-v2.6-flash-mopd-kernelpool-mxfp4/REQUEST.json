@@ -1,0 +1,14 @@
+{
+ "_doc": "N18 (b): a second single-file MOPD MXFP4 GGUF (169005098944 B). Name and revision come from third_party/gguf-headers/discover-mimo/LISTING.json:599, 612 (kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF @44d9191bb7a95125c8b971ce0593bd802ae6dd48; no mtp- sidecar, the repo has a DFlash and two vision files). Headers only, by Range reads (scripts/gguf_headers_fetch.py). docs/reassessment/CORRECTNESS.md gap 9.",
+ "repo": "kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+ "revision": "44d9191bb7a95125c8b971ce0593bd802ae6dd48",
+ "files": ["MiMo-V2.6-Flash-MOPD-MXFP4.gguf"],
+ "expect_count": 1,
+ "max_header_bytes": 33554432,
+ "initial_bytes": 262144,
+ "analysis": {
+  "graph": "mimo2",
+  "tiny": "mimo2",
+  "hf_config": "data/gguf-headers/mimo-v2.6-flash-config/config.json"
+ }
+}
