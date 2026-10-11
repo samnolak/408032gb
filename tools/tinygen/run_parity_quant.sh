@@ -22,7 +22,8 @@ set -euo pipefail
 LLAMA=$(cd "${1:?llama.cpp checkout}" && pwd); BUILD=${2:-build-tools}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); WORK=${QUANT_WORK:-$(mktemp -d)}
 mkdir -p "$WORK"
-cmake -S "$ROOT/tools/g0" -B "$BUILD" -DLLAMA_CPP_DIR="$LLAMA" -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF >/dev/null
+cmake -S "$ROOT/tools/g0" -B "$BUILD" -DLLAMA_CPP_DIR="$LLAMA" -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF \
+  -DG0_QUANTIZE=ON >/dev/null
 cmake --build "$BUILD" -j"$(nproc)" --target dump-tensors llama-quantize >/dev/null
 export LLAMA_CPP_GGUF_PY="$LLAMA/gguf-py"
 PYTHONPATH="$LLAMA_CPP_GGUF_PY" python3 "$ROOT/tools/tinygen/qwen4exp_tiny.py" --quant-dims "$WORK/qwen4exp-f32.gguf"
