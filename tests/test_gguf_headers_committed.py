@@ -9,6 +9,7 @@ chat templates, the quant audit against ADR-012 D5, and the discovery listing. W
 the graph branches only the real geometry exercises; with the llama.cpp checkouts (LLAMA_CPP_GGUF_PY's at ec7630a,
 LLAMA_CPP_SRC_79E2E74) also architecture / pre-tokenizer support at both pins.
 """
+import collections
 import fnmatch
 import gzip
 import hashlib
@@ -330,6 +331,123 @@ class CommittedN18(unittest.TestCase):
                 v = A.mtp_verdict(m, root, d)
                 self.assertEqual(v["verdict"], ok if pin == "79e2e74" else "NOT loadable as a separate MTP model",
                                  (pin, n, v))
+
+
+# ------------------------------------------------------------------------------------------------ N18 MiMo (bot 6161763)
+
+MMX, MMTP, MQP, MKP = ("mimo-v2.6-flash-mopd-ggml-org-mxfp4", "mimo-v2.6-flash-mopd-ggml-org-mtp",
+                       "mimo-v2.6-flash-mopd-quantaplanta-mxfp4", "mimo-v2.6-flash-mopd-kernelpool-mxfp4")
+MIMO_CFG = os.path.join("data", "gguf-headers", "mimo-v2.6-flash-config", "config.json")
+MOPD_TEMPLATE_SHA256 = "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059"   # vendored, bot 1ce4d32
+
+
+class CommittedN18Mimo(unittest.TestCase):
+    """the MiMo-V2.6-Flash-MOPD headers of workflow run 38147482333 (N18 round 3)"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.req = {n: A.load_request(os.path.join(HDR, n)) for n in (MMX, MMTP, MQP, MKP)}
+        cls.m = {n: A.Model([f["summary"] for f in r["files"]]) for n, r in cls.req.items()}
+
+    def test_integrity_and_pins(self):
+        for n, (repo, rev, nfiles) in {
+                MMX: ("ggml-org/MiMo-V2.6-Flash-MOPD-GGUF", "e6d4bced739310a721eefad4c247ec7e0247c89d", 2),
+                MMTP: ("ggml-org/MiMo-V2.6-Flash-MOPD-GGUF", "e6d4bced739310a721eefad4c247ec7e0247c89d", 1),
+                MQP: ("QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF", "ac33b3743d70ed57a8cc6b847698d2ebbddb7784", 1),
+                MKP: ("kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF", "44d9191bb7a95125c8b971ce0593bd802ae6dd48", 1)}.items():
+            pin = self.req[n]["pin"]
+            self.assertEqual((pin["status"], pin["repo"], pin["revision"]), ("ok", repo, rev))
+            self.assertEqual([ok for _, ok in self.req[n]["integrity"]], [True] * nfiles)
+            for f in self.req[n]["files"]:
+                self.assertTrue(A.G.size_check(f["summary"], f["rec"]["size"]).startswith("exact"), f["rec"]["path"])
+                self.assertTrue(f["rec"]["etag_matches_lfs_sha256"] and f["rec"]["repo_commit_matches"])
+        first = self.req[MMX]["files"][0]
+        with open(os.path.join(HDR, MMX, first["rec"]["header_gz"]), "rb") as f:
+            hdr = gzip.decompress(f.read())
+        self.assertEqual(hashlib.sha256(hdr + bytes(first["rec"]["size"] - len(hdr))).hexdigest(), first["rec"]["lfs_sha256"])
+
+    def test_hyperparameters_against_the_vendored_config(self):
+        absent = {MMX: [("num_nextn_predict_layers", "nextn_predict_layers")], MMTP: [], MQP: [],
+                  MKP: [("n_group", "expert_group_count"), ("topk_group", "expert_group_used_count")]}
+        for n, m in self.m.items():
+            rows = A.section_config(m, MIMO_CFG, "mimo2")
+            self.assertEqual(len(rows), 22, n)
+            self.assertEqual([(r["config"], r["gguf"]) for r in rows if r["match"] is None], absent[n], n)
+            self.assertEqual([r["config"] for r in rows if r["match"] is False], [], n)
+            self.assertEqual((m.a("attention.sliding_window"), m.a("attention.key_length"), m.a("attention.value_length"),
+                              m.a("rope.dimension_count"), m.a("rope.freq_base"), m.a("rope.freq_base_swa")),
+                             (128, 192, 128, 64, 1e7, 1e4), n)
+            self.assertAlmostEqual(m.a("attention.value_scale"), 0.707, places=6)
+            pat = [int(bool(x)) for x in m.a("attention.sliding_window_pattern")]
+            self.assertEqual([i for i, x in enumerate(pat) if not x], [0, 5, 11, 17, 23, 29, 35, 41, 47], n)
+            kv = m.a("attention.head_count_kv")
+            self.assertEqual({(p, k) for p, k in zip(pat, kv)}, {(0, 4), (1, 8)}, n)
+            nextn = m.a("nextn_predict_layers")
+            self.assertEqual((len(pat), nextn), (48, None) if n == MMX else (51, 3), n)
+            if nextn:
+                self.assertEqual(pat[48:], [1, 1, 1])
+            # sinks: the 39 SWA trunk layers and the 3 NextN layers, never a full-attention layer
+            sinks = sorted(int(t.split(".")[1]) for t in m.names if t.endswith(".attn_sinks.weight"))
+            want = ([] if n == MMTP else [i for i in range(48) if pat[i]]) + ([] if n == MMX else [48, 49, 50])
+            self.assertEqual(sinks, want, n)
+
+    def test_experts_mxfp4_and_d5(self):
+        nonexp = {MMX: {"Q8_0": 101, "F32": 47}, MQP: {"BF16": 101, "F32": 47}, MKP: {"Q8_0": 100, "BF16": 1, "F32": 47}}
+        for n in (MMX, MQP, MKP):
+            m = self.m[n]
+            self.assertEqual(A.section_experts(m), {p: {"MXFP4": 47} for p in ("ffn_down_exps", "ffn_gate_exps",
+                                                                                "ffn_up_exps")}, n)
+            trunk = [t for t in m.tensors if not t["name"].startswith(("blk.48.", "blk.49.", "blk.50."))]
+            got = collections.Counter(t["type"] for t in trunk if "_exps" not in t["name"] and len(t["shape"]) >= 2)
+            self.assertEqual(dict(got), nonexp[n], n)
+            with tempfile.TemporaryDirectory() as d:
+                a = A.section_audit(self.req[n]["files"], d)
+            self.assertEqual((a["verdict"], a["findings"]), ("PASS", []), n)
+            self.assertAlmostEqual(a["classes"]["routed_experts"]["bpw"], 4.25, places=6)
+        self.assertEqual((self.m[MMX].v("general.file_type"), self.m[MQP].v("general.file_type"),
+                          self.m[MKP].v("general.file_type")), (38, 38, None))     # LLAMA_FTYPE_MOSTLY_MXFP4_MOE
+        self.assertEqual({t["type"] for t in self.m[MMTP].tensors if len(t["shape"]) >= 2}, {"Q8_0"})
+
+    def test_the_three_files_and_the_mtp_file_compared(self):
+        def trunk(m):
+            """name -> shape of the non-layer tensors and of layers 0-47"""
+            return {t["name"]: t["shape"] for t in m.tensors
+                    if not t["name"].startswith("blk.") or int(t["name"].split(".")[1]) < 48}
+        for n in (MQP, MKP):
+            self.assertEqual(trunk(self.m[n]), trunk(self.m[MMX]), n)                            # names and shapes
+        mtp = {i: {t["name"].split(".", 2)[2] for t in self.m[MMTP].tensors if t["name"].startswith(f"blk.{i}.")}
+               for i in (48, 49, 50)}
+        for n, head_norm in ((MQP, "layer_output_norm.weight"), (MKP, "nextn.shared_head_norm.weight")):
+            for i in (48, 49, 50):
+                theirs = {t["name"].split(".", 2)[2] for t in self.m[n].tensors if t["name"].startswith(f"blk.{i}.")}
+                self.assertEqual(len(theirs), 12)
+                self.assertIn(head_norm, theirs)
+                self.assertEqual(theirs - {head_norm}, mtp[i] - {"layer_output_norm.weight"}, (n, i))
+        k = self.m[MKP]
+        self.assertEqual((k.a("qkv_chunks"), k.a("expert_weights_scale"), k.v("general.source.revision")),
+                         (4, 1.0, "2479e2d0029eca9a34cc7e7f55a121925f81908e"))
+        for n in (MMX, MQP, MMTP):
+            self.assertIsNone(self.m[n].a("qkv_chunks"), n)
+        # same tokens and merges; 6 FIM tokens typed USER_DEFINED (4) by kernelpool, CONTROL (3) by the others
+        ta = self.m[MMX].kv["tokenizer.ggml.token_type"]
+        self.assertEqual(self.m[MQP].kv["tokenizer.ggml.token_type"]["sha256"], ta["sha256"])
+        self.assertNotEqual(k.kv["tokenizer.ggml.token_type"]["sha256"], ta["sha256"])
+        for key in ("tokenizer.ggml.tokens", "tokenizer.ggml.merges"):
+            self.assertEqual({self.m[n].kv[key]["sha256"] for n in self.m}, {self.m[MMX].kv[key]["sha256"]}, key)
+        for n, m in self.m.items():
+            self.assertEqual(_sha(m.v("tokenizer.chat_template")), MOPD_TEMPLATE_SHA256, n)
+
+    @unittest.skipUnless(_src_pins(), "llama.cpp sources at the pins: LLAMA_CPP_GGUF_PY's checkout at ec7630a and/or "
+                                      "LLAMA_CPP_SRC_79E2E74")
+    def test_mtp_file_loader_verdict_at_the_pins(self):
+        ref = {t["name"].split(".", 2)[2] for t in self.m[MQP].tensors if t["name"].startswith("blk.48.")}
+        m = self.m[MMTP]
+        d = {str(i): A.ref_diff(ref, A.branches._suffixes(m, i), A.branches.MTP_LOAD["mimo2"]["optional"])
+             for i in (48, 49, 50)}
+        for pin, root in _src_pins().items():
+            v = A.mtp_verdict(m, root, d)
+            self.assertEqual(v["verdict"], "loadable as a separate MTP model (PROVISIONAL: by reading, nothing loaded)",
+                             (pin, v))
 
 
 if __name__ == "__main__":
