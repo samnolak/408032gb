@@ -53,6 +53,32 @@
 //                  outputs (the output batch indices).
 //   DUMP_MTP_DRAFT n = after the plan, a draft of n steps as "d<n>", from the target's greedy token after the last
 //                  position (argmax of the last target logits).
+//   DUMP_MTP_FIX   1 = (N21, H > 1, needs llama.cpp with patches/llama.cpp/0001-mtp-heads-slot-replay.patch, which
+//                  defines LLAMA_EXT_HAS_SLOT_REPLAY) process() as the patched common/speculative.cpp runs it
+//                  (process_heads_once): the call is cut into chunks of n_ubatch tokens; for each chunk, every head
+//                  h = 0..H-1 after llama_memory_seq_rm(mtp, 0, first position of the chunk, -1), with
+//                  llama_memory_set_slot_replay(mem, h > 0), so heads 1..H-1 write their layers under exactly the cells
+//                  head 0 was given. One MTP manifest record (kind process) per chunk and head; the manifest says
+//                  "slot_replay": true. Without the patch the tool refuses this option.
+//   DUMP_MTP_REPLAY_PROBE 1 = (N21, with DUMP_MTP_FIX) after the plan (and DUMP_MTP_DRAFT), four head-0 calls of one token
+//                  at the next position P (MTP manifest kind "probe", the target's last row as h): (a) replay off: a
+//                  plain search, recorded as the cells to replay; then seq_rm(P) and replay on: (b) the same token at P,
+//                  whose recorded cell is free again, so the replay is taken; (c) the token at P + 1 with replay still
+//                  on: the recorded cell now holds P, so llama_kv_cache must refuse the replay (warning "slot replay
+//                  refused") and search; then replay off, seq_rm(P + 1), (d) the token at P + 1 by a plain search.
+//                  (a) = (b) and (c) = (d) bit for bit if a refused replay falls back to the plain search; a replay
+//                  onto the taken cell would purge P and everything before it (apply_ubatch) and (c) would see no window.
+//   DUMP_MTP_SPEC  1 = (N21) the MTP calls go through llama.cpp's own common/speculative.cpp (common_speculative_init
+//                  with COMMON_SPECULATIVE_TYPE_DRAFT_MTP, the target and MTP contexts above, greedy, CPU sampling):
+//                  common_speculative_process after every target call, common_speculative_draft for "d<n>" and
+//                  DUMP_MTP_DRAFT, and for "r<n>" common_speculative_accept(spec, 0, kept - 1) before the seq_rm of
+//                  both contexts, as llama-server does (server-context.cpp:4471, 4505 @79e2e74). The tool cannot see
+//                  the calls inside, so the MTP manifest records one entry per common_speculative call (kind
+//                  spec_process | spec_draft, the draft's tokens) with the graphs it computed; graphs are told apart
+//                  by the name of their first node without the layer suffix (the heads name nodes by layer).
+//                  logits.bin, h_in.bin and h_nextn.bin of the MTP context stay empty. Unlike the replay, the real
+//                  process() marks no row as an output. Used to show that the replay (DUMP_MTP, DUMP_MTP_FIX)
+//                  computes bit for bit what the real code computes (tests/test_mimo2_mtp_fix_parity.py).
 //   DUMP_MTP_NO_RESERVE 1 = skip the scheduler re-reserve after llama_set_embeddings_nextn (see main()); at
 //                  @ec7630a the first MTP graph then crashes in ggml_gallocr_init_tensor (kept to reproduce it).
 //   Several sequences (N19, opt-in; a plan that uses none of these steps behaves exactly as before). Run with
@@ -90,6 +116,7 @@
 #include "llama.h"
 #include "llama-ext.h"   // staging API (llama.cpp src/): llama_set_embeddings_nextn, llama_get_embeddings_nextn_ith
 #include "log.h"
+#include "speculative.h"
 #include "ggml-backend.h"
 
 #include <algorithm>
@@ -99,6 +126,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <sstream>
 #include <string>
@@ -120,6 +148,7 @@ struct DumpState {
     bool per_graph = false;
     std::string first_node;      // name of the first node ever asked: marks the start of every graph
     bool new_call = false;       // MTP context: the next node asked starts a graph (heads name their nodes by layer)
+    bool layer_blind = false;    // DUMP_MTP_SPEC: compare node names without the "-<layer>" suffix to find graph starts
     int graph = -1;              // index of the graph being computed
     int call  = -1;              // index of the llama_process call in progress
     std::vector<GraphInfo> graphs;
@@ -148,10 +177,22 @@ static std::string graph_dir(const DumpState & st) {
     return st.dir + "/" + buf;
 }
 
+// the node name without a trailing "-<digits>" (the layer index llama.cpp appends, cb(..., il))
+static std::string strip_layer(const std::string & name) {
+    const size_t dash = name.rfind('-');
+    if (dash == std::string::npos || dash + 1 == name.size()) return name;
+    for (size_t i = dash + 1; i < name.size(); ++i) {
+        if (name[i] < '0' || name[i] > '9') return name;
+    }
+    return name.substr(0, dash);
+}
+
 static bool dump_cb(struct ggml_tensor * t, bool ask, void * ud) {
     auto * st = static_cast<DumpState *>(ud);
     if (ask && st->per_graph) {
-        if (st->graph < 0 || st->new_call || (st->first_node == t->name && st->graphs[st->graph].n_asked > 0)) {
+        const bool again = st->layer_blind ? strip_layer(st->first_node) == strip_layer(t->name)
+                                           : st->first_node == t->name;
+        if (st->graph < 0 || st->new_call || (again && st->graphs[st->graph].n_asked > 0)) {
             if (st->graph < 0 || st->new_call) st->first_node = t->name;
             st->new_call = false;
             st->graph++;
@@ -312,6 +353,27 @@ int main(int argc, char ** argv) {
     const bool mtp = mtp_env && std::strcmp(mtp_env, "0") != 0 && *mtp_env;
     const char * draft_env = std::getenv("DUMP_MTP_DRAFT");
     const int n_draft = draft_env ? std::atoi(draft_env) : 0;
+    const char * fix_env = std::getenv("DUMP_MTP_FIX");
+    const bool mtp_fix = mtp && fix_env && std::strcmp(fix_env, "0") != 0 && *fix_env;
+    const char * spec_env = std::getenv("DUMP_MTP_SPEC");
+    const bool mtp_spec = mtp && spec_env && std::strcmp(spec_env, "0") != 0 && *spec_env;
+#ifndef LLAMA_EXT_HAS_SLOT_REPLAY
+    if (mtp_fix) {
+        std::fprintf(stderr, "DUMP_MTP_FIX needs llama.cpp with patches/llama.cpp/0001-mtp-heads-slot-replay.patch "
+                             "(llama_memory_set_slot_replay); this build has none\n");
+        return 2;
+    }
+#endif
+    if (mtp_fix && mtp_spec) {
+        std::fprintf(stderr, "DUMP_MTP_FIX and DUMP_MTP_SPEC exclude each other (with SPEC the real code decides)\n");
+        return 2;
+    }
+    const char * probe_env = std::getenv("DUMP_MTP_REPLAY_PROBE");
+    const bool mtp_probe = probe_env && std::strcmp(probe_env, "0") != 0 && *probe_env;
+    if (mtp_probe && !mtp_fix) {
+        std::fprintf(stderr, "DUMP_MTP_REPLAY_PROBE needs DUMP_MTP_FIX\n");
+        return 2;
+    }
     const char * kvu_env = std::getenv("DUMP_KV_UNIFIED");
     const bool kv_unified = kvu_env && std::strcmp(kvu_env, "0") != 0 && *kvu_env;
     // several-sequence mode: some step of the plan uses the N19 syntax (see the header)
@@ -393,6 +455,20 @@ int main(int argc, char ** argv) {
     // (1439, 1482 @79e2e74; 1378, 1421 @ec7630a); the MTP context here never shares the target's memory
     const int n_heads = mtp ? std::max(1, (int) llama_model_n_layer_nextn(model)) : 0;
     const bool chain = n_heads > 1;
+    if (mtp_fix && !chain) { LOG_ERR("DUMP_MTP_FIX needs a model with more than one MTP head\n"); return 1; }
+    // DUMP_MTP_SPEC: llama.cpp's own MTP driver on the two contexts (greedy, CPU sampling, at most 3 draft steps as
+    // the server's default --spec-draft-n-max, common/common.h:329 @79e2e74)
+    common_speculative_ptr spec;
+    common_params_speculative spec_params;
+    if (mtp_spec) {
+        st_mtp.layer_blind = true;
+        spec_params.types = {COMMON_SPECULATIVE_TYPE_DRAFT_MTP};
+        spec_params.draft.ctx_tgt = ctx;
+        spec_params.draft.ctx_dft = mtp_ctx.get();
+        spec_params.draft.backend_sampling = false;
+        spec.reset(common_speculative_init(spec_params, 1));
+        if (!spec) { LOG_ERR("common_speculative_init failed\n"); return 1; }
+    }
     std::ofstream lo(st.dir + "/logits.bin", std::ios::binary);
     std::ofstream h_tgt_out, mtp_lo, mtp_h_in, mtp_h_out;
     if (mtp) {
@@ -448,6 +524,32 @@ int main(int argc, char ** argv) {
     // common/speculative.cpp process(): one head, or every head after seq_rm from the call's first position
     auto mtp_process = [&](const std::vector<int> & ids, int pos0, const std::vector<const float *> & h_rows) -> bool {
         if (!chain) return mtp_call("process", ids, pos0, h_rows, 0, {});
+#ifdef LLAMA_EXT_HAS_SLOT_REPLAY
+        if (mtp_fix) {
+            // patched common/speculative.cpp process_heads_once: per chunk of n_ubatch tokens, every head, the
+            // later heads in head 0's cells
+            auto * mem = llama_get_memory(mtp_ctx.get());
+            const int n_ub = (int) llama_n_ubatch(mtp_ctx.get());
+            const int n = (int) ids.size();
+            for (int off = 0; off < n; off += n_ub) {
+                const int m = std::min(n_ub, n - off);
+                const std::vector<int> cids(ids.begin() + off, ids.begin() + off + m);
+                const std::vector<const float *> crows(h_rows.begin() + off, h_rows.begin() + off + m);
+                for (int head = 0; head < n_heads; ++head) {
+                    llama_memory_seq_rm(mem, 0, pos0 + off, -1);
+                    llama_set_nextn_layer_offset(mtp_ctx.get(), head);
+                    if (!llama_memory_set_slot_replay(mem, head > 0)) {
+                        LOG_ERR("llama_memory_set_slot_replay: not supported by the MTP context's memory\n");
+                        return false;
+                    }
+                    if (!mtp_call("process", cids, pos0 + off, crows, head, {})) return false;
+                }
+            }
+            llama_memory_set_slot_replay(mem, false);
+            llama_set_nextn_layer_offset(mtp_ctx.get(), 0);
+            return true;
+        }
+#endif
         for (int head = 0; head < n_heads; ++head) {
             llama_memory_seq_rm(llama_get_memory(mtp_ctx.get()), 0, pos0, -1);
             llama_set_nextn_layer_offset(mtp_ctx.get(), head);
@@ -495,6 +597,37 @@ int main(int argc, char ** argv) {
         return true;
     };
 
+    // DUMP_MTP_SPEC: one manifest record per common_speculative call, with the graphs it computed
+    auto spec_rec = [&](const std::string & kind, int n, int pos0, const std::vector<int> & tokens,
+                        const std::function<bool()> & fn) -> bool {
+        CallRec rec;
+        rec.kind = kind; rec.n = n; rec.pos0 = pos0; rec.tok0 = n_mtp_rows; rec.tokens = tokens;
+        st_mtp.call = (int) mtp_calls.size();
+        st_mtp.new_call = true;
+        rec.g0 = st_mtp.graph + 1;
+        const bool ok = fn();
+        rec.g1 = st_mtp.graph + 1;
+        mtp_calls.push_back(rec);
+        if (!ok) LOG_ERR("%s failed\n", kind.c_str());
+        return ok;
+    };
+    // a draft at pos0 with id_last as the target's sampled token: the replay, or common_speculative_draft
+    auto draft_at = [&](int id_last, int pos0, int n_req) -> bool {
+        if (!mtp_spec) return mtp_draft(id_last, pos0, n_req);
+        llama_tokens result, prompt;
+        for (int i = 0; i < pos0 && i < (int) toks.size(); ++i) prompt.push_back((llama_token) std::atoi(toks[i].c_str()));
+        auto & dp = common_speculative_get_draft_params(spec.get(), 0);
+        dp.drafting = true; dp.n_max = n_req; dp.pos0 = pos0; dp.id_last = (llama_token) id_last;
+        dp.prompt = &prompt; dp.result = &result;
+        const bool ok = spec_rec("spec_draft", 0, pos0, {}, [&]() { common_speculative_draft(spec.get()); return true; });
+        // the record: tokens = [id_last, the draft], n = the draft's length
+        CallRec & rec = mtp_calls.back();
+        rec.tokens = {id_last};
+        rec.tokens.insert(rec.tokens.end(), result.begin(), result.end());
+        rec.n = (int) result.size();
+        return ok && !result.empty();
+    };
+
     auto decode = [&](int tok0, int pos0, int n) -> bool {
         batch.clear();
         for (int i = 0; i < n; ++i) {
@@ -531,7 +664,13 @@ int main(int argc, char ** argv) {
                 ids[i] = std::atoi(toks[tok0 + i].c_str());
             }
             for (int i = 0; i < n; ++i) h_rows[i] = i == 0 ? pending.data() : rows[i - 1].data();
-            if (!mtp_process(ids, pos0, h_rows)) return false;
+            if (mtp_spec) {
+                if (!spec_rec("spec_process", n, pos0, ids, [&]() { return common_speculative_process(spec.get(), batch); })) {
+                    return false;
+                }
+            } else if (!mtp_process(ids, pos0, h_rows)) {
+                return false;
+            }
             pending = rows[n - 1];
         }
         return true;
@@ -680,6 +819,9 @@ int main(int argc, char ** argv) {
                 if (mtp) {
                     // llama-server: common_speculative_accept (pending = the target row of the last kept position),
                     // then common_memory::seq_rm on both contexts
+                    if (mtp_spec) {   // the call kept last_call_n - n tokens: id_last and last_call_n - n - 1 drafts
+                        common_speculative_accept(spec.get(), 0, (uint16_t) (last_call_n - n - 1));
+                    }
                     if (!llama_memory_seq_rm(llama_get_memory(mtp_ctx.get()), 0, pos, -1)) {
                         LOG_ERR("MTP: llama_memory_seq_rm(0, %d, -1) refused\n", pos);
                         return 1;
@@ -699,7 +841,7 @@ int main(int argc, char ** argv) {
                     LOG_ERR("bad draft step '%s' (needs DUMP_MTP and a next token)\n", step.c_str());
                     return 1;
                 }
-                if (!mtp_draft(std::atoi(toks[ti].c_str()), pos, n)) return 1;
+                if (!draft_at(std::atoi(toks[ti].c_str()), pos, n)) return 1;
                 if (!llama_memory_seq_rm(llama_get_memory(mtp_ctx.get()), 0, pos, -1)) {
                     LOG_ERR("MTP: llama_memory_seq_rm(0, %d, -1) after the draft refused\n", pos);
                     return 1;
@@ -722,12 +864,35 @@ int main(int argc, char ** argv) {
 
     if (mtp && n_draft > 0) {
         // common/speculative.cpp draft(): the target's greedy token after the last position with the last target row
-        if (!mtp_draft(argmax(last_logits.data(), n_vocab), pos, n_draft)) return 1;
+        if (!draft_at(argmax(last_logits.data(), n_vocab), pos, n_draft)) return 1;
     }
+#ifdef LLAMA_EXT_HAS_SLOT_REPLAY
+    if (mtp_probe) {
+        // the refusal path of the slot replay (header): (a) plain, (b) replay of a freed cell, (c) replay onto a taken
+        // cell, which must fall back to the search, (d) plain at the position of (c)
+        auto * mem = llama_get_memory(mtp_ctx.get());
+        const int id = argmax(last_logits.data(), n_vocab);
+        const std::vector<const float *> row = {pending.data()};
+        llama_memory_seq_rm(mem, 0, pos, -1);                  // the final draft's positions, as the server does
+        llama_set_nextn_layer_offset(mtp_ctx.get(), 0);
+        bool ok = mtp_call("probe", {id}, pos, row, 0, {});                         // (a)
+        llama_memory_seq_rm(mem, 0, pos, -1);
+        ok = ok && llama_memory_set_slot_replay(mem, true);
+        ok = ok && mtp_call("probe", {id}, pos, row, 0, {});                        // (b)
+        ok = ok && mtp_call("probe", {id}, pos + 1, row, 0, {});                    // (c)
+        llama_memory_set_slot_replay(mem, false);
+        llama_memory_seq_rm(mem, 0, pos + 1, -1);
+        ok = ok && mtp_call("probe", {id}, pos + 1, row, 0, {});                    // (d)
+        if (!ok) { LOG_ERR("DUMP_MTP_REPLAY_PROBE failed\n"); return 1; }
+    }
+#endif
     if (mtp) {
         mtp_lo.close(); mtp_h_in.close(); mtp_h_out.close(); h_tgt_out.close();
-        write_manifest(st_mtp, mtp_calls, (int) llama_n_ubatch(mtp_ctx.get()), 0, n_embd_out);
+        // N21 modes only (the manifests of the other modes stay as they were)
+        const std::string mtp_extra = mtp_fix ? ",\"slot_replay\":true" : mtp_spec ? ",\"spec\":true" : "";
+        write_manifest(st_mtp, mtp_calls, (int) llama_n_ubatch(mtp_ctx.get()), 0, n_embd_out, mtp_extra);
     }
+    spec.reset();
     if (st.per_graph || !plan.empty() || mtp) {
         std::string extra;
         if (multiseq) {

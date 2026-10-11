@@ -1,0 +1,318 @@
+From cb9cd77f5c86d74bd3d5328c2701c510e77c1b00 Mon Sep 17 00:00:00 2001
+From: "Claude [team]" <claude-team@localhost>
+Date: Sun, 11 Oct 2026 18:56:00 +0000
+Subject: [PATCH] common/speculative: place each MTP process ubatch once for
+ all heads (slot replay)
+
+process() of the draft-mtp driver re-decoded every target batch once per
+NextN head after llama_memory_seq_rm(first position). The heads are layers of
+one MTP context and share its KV cells, and each head writes only its own
+layer. When the first head's batch wrapped around the end of a sliding-window
+ring, seq_rm moved the cache head to the lowest freed cell and the later heads
+got other cells; the first head's layer then held K/V of other positions under
+the cells the later heads named. A batch of several ubatches had a second
+failure: the first head's later ubatches took cells that the first ubatch's
+window still needed before the later heads ran that ubatch.
+
+llama_memory_set_slot_replay(mem, true) makes llama_kv_cache::prepare() re-use
+the cells of the last batch placed without replay when they are all free and
+the ubatch shapes match (else it searches as before and warns). process() now
+runs each chunk of n_ubatch tokens through every head before the next chunk,
+heads 1..H-1 with slot replay, so every head layer holds the K/V of every
+position under the cell that holds the position.
+LLAMA_SPEC_MTP_NO_SLOT_REPLAY=1 restores the previous order (for A/B runs).
+
+Base: ggml-org/llama.cpp 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6.
+N21, docs/evidence/2026-10-11-n21-mimo-mtp-heads-fix.md (repo 408032gb).
+---
+ common/speculative.cpp      | 55 ++++++++++++++++++++++++++++++++++++-
+ src/llama-context.cpp       |  4 +++
+ src/llama-ext.h             |  7 +++++
+ src/llama-kv-cache-iswa.cpp |  7 +++++
+ src/llama-kv-cache-iswa.h   |  2 ++
+ src/llama-kv-cache.cpp      | 54 ++++++++++++++++++++++++++++++++++++
+ src/llama-kv-cache.h        |  9 ++++++
+ src/llama-memory.h          |  5 ++++
+ 8 files changed, 142 insertions(+), 1 deletion(-)
+
+diff --git a/common/speculative.cpp b/common/speculative.cpp
+index d9ddf44..f117f9b 100644
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -15,6 +15,7 @@
+ #include <algorithm>
+ #include <cassert>
+ #include <cmath>
++#include <cstdlib>
+ #include <cstring>
+ #include <iomanip>
+ #include <map>
+@@ -1425,6 +1426,9 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+     std::vector<int>                i_last;
+     std::vector<std::vector<float>> chain_h;
+ 
++    // process(): place every ubatch once for all heads (llama_memory_set_slot_replay), see process()
++    bool slot_replay = false;
++
+     common_speculative_impl_draft_mtp(const common_params_speculative & params, uint32_t n_seq)
+         : common_speculative_impl(COMMON_SPECULATIVE_TYPE_DRAFT_MTP, n_seq, params.draft.n_max)
+         , params(params.draft)
+@@ -1482,6 +1486,15 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+         chain_heads   = n_mtp_layers > 1 && !is_mem_shared;
+ 
+         if (chain_heads) {
++            // the heads are layers of one MTP context and share its KV cells. process() re-decodes each target batch
++            // once per head after seq_rm; without slot replay a later head may get other cells (e.g. when the first
++            // head's batch wrapped around the end of a sliding-window ring), and the earlier heads' layers then hold
++            // K/V of other positions under those cells. LLAMA_SPEC_MTP_NO_SLOT_REPLAY=1 keeps the old placement.
++            const char * no_replay = std::getenv("LLAMA_SPEC_MTP_NO_SLOT_REPLAY");
++            slot_replay = !(no_replay && no_replay[0] == '1') &&
++                          llama_memory_set_slot_replay(llama_get_memory(ctx_dft), false);
++            SPC_TRC("- chain_heads: slot replay %s\n", slot_replay ? "on" : "off");
++
+             this->params.n_max = std::min(this->params.n_max, n_mtp_layers);
+ 
+             chain_h.assign(n_seq, {});
+@@ -1536,6 +1549,43 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+         }
+     }
+ 
++    // process() with slot replay: one ubatch at a time, all heads on it before the next one. Head 0 places the chunk
++    // after seq_rm from the chunk's first position; heads 1 .. H-1 write their layers under exactly the same cells (a
++    // later chunk of the same batch may take cells that an earlier chunk's window still needs, so the heads must not
++    // run the whole batch one after the other either)
++    bool process_heads_once(const common_batch & batch_in, int32_t n_tokens) {
++        auto * ctx_dft = this->params.ctx_dft;
++        auto * mem_dft = llama_get_memory(ctx_dft);
++
++        bool ok = true;
++        const int32_t n_ub = std::max<int32_t>(1, (int32_t) llama_n_ubatch(ctx_dft));
++        for (int32_t off = 0; ok && off < n_tokens; off += n_ub) {
++            const int32_t n_chunk = std::min(n_ub, n_tokens - off);
++            for (int head = 0; ok && head < n_mtp_layers; ++head) {
++                for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
++                    for (int32_t k = off; k < off + n_chunk; ++k) {
++                        if (batch_in.tokens[k].seq_id == seq_id) {
++                            llama_memory_seq_rm(mem_dft, seq_id, batch_in.tokens[k].pos[0], -1);
++                            break;
++                        }
++                    }
++                }
++                llama_set_nextn_layer_offset(ctx_dft, head);
++                llama_memory_set_slot_replay(mem_dft, head > 0);
++
++                const int32_t rc = llama_process(ctx_dft, LLAMA_PROCESS_TYPE_DECODE, batch.get_sub_batch(off, n_chunk));
++                if (rc != 0) {
++                    SPC_ERR("llama_process(ctx_dft) head=%d failed rc=%d (pos=%d)\n",
++                            head, (int) rc, (int) batch_in.tokens[off].pos[0]);
++                    ok = false;
++                }
++            }
++        }
++        llama_memory_set_slot_replay(mem_dft, false);
++
++        return ok;
++    }
++
+     bool process(const common_batch & batch_in) override {
+         if (batch_in.size() <= 0) {
+             return true;
+@@ -1595,7 +1645,10 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+             auto * mem_dft = llama_get_memory(ctx_dft);
+ 
+             bool ok = true;
+-            for (int head = 0; head < n_mtp_layers; ++head) {
++            if (chain_heads && slot_replay) {
++                ok = process_heads_once(batch_in, n_tokens);
++            }
++            for (int head = 0; !(chain_heads && slot_replay) && head < n_mtp_layers; ++head) {
+                 if (chain_heads) {
+                     // ref: https://github.com/ggml-org/llama.cpp/pull/24340/changes#r3413498544
+                     for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index 7e69744..88f65b6 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -4139,6 +4139,10 @@ void llama_set_nextn_layer_offset(llama_context * ctx, int32_t offset) {
+     ctx->set_nextn_layer_offset(offset);
+ }
+ 
++bool llama_memory_set_slot_replay(llama_memory_t mem, bool value) {
++    return mem ? mem->set_slot_replay(value) : false;
++}
++
+ llama_memory_t llama_get_memory(const struct llama_context * ctx) {
+     if (!ctx) {
+         return nullptr;
+diff --git a/src/llama-ext.h b/src/llama-ext.h
+index fcc78f4..488490a 100644
+--- a/src/llama-ext.h
++++ b/src/llama-ext.h
+@@ -100,6 +100,13 @@ LLAMA_API void llama_set_embeddings_nextn(struct llama_context * ctx, bool value
+ // chain multiple trained NextN heads. Default 0 (first head).
+ LLAMA_API void llama_set_nextn_layer_offset(struct llama_context * ctx, int32_t offset);
+ 
++// Slot replay (multi-head MTP): while value == true, a batch is placed in exactly the KV cells that the last batch
++// decoded with value == false was given, provided those cells are free now and the batch splits into ubatches of the
++// same shape (else the cache searches as usual and logs a warning). The speculative NextN driver uses it so that every
++// head layer of one MTP context writes a batch under the same cells. Returns false if the memory does not support it.
++#define LLAMA_EXT_HAS_SLOT_REPLAY 1
++LLAMA_API bool llama_memory_set_slot_replay(llama_memory_t mem, bool value);
++
+ // Marks the entries that a joint decision head (clef) reads, the default is 0
+ // See https://github.com/ggml-org/llama.cpp/pull/29831 for details
+ // A run of entries with the same value is one span, spans must be separated by entries with value 0
+diff --git a/src/llama-kv-cache-iswa.cpp b/src/llama-kv-cache-iswa.cpp
+index e918664..db3ac25 100644
+--- a/src/llama-kv-cache-iswa.cpp
++++ b/src/llama-kv-cache-iswa.cpp
+@@ -361,3 +361,10 @@ const llama_kv_cache_context * llama_kv_cache_iswa_context::get_swa()  const {
+ 
+     return static_cast<const llama_kv_cache_context *>(ctx_swa.get());
+ }
++
++bool llama_kv_cache_iswa::set_slot_replay(bool value) {
++    const bool ok_base = kv_base->set_slot_replay(value);
++    const bool ok_swa  = kv_swa ->set_slot_replay(value);
++
++    return ok_base && ok_swa;
++}
+diff --git a/src/llama-kv-cache-iswa.h b/src/llama-kv-cache-iswa.h
+index 7dab6ea..bac8847 100644
+--- a/src/llama-kv-cache-iswa.h
++++ b/src/llama-kv-cache-iswa.h
+@@ -83,6 +83,8 @@ public:
+     void state_write(llama_io_write_i & io, llama_seq_id seq_id = -1, llama_state_seq_flags flags = 0) const override;
+     void state_read (llama_io_read_i  & io, llama_seq_id seq_id = -1, llama_state_seq_flags flags = 0) override;
+ 
++    bool set_slot_replay(bool value) override;
++
+     //
+     // llama_kv_cache_iswa specific API
+     //
+diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
+index 463510c..424c047 100644
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
+@@ -11,6 +11,7 @@
+ #include <cstring>
+ #include <limits>
+ #include <map>
++#include <set>
+ #include <stdexcept>
+ #include <unordered_map>
+ 
+@@ -766,7 +767,56 @@ llama_memory_context_ptr llama_kv_cache::init_update(llama_context * lctx, bool
+     return std::make_unique<llama_kv_cache_context>(this, lctx, do_shift, std::move(sc_info));
+ }
+ 
++bool llama_kv_cache::set_slot_replay(bool value) {
++    slot_replay = value;
++    return true;
++}
++
++bool llama_kv_cache::slot_replay_fits(const std::vector<llama_ubatch> & ubatches) const {
++    if (sinfos_last.size() != ubatches.size()) {
++        return false;
++    }
++
++    std::vector<std::set<uint32_t>> taken(n_stream);
++
++    for (size_t i = 0; i < ubatches.size(); ++i) {
++        const auto & ubatch = ubatches[i];
++        const auto & sinfo  = sinfos_last[i];
++
++        const uint32_t n_seqs = n_stream > 1 ? ubatch.n_seqs_unq : 1;
++        if (sinfo.n_stream() != n_seqs || sinfo.size()*n_seqs != ubatch.n_tokens) {
++            return false;
++        }
++
++        for (uint32_t s = 0; s < n_seqs; ++s) {
++            const uint32_t strm = seq_to_stream[ubatch.seq_id_unq[s]];
++            if ((uint32_t) sinfo.strm[s] != strm || sinfo.idxs[s].size() != sinfo.size()) {
++                return false;
++            }
++
++            const auto & cells = v_cells[strm];
++            for (const uint32_t idx : sinfo.idxs[s]) {
++                if (idx >= cells.size() || (!cells.is_empty(idx) && taken[strm].count(idx) == 0)) {
++                    return false;
++                }
++            }
++            taken[strm].insert(sinfo.idxs[s].begin(), sinfo.idxs[s].end());
++        }
++    }
++
++    return true;
++}
++
+ llama_kv_cache::slot_info_vec_t llama_kv_cache::prepare(const std::vector<llama_ubatch> & ubatches) {
++    // slot replay: the same cells as the last batch placed without replay (see llama_memory_i::set_slot_replay)
++    if (slot_replay) {
++        if (slot_replay_fits(ubatches)) {
++            LLAMA_LOG_DEBUG("%s: slot replay of %zu ubatch(es)\n", __func__, ubatches.size());
++            return sinfos_last;
++        }
++        LLAMA_LOG_WARN("%s: slot replay refused (the recorded cells do not fit the batch), searching instead\n", __func__);
++    }
++
+     llama_kv_cache::slot_info_vec_t res;
+ 
+     struct state_t {
+@@ -829,6 +879,10 @@ llama_kv_cache::slot_info_vec_t llama_kv_cache::prepare(const std::vector<llama_
+         return {};
+     }
+ 
++    if (!slot_replay) {
++        sinfos_last = res;
++    }
++
+     return res;
+ }
+ 
+diff --git a/src/llama-kv-cache.h b/src/llama-kv-cache.h
+index 9bfb8f2..0122493 100644
+--- a/src/llama-kv-cache.h
++++ b/src/llama-kv-cache.h
+@@ -151,6 +151,8 @@ public:
+     void state_write(llama_io_write_i & io, llama_seq_id seq_id = -1, llama_state_seq_flags flags = 0) const override;
+     void state_read (llama_io_read_i  & io, llama_seq_id seq_id = -1, llama_state_seq_flags flags = 0) override;
+ 
++    bool set_slot_replay(bool value) override;
++
+     //
+     // llama_kv_cache specific API
+     //
+@@ -315,6 +317,13 @@ private:
+     // pending stream copies that will be applied during the next update
+     stream_copy_info sc_info;
+ 
++    // slot replay (set_slot_replay): the cells prepare() gave the last batch, and whether to re-use them
++    bool            slot_replay = false;
++    slot_info_vec_t sinfos_last;
++
++    // the recorded cells fit these ubatches and are free (or taken by an earlier ubatch of the same replay)
++    bool slot_replay_fits(const std::vector<llama_ubatch> & ubatches) const;
++
+     std::vector<kv_layer> layers;
+ 
+     // model layer id -> KV cache layer id
+diff --git a/src/llama-memory.h b/src/llama-memory.h
+index db82539..1cb21dc 100644
+--- a/src/llama-memory.h
++++ b/src/llama-memory.h
+@@ -118,6 +118,11 @@ struct llama_memory_i {
+ 
+     virtual std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const = 0;
+ 
++    // slot replay (multi-head MTP, common/speculative.cpp process()): while enabled, the next batches are placed in
++    // the cells the last batch placed without replay was given, when they are free and the batch has the same shape
++    // returns false if the memory does not support it (the setting is then ignored)
++    virtual bool set_slot_replay(bool value) { GGML_UNUSED(value); return false; }
++
+     //
+     // state write/read
+     //
+-- 
+2.43.0
+

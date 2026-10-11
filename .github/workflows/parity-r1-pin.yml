@@ -24,6 +24,11 @@
 # N20: the recurrent rollback guard, patches/llama.cpp/79e2e74 applied to a copy of the checkout (patches/llama.cpp/apply.sh,
 # the checkout itself is not touched), the N19 plans and four guard plans on the patched build,
 # tools/tinygen/run_parity_qwen4exp_rs_guard.sh (its own build directory: a second CPU build of llama.cpp).
+# N21: mimo2's MTP heads, the upstream placement (head 0 reads foreign K/V after a ring wrap; several ubatches) and
+# llama.cpp's own common/speculative.cpp against the replay, tools/tinygen/run_parity_mimo2_n21.sh, in job parity at the
+# pin and in job n21-patched on a copy of it with patches/llama.cpp/0001-mtp-heads-slot-replay.patch applied (the fix;
+# a second llama.cpp build: about 15 min on 4 cores in the N21 sandbox, docs/evidence/2026-10-11-n21-mimo-mtp-heads-
+# fix.md; on a GitHub runner UNKNOWN).
 # CPU only, tiny random-weight models.
 name: parity-r1-pin
 on:
@@ -33,12 +38,14 @@ on:
             tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py, tests/test_mimo2_*.py, tests/test_mxfp4_ref.py,
             tests/f16fa.py, tests/test_fattn_ref.py, tests/test_fattn_sinks_ref.py, tests/test_quant_ref.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/ik/**, tools/engines/pins.json, tools/ci/**,
+            patches/llama.cpp/**, tests/test_gguf_mtp_heads.py, tools/gguf_mtp_heads.py,
             .github/workflows/parity-r1-pin.yml]
   pull_request:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
             tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py, tests/test_mimo2_*.py, tests/test_mxfp4_ref.py,
             tests/f16fa.py, tests/test_fattn_ref.py, tests/test_fattn_sinks_ref.py, tests/test_quant_ref.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/ik/**, tools/engines/pins.json, tools/ci/**,
+            patches/llama.cpp/**, tests/test_gguf_mtp_heads.py, tools/gguf_mtp_heads.py,
             .github/workflows/parity-r1-pin.yml]
 concurrency:
   group: parity-r1-pin-${{ github.event.pull_request.number || github.ref }}
@@ -80,6 +87,29 @@ jobs:
         run: python3 tools/ci/check_unittest.py --step n19-qwen4exp-multiseq --checkout ../llama.cpp -- tools/tinygen/run_parity_qwen4exp_multiseq.sh ../llama.cpp ../build-tools
       - name: N20 recurrent rollback guard (patches/llama.cpp, applied to a copy) on the patched qwen4exp graph at the R1 pin (CPU)
         run: python3 tools/ci/check_unittest.py --step n20-qwen4exp-rs-guard --checkout ../llama.cpp -- tools/tinygen/run_parity_qwen4exp_rs_guard.sh ../llama.cpp ../build-tools-rs-guard
+      - name: N21 mimo2 MTP heads - upstream placement and llama.cpp's own common/speculative.cpp against the replay at the R1 pin (CPU; the runs of the patch skip here, job n21-patched runs them)
+        run: python3 tools/ci/check_unittest.py --step n21-mimo2-mtp-fix --checkout ../llama.cpp -- tools/tinygen/run_parity_mimo2_n21.sh ../llama.cpp ../build-tools
+  n21-patched:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: pip install numpy pyyaml
+      - name: llama.cpp at the R1 engine pin (tools/engines/pins.json), fetched into ../llama.cpp-pin
+        run: |
+          SHA=$(python3 -c "import json; print(json.load(open('tools/engines/pins.json'))['engines']['llama.cpp']['sha'])")
+          git init -q ../llama.cpp-pin
+          git -C ../llama.cpp-pin fetch -q --depth 1 https://github.com/ggml-org/llama.cpp "$SHA"
+          git -C ../llama.cpp-pin checkout -q FETCH_HEAD
+          git -C ../llama.cpp-pin rev-parse HEAD
+      - name: ../llama.cpp = a copy of ../llama.cpp-pin with patches/llama.cpp/0001-mtp-heads-slot-replay.patch (the fetched checkout stays untouched; HEAD stays the pin)
+        run: |
+          cp -a ../llama.cpp-pin ../llama.cpp
+          git -C ../llama.cpp apply "$PWD/patches/llama.cpp/0001-mtp-heads-slot-replay.patch"
+          git -C ../llama.cpp diff --stat
+      - name: N21 mimo2 MTP heads with the patch - the fixed order against the oracles, the real code against the replay (CPU)
+        run: python3 tools/ci/check_unittest.py --step n21-mimo2-mtp-fix-patched --checkout ../llama.cpp -- tools/tinygen/run_parity_mimo2_n21.sh ../llama.cpp ../build-tools
   ik-glm5next:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

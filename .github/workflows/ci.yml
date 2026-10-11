@@ -54,6 +54,8 @@ jobs:
         run: python3 tools/ci/check_unittest.py --step n19-qwen4exp-multiseq --checkout ../llama.cpp -- tools/tinygen/run_parity_qwen4exp_multiseq.sh ../llama.cpp ../build-tools
       - name: N20 recurrent rollback guard (patches/llama.cpp, applied to a copy) - the N19 plans and four guard plans on the patched qwen4exp graph (CPU)
         run: python3 tools/ci/check_unittest.py --step n20-qwen4exp-rs-guard --checkout ../llama.cpp -- tools/tinygen/run_parity_qwen4exp_rs_guard.sh ../llama.cpp ../build-tools-rs-guard
+      - name: N21 mimo2 MTP heads - upstream placement (ring wrap, several ubatches) and llama.cpp's own common/speculative.cpp against the replay (CPU; the runs of the patch skip at this unpatched pin)
+        run: python3 tools/ci/check_unittest.py --step n21-mimo2-mtp-fix --checkout ../llama.cpp -- tools/tinygen/run_parity_mimo2_n21.sh ../llama.cpp ../build-tools
       - name: G0 per-token routing tracer + cache simulator on the tiny glm5-next model (CPU smoke)
         run: tools/g0/run_trace_smoke.sh ../llama.cpp ../build-tools
       - name: G0 trace + probe on a tiny qwen3moe (last layer keeps only output rows; predict_eval self-checks) (CPU smoke)

@@ -423,7 +423,7 @@ def workflow_steps(path):
 
 
 PARITY_JOBS = {".github/workflows/ci.yml": ["cpu-parity"],
-               ".github/workflows/parity-r1-pin.yml": ["parity", "ik-glm5next"]}
+               ".github/workflows/parity-r1-pin.yml": ["parity", "ik-glm5next", "n21-patched"]}
 # the only steps of those jobs allowed to run without tools/ci/check_unittest.py: checkouts and deps (no tests), the
 # unit-test discover step (it skips every dump test by design, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md
 # section 6) and the two G0 smoke scripts (no unittest: set -euo pipefail and assert). A new step in these jobs must be
@@ -439,6 +439,12 @@ ALLOWED_UNWRAPPED = {
         "uses: actions/checkout@v4", "deps",
         "llama.cpp at the R1 engine pin (its gguf-py writes and reads the tiny GGUF)",
         "ik_llama.cpp at its R1 engine pin (tools/engines/pins.json)"},
+    # N21: the copy step applies patches/llama.cpp/0001-mtp-heads-slot-replay.patch (git apply, no tests)
+    (".github/workflows/parity-r1-pin.yml", "n21-patched"): {
+        "uses: actions/checkout@v4", "deps",
+        "llama.cpp at the R1 engine pin (tools/engines/pins.json), fetched into ../llama.cpp-pin",
+        "../llama.cpp = a copy of ../llama.cpp-pin with patches/llama.cpp/0001-mtp-heads-slot-replay.patch (the fetched "
+        "checkout stays untouched; HEAD stays the pin)"},
 }
 
 

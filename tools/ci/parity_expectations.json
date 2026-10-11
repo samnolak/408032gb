@@ -216,6 +216,61 @@
           "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md; the same count as N12, docs/evidence/2026-10-11-n12-ik-glm5next-cpu.md"
         }
       }
+    },
+    "n21-mimo2-mtp-fix": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_mimo2_n21.sh",
+      "modules": ["tests.test_mimo2_mtp_fix_parity", "tests.test_mimo2_mtp_fix_ref", "tests.test_gguf_mtp_heads"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 32,
+          "skipped": [
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFix.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFixB.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFixF16FA.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.ReplayRefusal.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.SpecReplay.test_fix_changes_drafts", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.SpecReplay.test_target_independent_of_the_mtp_order", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"}
+          ],
+          "source": "N21 run, docs/evidence/2026-10-11-n21-mimo-mtp-heads-fix.md (7 MtpUpstream + 7 MtpUpstreamB + 6 SpecReplay + 9 test_mimo2_mtp_fix_ref + 3 test_gguf_mtp_heads; no patch here: the three fixed classes and ReplayRefusal skip in setUpClass, SpecReplay.test_fix_changes_drafts and .test_target_independent_of_the_mtp_order skip)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 32,
+          "skipped": [
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFix.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFixB.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFixF16FA.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.ReplayRefusal.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.SpecReplay.test_fix_changes_drafts", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.SpecReplay.test_target_independent_of_the_mtp_order", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"}
+          ],
+          "source": "N21 run, docs/evidence/2026-10-11-n21-mimo-mtp-heads-fix.md (7 MtpUpstream + 7 MtpUpstreamB + 6 SpecReplay + 9 test_mimo2_mtp_fix_ref + 3 test_gguf_mtp_heads; no patch here: the three fixed classes and ReplayRefusal skip in setUpClass, SpecReplay.test_fix_changes_drafts and .test_target_independent_of_the_mtp_order skip)"
+        }
+      }
+    },
+    "n21-mimo2-mtp-fix-patched": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_mimo2_n21.sh",
+      "where": "job n21-patched of parity-r1-pin.yml: ../llama.cpp is a copy of the R1 pin with patches/llama.cpp/0001-mtp-heads-slot-replay.patch applied (HEAD stays the pin)",
+      "modules": ["tests.test_mimo2_mtp_fix_parity", "tests.test_mimo2_mtp_fix_ref", "tests.test_gguf_mtp_heads"],
+      "expect": {
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 57, "skipped": [],
+          "source": "N21 run on the patched copy, docs/evidence/2026-10-11-n21-mimo-mtp-heads-fix.md (45 test_mimo2_mtp_fix_parity + 9 test_mimo2_mtp_fix_ref + 3 test_gguf_mtp_heads)"
+        }
+      }
     }
   }
 }
