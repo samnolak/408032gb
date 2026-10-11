@@ -13,6 +13,16 @@ sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import vendor_hf_new  # noqa: E402
 
 
+def write(path, text):
+    with open(path, "w") as f:
+        f.write(text)
+
+
+def read(path):
+    with open(path) as f:
+        return f.read()
+
+
 class Pending(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.TemporaryDirectory()
@@ -20,9 +30,9 @@ class Pending(unittest.TestCase):
         for name, pinned in (("a", True), ("b", False), ("c", False)):
             os.makedirs(os.path.join(self.d.name, name))
             p = os.path.join(self.d.name, name, "REQUEST.json")
-            json.dump({"repo": f"x/{name}", "files": []}, open(p, "w"))
+            write(p, json.dumps({"repo": f"x/{name}", "files": []}))
             if pinned:
-                open(os.path.join(self.d.name, name, "PIN.json"), "w").write("{}")
+                write(os.path.join(self.d.name, name, "PIN.json"), "{}")
             self.reqs.append(p)
 
     def tearDown(self):
@@ -55,7 +65,7 @@ class DataRequests(unittest.TestCase):
         self.root = os.path.realpath(self.d.name)
         self.req = os.path.join(self.root, "data", "hf-requests", "m", "REQUEST.json")
         os.makedirs(os.path.dirname(self.req))
-        json.dump({"repo": "x/m", "files": ["config.json"]}, open(self.req, "w"))
+        write(self.req, json.dumps({"repo": "x/m", "files": ["config.json"]}))
         self.dest = os.path.join(self.root, "third_party", "hf", "m")
 
     def tearDown(self):
@@ -71,11 +81,11 @@ class DataRequests(unittest.TestCase):
             self.assertEqual(vendor_hf_new.main([self.req]), 0)
         staged = os.path.join(self.dest, "REQUEST.json")
         self.assertEqual([c.args[0] for c in one.call_args_list], [staged])
-        self.assertEqual(open(staged).read(), open(self.req).read())
+        self.assertEqual(read(staged), read(self.req))
 
     def test_pinned_destination_is_not_fetched_again(self):
         os.makedirs(self.dest)
-        open(os.path.join(self.dest, "PIN.json"), "w").write("{}")
+        write(os.path.join(self.dest, "PIN.json"), "{}")
         with mock.patch.object(vendor_hf_new.vendor_hf_files, "one") as one, redirect_stdout(io.StringIO()):
             self.assertEqual(vendor_hf_new.main([self.req]), 0)
         one.assert_not_called()
@@ -83,7 +93,7 @@ class DataRequests(unittest.TestCase):
     def test_default_globs_find_both_places(self):
         t = os.path.join(self.root, "third_party", "hf", "t")
         os.makedirs(t)
-        json.dump({"repo": "x/t", "files": []}, open(os.path.join(t, "REQUEST.json"), "w"))
+        write(os.path.join(t, "REQUEST.json"), json.dumps({"repo": "x/t", "files": []}))
         cwd = os.getcwd()
         os.chdir(self.root)
         try:
