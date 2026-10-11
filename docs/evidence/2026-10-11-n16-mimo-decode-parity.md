@@ -141,8 +141,9 @@ quantization emulated; without it every product must be off by more than TOL_OP 
    p - n_swa + 1 .. p - 1, and a cache of C cells that has wrapped holds only the last C positions, so the depth must
    be at most C - n_swa + 1 (here 249) (PROVISIONAL derivation from the placement rule, consistent with the
    property test `test_deep_rollback_loses_the_window`). For a real MiMo-V2.6-Flash file with a 128-token window and
-   n_ubatch 512, C = 768 (one sequence, n_ctx >= 640; PROVISIONAL: n_swa 128 is the value docs/reassessment/research/R1-models.md:41 reports for
-   the V2.6 recipe; the GGUF value is UNKNOWN until a real header is read), far above any draft length.
+   n_ubatch 512, C = 768 (one sequence, n_ctx >= 640; PROVISIONAL derivation; n_swa 128, first taken from
+   docs/reassessment/research/R1-models.md:41, is CONFIRMED by the vendored config, see "Real config"; the GGUF value is
+   UNKNOWN until a real header is read), far above any draft length.
 5. **MTP.** The block matches (A) and (B) in all 32 graphs of the MTP context (28 process graphs and 4 draft steps),
    including its own SWA cache wrapping at 256 (asserted), the head norm `layer_output_norm` (the middle of the
    fallback chain, M:392-394), the fused qkv and the value scale. The pairing of common/speculative.cpp (token p with
@@ -180,13 +181,71 @@ quantization emulated; without it every product must be off by more than TOL_OP 
   `token_embd`, `output`, `layer_output_norm` are what is checked).
 * MXFP4 for anything but the routed experts, NVFP4, Q4_0/IQ4_NL (they share the Q8_0 activation path), MXFP4 in the
   MTP block; MXFP4 GPU kernels.
-* the real MiMo-V2.6-Flash hyper-parameters (window, sinks on global layers, value scale, fused qkv, MTP layer count):
-  UNKNOWN until `third_party/hf/mimo-v2.6-flash-chat` is vendored (the request is committed as
-  `data/hf-requests/mimo-v2.6-flash-chat/REQUEST.json`; the repo id is the one
-  docs/reassessment/research/R1-models.md:41 and :267 recommend, `XiaomiMiMo/MiMo-V2.6-Flash-MOPD`;
-  `models/mimo-v2.6-flash.json:3` names `...-Flash-RL`, marked outdated at R1-models.md:267); the remote-code file
-  names in the request are a guess (PROVISIONAL), a wrong name is recorded as absent upstream.
+* the real MiMo-V2.6-Flash hyper-parameters: vendored after the audit, see "Real config" below; the real GGUF (header,
+  tensor types) is still UNKNOWN.
 * GitHub Actions: NOT RUN (this task does not push).
+
+## Real config (vendored after the audit by the bot, `1ce4d32`)
+
+The push of this branch ran `vendor-hf-branch` (run 38137721895) on `data/hf-requests/mimo-v2.6-flash-chat/REQUEST.json`;
+the bot committed `config.json`, `chat_template.jinja`, `tokenizer_config.json`, `generation_config.json` of
+`XiaomiMiMo/MiMo-V2.6-Flash-MOPD` to `third_party/hf/mimo-v2.6-flash-chat/` (`special_tokens_map.json`, `tokenizer.json`
+and the two guessed remote-code names were not vendored; PIN.json lists what was). Selected keys, printed by the lead
+from the vendored files (literal):
+
+```
+PIN XiaomiMiMo/MiMo-V2.6-Flash-MOPD b12f5573350bb1704513fcf119fca48e498b0423
+architectures: ['MiMoV2ForCausalLM']
+num_hidden_layers: 48
+hidden_size: 4096
+num_attention_heads: 64
+num_key_value_heads: 4
+swa_num_key_value_heads: 8
+head_dim: 192
+v_head_dim: 128
+partial_rotary_factor: 0.334
+rope_theta: 10000000.0
+swa_rope_theta: 10000.0
+sliding_window: 128
+add_swa_attention_sink_bias: True
+add_full_attention_sink_bias: False
+attention_value_scale: 0.707
+attention_projection_layout: fused_qkv
+num_nextn_predict_layers: 3
+n_routed_experts: 256
+num_experts_per_tok: 8
+moe_intermediate_size: 2048
+n_shared_experts: None
+scoring_func: sigmoid
+topk_method: noaux_tc
+n_group: 1
+topk_group: 1
+norm_topk_prob: True
+vocab_size: 152576
+max_position_embeddings: 1048576
+hybrid_layer_pattern (0 = full attention): 011110111110111110111110111110111110111110111110
+moe_layer_freq (0 = dense FFN): 011111111111111111111111111111111111111111111111
+quantization_config: {'quant_method': 'fp8', 'fmt': 'e4m3', 'store_dtype': 'mxfp4', 'mxfp4_block_size': 32, 'weight_block_size': [128, 128], 'activation_scheme': 'dynamic'} ignored_layers 49
+True True
+```
+
+What it settles, against the tiny model of this evidence (config facts CONFIRMED from the vendored file; how llama.cpp's
+converter maps them CONFIRMED by reading `conversion/mimo.py`@79e2e74, the converter NOT RUN):
+
+| real (config.json @b12f557) | converter @79e2e74 | tiny model here | status for N16 |
+|---|---|---|---|
+| `sliding_window` 128 | written as `sliding_window` (mimo.py:159) | 8 | the n_swa used for C = 768 in finding 4 is now CONFIRMED from the config (was PROVISIONAL from R1-models.md:41); the value in a real GGUF is still UNKNOWN |
+| sinks on SWA layers only (`add_swa_attention_sink_bias` true, `add_full_attention_sink_bias` false) | `attention_sink` tensors written as `<name>.weight` (mimo.py:269-270), so only the layers that have them carry sinks (PROVISIONAL, by reading) | `--sinks swa` | the configuration the runs check |
+| `attention_value_scale` 0.707 | written when present (mimo.py:170-172) | `--value-scale 0.75` | path exercised (another value) |
+| fused qkv | per-layer q/k/v split for the dequant (mimo.py:128-143) | `--fused-qkv` and separate q/k/v (G1 model) | both forms checked |
+| K head 192, V head 128, RoPE on int(192 × 0.334) = 64 dims | value_length, rope dimension count (mimo.py:161, 165-166) | 24 / 16, 8 rotated: same 3:2 and 1/3 ratios | geometry class exercised, sizes not |
+| KV heads: 4 full, 8 SWA; 64 query heads | per-layer head_count_kv array (mimo.py:151-157) | 1 global, 2 SWA; 4 query heads | per-layer KV heads exercised |
+| rope theta 1e7 full, 1e4 SWA | not shown in the lines read here | 1e4 / 5e3 | two bases exercised; the real keys in a GGUF UNKNOWN |
+| 48 layers, full attention at 0, 5, 11, 17, 23, 29, 35, 41, 47 | `sliding_window_pattern` = pattern + 1 per MTP layer (mimo.py:155-160) | 6 layers, full at 0 and 5 | pattern mechanism exercised |
+| layer 0 dense FFN, 256 routed experts top-8 sigmoid `noaux_tc`, no shared expert, `n_group` = `topk_group` = 1 | asserts `noaux_tc` (mimo.py:149) | dense layer 0, 8 experts top-2, sigmoid + bias, no shared expert | routing class exercised |
+| **3 MTP layers** (`num_nextn_predict_layers` 3) | writes 3 nextn layers (mimo.py:22-24, 174-175); the graph takes `nextn_layer_offset` in [0, n_layer_nextn) (mimo2.cpp:265-270@79e2e74) | 1 MTP layer, offset 0 | **offsets 1 and 2 NOT RUN** - now known to be needed for the real model |
+| official checkpoint: FP8 e4m3 (block 128 × 128) with the routed experts stored as **MXFP4** (block 32); 49 o_proj layers unquantized | writes those experts as GGML MXFP4 directly (mimo.py:177-252), file type MOSTLY_MXFP4_MOE (mimo.py:338-340) | MXFP4_MOE via llama-quantize | the MXFP4 expert path checked here is the one a converted real file uses (PROVISIONAL: converter not run) |
+| omni model: `vision_config` and `audio_config` present | mmproj class `MiMoV2VisionAudioModel` (mimo.py:343-345) | text only | vision/audio NOT RUN |
 
 ## Literal outputs
 
