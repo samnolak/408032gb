@@ -680,7 +680,7 @@ class Cell:
             if self.reference["cand_model"]:
                 models += ["--cand-model", str(self.reference["cand_model"])]
             o, err = log("logprob_compare")
-            P.append(Item("logprob_compare", stdout=o, stderr=err,
+            P.append(Item("logprob_compare", stdout=o, stderr=err, pre=[("mkdir", self.a("quality"))],
                           argv=self.tool("logprob", "--ref", str(self.reference["url"]), "--cand", e["base_url"],
                                          "--corpus", *[repo_path(x) for x in corpus], *models,
                                          "--out", self.a("quality", "logprob_compare.json"), *args)))

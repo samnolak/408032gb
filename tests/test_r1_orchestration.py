@@ -401,6 +401,12 @@ class FailurePaths(unittest.TestCase):
         self.assertEqual((e["quant_audit"]["status"], e["quant_audit"]["exit_code"]), ("failed", 1))
         self.assertFalse(os.path.exists(os.path.join(self.run_dir, "artifacts", "quant", "quant_audit.json")))
         self.assertEqual((e["logprob_compare"]["status"], e["logprob_compare"]["exit_code"]), ("failed", 1))
+        # N11: the tool must fail on the mock's missing logprobs, not on a missing artifacts/quality/ directory (on a
+        # real llama-server it computed 200 prefixes and then died writing --out); its errors are kept as an artifact
+        with open(os.path.join(self.run_dir, "artifacts", "quality", "logprob_compare.json")) as f:
+            lp = json.load(f)
+        self.assertEqual((lp["summary"], len(lp["errors"])), (None, 2))
+        self.assertIn("artifacts/quality/logprob_compare.json", e["logprob_compare"]["outputs"])
         self.assertEqual(e["health_wait[after-ready-1]"]["status"], "failed")
         for key in ("roofline_prediction[record]", "engine_start", "health_wait", "matrix[smoke-1k]", "probes[4k]",
                     "vs_roofline", "engine_stop", "pack[build]", "pack[check]"):
