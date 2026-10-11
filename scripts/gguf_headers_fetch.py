@@ -351,7 +351,6 @@ def headers_request(path, req, out_dir):
         etag = _hop_header(got["redirect_hops"], "X-Linked-Etag")
         etag = etag.strip().strip('"') if etag else None
         commit = _hop_header(got["redirect_hops"], "X-Repo-Commit")
-        layout_size = (summary["data_offset"] + summary["data_size"]) if summary["data_size"] is not None else None
         rec = {"path": e["path"], "size": size, "lfs_sha256": lfs_sha, "lfs_size": (e.get("lfs") or {}).get("size"),
                "git_oid": e.get("oid"),
                "xet_hash": e.get("xetHash"), "header_bytes": len(hdr),
@@ -365,10 +364,7 @@ def headers_request(path, req, out_dir):
                "etag_matches_lfs_sha256": (etag == lfs_sha) if (etag and lfs_sha) else None,
                "repo_commit_matches": (commit == sha) if commit else None,
                "tensor_offsets": summary["tensor_offsets"],
-               "size_check": ("exact" if layout_size == size else
-                              "exact_without_last_padding" if layout_size is not None and
-                              summary["data_offset"] + summary["data_size_without_last_padding"] == size else
-                              f"mismatch: header implies {layout_size} B")}
+               "size_check": gguf_header.size_check(summary, size)}
         for flag, what in (("etag_matches_lfs_sha256", "X-Linked-Etag != LFS sha256"),
                            ("repo_commit_matches", "X-Repo-Commit != pinned revision")):
             if rec[flag] is False:

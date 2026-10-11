@@ -326,6 +326,21 @@ class Parser(unittest.TestCase):
         self.assertEqual([t["name"] for t in s["tensors"]], [t[0] for t in TENSORS[:2]])
         json.loads(G.dumps(s))
 
+    def test_size_check_of_tensor_and_metadata_only_shards(self):
+        b, off = make_gguf(arch_kv(), TENSORS)
+        s = G.summarize(G.parse(b), b[:off])
+        self.assertEqual(G.size_check(s, len(b)), "exact")
+        self.assertTrue(G.size_check(s, len(b) + 32).startswith("mismatch"))
+        # a metadata-only shard (llama-gguf-split --no-tensor-first-split): gguf.cpp's writer pads after the KV block,
+        # its reader starts the data section without padding (the Unsloth first shards: 28 and 6 bytes)
+        b0, off0 = make_gguf(arch_kv(extra=[("x.s", G.T_STRING, "abc")]), [])
+        s0 = G.summarize(G.parse(b0), b0[:off0])
+        pad = G.align_up(off0, 32) - off0
+        self.assertGreater(pad, 0)
+        self.assertEqual(G.size_check(s0, off0), "exact")
+        self.assertEqual(G.size_check(s0, off0 + pad), "exact (no tensors: the writer's padding after the KV block)")
+        self.assertTrue(G.size_check(s0, off0 + pad + 32).startswith("mismatch"))
+
     def test_tensor_offsets_must_be_contiguous_like_gguf_cpp(self):
         b, off = make_gguf(arch_kv(), TENSORS)
         h = G.parse(b)

@@ -52,7 +52,8 @@ TINY = {  # request "analysis.tiny" -> (tools/tinygen module, variants: (label, 
                                    ("--quant-dims", {"quant": True}, None)]),
 }
 
-# config.json (text_config) key -> GGUF key suffix; "layers" = block_count - nextn_predict_layers
+# config.json (text_config) key -> GGUF key suffix [, transform of the config value]; "layers" = block_count -
+# nextn_predict_layers; ABSENT in the report = the GGUF has no such key
 CONFIG_MAP = {
     "glm5-next": [("num_hidden_layers", "layers"), ("num_nextn_predict_layers", "nextn_predict_layers"),
                   ("hidden_size", "embedding_length"), ("intermediate_size", "feed_forward_length"),
@@ -85,7 +86,9 @@ CONFIG_MAP = {
                  ("hc_lowrank", "hyper_connection.low_rank"), ("indexer_n_heads", "attention.indexer.head_count"),
                  ("indexer_head_dim", "attention.indexer.key_length"), ("indexer_budget", "attention.indexer.top_k"),
                  ("rms_norm_eps", "attention.layer_norm_rms_epsilon"), ("max_position_embeddings", "context_length"),
-                 ("rope_parameters.rope_theta", "rope.freq_base"), ("ple_layer_ids", "ple.layers"),
+                 ("rope_parameters.rope_theta", "rope.freq_base"),
+                 # 1-based in the HF config; llama.cpp's converter writes i - 1 (conversion/qwen4exp.py:91-94 @79e2e74)
+                 ("ple_layer_ids", "ple.layers", lambda v: [i - 1 for i in v]),
                  ("ngram_size", "ple.ngram_size"), ("heads_per_ngram", "ple.heads_per_ngram"),
                  ("ple_conv_kernel_size", "ple.conv_kernel"), ("vocab_size", "@vocab")],
 }
@@ -311,8 +314,10 @@ def section_config(m, rel, graph):
         cfg = json.load(f)
     cfg = cfg.get("text_config", cfg)
     rows = []
-    for ck, gk in CONFIG_MAP[graph]:
+    for ck, gk, *fn in CONFIG_MAP[graph]:
         cv = _cfg_get(cfg, ck)
+        if fn and cv is not None:
+            cv = fn[0](cv)
         if gk == "layers":
             gv = (m.a("block_count") or 0) - (m.a("nextn_predict_layers") or 0) if m.has("block_count") else None
         elif gk == "@vocab":
@@ -409,8 +414,10 @@ def analyze_dir(d, srcs, gguf_py, workdir):
         return res
     an = pin["request"].get("analysis", {})
     m = Model([f["summary"] for f in req["files"]])
-    res["files"] = [{k: f["rec"][k] for k in ("path", "size", "lfs_sha256", "header_bytes", "header_sha256",
-                                              "bytes_fetched", "header_gz_bytes", "size_check", "tensor_offsets")}
+    res["files"] = [{**{k: f["rec"][k] for k in ("path", "size", "lfs_sha256", "header_bytes", "header_sha256",
+                                                 "bytes_fetched", "header_gz_bytes", "size_check", "tensor_offsets")},
+                     "size_check_recomputed": G.size_check(f["summary"], f["rec"]["size"]),
+                     "n_tensors": f["summary"]["n_tensors"]}
                     for f in req["files"]]
     res["identity"] = section_identity(m, srcs)
     res["groups"] = section_groups(m, srcs)
@@ -450,7 +457,9 @@ def render(results, srcs):
         for f in r["files"]:
             w(f"  {f['path']}: {f['size']} B, LFS sha256 {f['lfs_sha256']}, header {f['header_bytes']} B "
               f"(sha256 {f['header_sha256']}), fetched {f['bytes_fetched']} B, committed {f['header_gz_bytes']} B gz, "
-              f"size check {f['size_check']}, offsets {f['tensor_offsets']}")
+              f"{f['n_tensors']} tensors, size check {f['size_check_recomputed']}" +
+              (f" (PIN.json recorded: {f['size_check']})" if f["size_check"] != f["size_check_recomputed"] else "") +
+              f", offsets {f['tensor_offsets']}")
         w("\n(e) identity")
         for k, v in r["identity"]["identity"].items():
             w(f"  {k}: {fmt(v, 200)}")
@@ -480,7 +489,7 @@ def render(results, srcs):
         if r["config"]:
             w("  config.json cross-check:")
             for c in r["config"]:
-                w(f"    {'OK  ' if c['match'] else 'n/a ' if c['match'] is None else 'DIFF'} {c['config']} = "
+                w(f"    {'OK    ' if c['match'] else 'ABSENT' if c['match'] is None else 'DIFF  '} {c['config']} = "
                   f"{fmt(c['config_value'], 40)}  ->  {c['gguf']} = {fmt(c['gguf_value'], 60)}")
         w("  graph branches:")
         for b in r["branches"]:

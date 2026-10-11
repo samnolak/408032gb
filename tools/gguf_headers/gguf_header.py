@@ -197,6 +197,23 @@ def data_layout(h):
     return "contiguous", run, run - last_pad
 
 
+def size_check(summary, size):
+    """Does the header account for the whole file of `size` bytes? summary = summarize(...). gguf.cpp's writer pads to
+    the alignment after the tensor infos unconditionally (gguf_write_out, gguf.cpp:1671 @ec7630a and @79e2e74), its
+    reader starts the data section there only when n_tensors > 0 (gguf.cpp:781): a metadata-only shard (llama-gguf-split
+    --no-tensor-first-split) ends with up to alignment - 1 zero bytes after data_offset."""
+    off, ds, dsu = summary["data_offset"], summary["data_size"], summary["data_size_without_last_padding"]
+    if ds is None:
+        return f"unknown: tensor offsets {summary['tensor_offsets']}"
+    if summary["n_tensors"] == 0 and size != off and size == align_up(off, summary["alignment"]):
+        return "exact (no tensors: the writer's padding after the KV block)"
+    if off + ds == size:
+        return "exact"
+    if off + dsu == size:
+        return "exact_without_last_padding"
+    return f"mismatch: header implies {off + ds} B"
+
+
 def _json_scalar(v):
     if isinstance(v, float) and not math.isfinite(v):
         return repr(v)          # "inf", "-inf", "nan": JSON has no literal for them
