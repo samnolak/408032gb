@@ -50,6 +50,8 @@ show $R1 src/llama-kv-cache.cpp 1185 1205
 show $R1 src/llama-kv-cache-iswa.cpp 70 81
 show $R1 src/llama-context.cpp 147 166
 show $R1 src/models/mimo2.cpp 267 270
+show $R1 conversion/mimo.py 134 136
+show $R1 conversion/mimo.py 153 160
 show $EC common/speculative.cpp 1533 1557
 show $WT third_party/hf/mimo-v2.6-flash-chat/config.json 162 162
 show $WT third_party/hf/mimo-v2.6-flash-chat/config.json 303 303
