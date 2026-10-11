@@ -214,8 +214,14 @@ python -m sglang.launch_server --model-path <PATH> --served-model-name <NAME> --
 
 ## 8. Что не проверено (ограничения)
 
-- Против реальных llama.cpp, ik_llama.cpp, vLLM, SGLang, TabbyAPI и Strata — NOT RUN. Диалекты `/tokenize` и ключи длины сверены по исходникам
-  на пинах (раздел 3), а не запуском.
+- Против настоящего llama.cpp `llama-server` (пин R1 `79e2e74`, сборка на CPU, крошечная модель со словарём для текста) —
+  прогнано в N11 (CONFIRMED, `docs/evidence/2026-10-11-n11-r1-tools-cpu-server.md`): диалект `/tokenize` llama.cpp
+  определяется, vLLM-тело даёт `{"tokens": []}` (промах, как задумано); `prompts.py`, `run_matrix.py` (матрица и agent loop),
+  `probes.py`, `logprob_compare.py`, шлюз, `slot_persist.py` и `run_r1.py` с pack работают; найдены и исправлены формат
+  logprobs llama-server в `logprob_compare`, повтор «холодных» промптов между прогонами, отсутствующий каталог
+  `artifacts/quality/` в `run_r1`. Длину ответа на llama.cpp задаёт `ignore_eos`, `min_tokens` сервер молча игнорирует.
+  Числа там — время крошечной модели на CPU, не замер. Против ik_llama.cpp, vLLM, SGLang, TabbyAPI и Strata — NOT RUN;
+  на GPU, на 262K и с настоящими шаблонами чата — NOT RUN.
 - HTTPS-путь клиента написан, но не тестировался (мок только HTTP).
 - Погрешность формулы декода при неравных многотокенных чанках (спекуляция) не оценена на реальном движке — PROVISIONAL.
 - Мок-сервер исполняет запросы параллельно без батчинга. Агрегатная пропускная способность на моке ничего не говорит о реальном планировщике.

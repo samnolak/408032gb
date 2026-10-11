@@ -143,6 +143,14 @@ python3 scripts/r1/run_r1.py --config scripts/r1/configs/mock.json --out /tmp/r1
 
 ## Что NOT RUN, пока нет сервера
 
+**N11 (2026-10-11, CPU):** `llamacpp-server.json` прогнан как есть с путями через `--set` против CPU-сборки llama.cpp
+`79e2e74` и крошечной модели: все 14 флагов движка есть в `--help`; `engine_build_check` не пускает движок без
+`build-info.json` (так и задумано), V2 падает на файле не из манифеста. Выведенная из шаблона CPU-конфигурация
+(`tools/srvcheck/r1_tools_smoke.py derive-config`) прошла все шаги с настоящим сервером: старт, `/health`, матрица,
+пробы, `slot_persist`, `logprob_compare`, `vs_roofline`, остановка по SIGTERM (код 0), pack. Исправлено: каталог
+`artifacts/quality/` (`0f23aa6`). CONFIRMED, `docs/evidence/2026-10-11-n11-r1-tools-cpu-server.md`. Ниже — что по-прежнему
+не проверено на сервере с GPU.
+
 - Ни один реальный движок через оркестратор не запускался; флаги шаблонов не сверены с `--help` реальных сборок.
 - Поведение `health_wait` на реальной загрузке весов (llama-server отвечает 503 во время загрузки, 200 после —
   `tools/server/README.md:472-484`@79e2e74, CONFIRMED чтением; Strata — UNKNOWN), длительность загрузки — UNKNOWN.
