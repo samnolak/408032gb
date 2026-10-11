@@ -1,0 +1,126 @@
+# N23: agent-loop prefix stability at token level with the real tokenizers (tests/test_token_level.py,
+# tools/chattmpl/token_prefix.py) and transformers' own chat-template renderer against ours (tests/test_glm_template_n23.py
+# TransformersRender). tokenizer.json is never committed: third_party/hf/*-tokenizer/PIN.json (vendor-hf-branch, from
+# data/hf-requests/*-tokenizer/REQUEST.json) pins repository, revision, size and sha256 (= the LFS oid);
+# scripts/hf_lfs_fetch.py downloads it from resolve/<revision>, checks it and keeps it in ~/.cache/408032gb/hf-lfs, which
+# actions/cache keeps between runs (key = hash of the pins). llama.cpp's tokenizer: llama-tokenize of the R1 pin
+# (tools/engines/pins.json) on vocab-only GGUFs built from the Unsloth GGUF headers committed by N15 (commit pinned below,
+# header sha256 checked). Until the tokenizer pins are vendored the job only warns (PENDING) and runs nothing else.
+# Results: the unittest log fails the job on any failure or skip; token_prefix.py's summary goes to notice annotations and
+# token-prefix.json to an artifact.
+# Also called by vendor-hf-branch.yml right after its vendor commit (workflow_call with the branch name as ref: a push
+# made with the workflow token does not start workflows, and a workflow that is not on main cannot be dispatched).
+name: token-level
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: branch or commit to check out (the caller passes its branch, so the vendor commit is included)
+        type: string
+        required: true
+  workflow_dispatch:
+  push:
+    branches: ['claude/**']
+    paths: ['third_party/hf/*-tokenizer/PIN.json', 'templates/**', 'tools/chattmpl/**', 'scripts/hf_lfs_fetch.py',
+            'tests/test_token_level.py', 'tests/test_glm_template_n23.py', '.github/workflows/token-level.yml']
+permissions:
+  contents: read
+jobs:
+  tokens:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      N15_COMMIT: 67bd5baceafe63e70e1b78010181225ecebbefa4
+      GLM_HEADER: third_party/gguf-headers/glm-5.3-flash-ud-q4_k_xl/GLM-5.3-Flash-UD-Q4_K_XL-00001-of-00006.gguf.header.gz
+      GLM_HEADER_SHA256: f93ba47293bf1007f163f2075e9583b3c11849c72d5311986a39d351bd30244a
+      QWEN_HEADER: third_party/gguf-headers/qwen3.8-flash-next-ud-q4_k_xl/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf.header.gz
+      QWEN_HEADER_SHA256: 7f7334a9437405787599c9a860134453fd7613a8c45743508c2526fab9a81b5a
+      PINS: third_party/hf/glm-5.3-flash-tokenizer/PIN.json third_party/hf/qwen3.8-flash-next-tokenizer/PIN.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - name: tokenizer pins vendored?
+        id: pins
+        shell: bash
+        run: |
+          ready=true
+          for p in $PINS; do
+            if [ ! -f "$p" ]; then
+              echo "::warning::PENDING: $p is not vendored yet (workflow vendor-hf-branch); token-level checks not run"
+              ready=false
+            fi
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+      - name: deps (pinned versions)
+        if: steps.pins.outputs.ready == 'true'
+        run: pip install -q numpy jinja2==3.1.6 tokenizers==0.23.3 transformers==5.16.0
+      - name: cache of the pinned LFS files
+        if: steps.pins.outputs.ready == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/408032gb/hf-lfs
+          key: hf-lfs-${{ hashFiles('third_party/hf/*-tokenizer/PIN.json') }}
+      - name: fetch tokenizer.json by the pinned sha256
+        if: steps.pins.outputs.ready == 'true'
+        run: python3 scripts/hf_lfs_fetch.py $PINS
+      - name: llama-tokenize at the R1 pin
+        if: steps.pins.outputs.ready == 'true'
+        shell: bash
+        run: |
+          SHA=$(python3 -c "import json; print(json.load(open('tools/engines/pins.json'))['engines']['llama.cpp']['sha'])")
+          git init -q ../llama.cpp
+          git -C ../llama.cpp fetch -q --depth 1 https://github.com/ggml-org/llama.cpp "$SHA"
+          git -C ../llama.cpp checkout -q FETCH_HEAD
+          echo "::notice::llama.cpp $(git -C ../llama.cpp rev-parse HEAD)"
+          cmake -S ../llama.cpp -B ../build-tok -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF \
+            -DLLAMA_OPENSSL=OFF -DLLAMA_BUILD_TESTS=OFF > cfg.log 2>&1 || { tail -20 cfg.log; exit 1; }
+          cmake --build ../build-tok -j"$(nproc)" --target llama-tokenize > build.log 2>&1 || { tail -40 build.log; exit 1; }
+      - name: vocab-only GGUFs from N15's committed GGUF headers
+        if: steps.pins.outputs.ready == 'true'
+        shell: bash
+        run: |
+          SRC=.
+          if [ ! -f tools/gguf_headers/vocab_gguf.py ] || [ ! -f "$GLM_HEADER" ]; then
+            git fetch -q --depth 1 origin "$N15_COMMIT"
+            mkdir -p ../n15
+            git archive "$N15_COMMIT" tools/gguf_headers tools/gguf_quant_audit.py "$GLM_HEADER" "$QWEN_HEADER" | tar -x -C ../n15
+            SRC=../n15
+          fi
+          echo "$GLM_HEADER_SHA256  $SRC/$GLM_HEADER" | sha256sum -c
+          echo "$QWEN_HEADER_SHA256  $SRC/$QWEN_HEADER" | sha256sum -c
+          python3 -I "$SRC/tools/gguf_headers/vocab_gguf.py" "$SRC/$GLM_HEADER" ../vocab-glm.gguf
+          python3 -I "$SRC/tools/gguf_headers/vocab_gguf.py" "$SRC/$QWEN_HEADER" ../vocab-qwen.gguf
+          sha256sum ../vocab-glm.gguf ../vocab-qwen.gguf
+      - name: token-level tests and transformers render (fail on any skip)
+        if: steps.pins.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set +e
+          TOKCHECK_LLAMA_TOKENIZE=../build-tok/bin/llama-tokenize TOKCHECK_VOCAB_GLM=../vocab-glm.gguf \
+            TOKCHECK_VOCAB_QWEN=../vocab-qwen.gguf python3 -m unittest -v tests.test_token_level \
+            tests.test_glm_template_n23.TransformersRender tests.test_glm_template_n23.JinjaEquality > t.log 2>&1
+          rc=$?
+          echo "::notice::$(grep -E '^Ran |^OK|^FAILED' t.log | tr '\n' ' ')"
+          grep -nE '^(FAIL|ERROR):|Error|assert' t.log | head -12 | while IFS= read -r l; do echo "::error::${l:0:900}"; done
+          if grep -E ' \.\.\. skipped ' t.log; then echo "::error::token-level tests were skipped"; rc=1; fi
+          exit $rc
+      - name: summary (annotations) and token-prefix.json
+        if: ${{ !cancelled() && steps.pins.outputs.ready == 'true' }}
+        shell: bash
+        run: |
+          G=$(python3 -c "import sys; sys.path.insert(0, 'scripts'); import hf_lfs_fetch as h; print(h.path_for('third_party/hf/glm-5.3-flash-tokenizer/PIN.json', 'tokenizer.json'))")
+          Q=$(python3 -c "import sys; sys.path.insert(0, 'scripts'); import hf_lfs_fetch as h; print(h.path_for('third_party/hf/qwen3.8-flash-next-tokenizer/PIN.json', 'tokenizer.json'))")
+          python3 tools/chattmpl/token_prefix.py --hf-glm "$G" --hf-qwen "$Q" --llama-tokenize ../build-tok/bin/llama-tokenize \
+            --vocab-glm ../vocab-glm.gguf --vocab-qwen ../vocab-qwen.gguf --out tok-out > summary.txt 2>&1 || true
+          # at most 10 notices per step: chunks of 40 lines, newlines encoded
+          split -l 40 summary.txt chunk.
+          for c in chunk.*; do echo "::notice::$(sed 's/%/%25/g' "$c" | awk '{printf "%s%%0A", $0}')"; done
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.pins.outputs.ready == 'true' }}
+        with:
+          name: token-prefix
+          path: |
+            tok-out/token-prefix.json
+            summary.txt
+            t.log
