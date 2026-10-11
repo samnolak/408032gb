@@ -21,6 +21,9 @@
 # rollback edges; the pins differ on purpose in three places (ec7630a: shared cells re-pool every k-pool, a rollback of a
 # shared recurrent cell is accepted, padded entries of indexer_pool_k_new share one cell; 79e2e74: one pooled row per rep
 # cell, that rollback refused, every padded entry its own non-rep cell), tools/tinygen/run_parity_qwen4exp_multiseq.sh.
+# N20: the recurrent rollback guard, patches/llama.cpp/79e2e74 applied to a copy of the checkout (patches/llama.cpp/apply.sh,
+# the checkout itself is not touched), the N19 plans and three guard plans on the patched build,
+# tools/tinygen/run_parity_qwen4exp_rs_guard.sh (its own build directory: a second CPU build of llama.cpp).
 # CPU only, tiny random-weight models.
 name: parity-r1-pin
 on:
@@ -75,6 +78,8 @@ jobs:
         run: python3 tools/ci/check_unittest.py --step n17-mimo2-mtp-heads-fa --checkout ../llama.cpp -- tools/tinygen/run_parity_mimo2_n17.sh ../llama.cpp ../build-tools
       - name: N19 qwen4exp several sequences, seq_cp, seq_rm and rollback edges at the R1 pin (CPU)
         run: python3 tools/ci/check_unittest.py --step n19-qwen4exp-multiseq --checkout ../llama.cpp -- tools/tinygen/run_parity_qwen4exp_multiseq.sh ../llama.cpp ../build-tools
+      - name: N20 recurrent rollback guard (patches/llama.cpp, applied to a copy) on the patched qwen4exp graph at the R1 pin (CPU)
+        run: python3 tools/ci/check_unittest.py --step n20-qwen4exp-rs-guard --checkout ../llama.cpp -- tools/tinygen/run_parity_qwen4exp_rs_guard.sh ../llama.cpp ../build-tools-rs-guard
   ik-glm5next:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
