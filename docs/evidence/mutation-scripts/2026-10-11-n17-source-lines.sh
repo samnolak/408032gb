@@ -38,7 +38,12 @@ p "$R1" common/speculative.cpp 1681,1688
 p "$R1" common/speculative.cpp 1700,1708
 p "$R1" common/speculative.cpp 1767,1777
 p "$R1" common/speculative.cpp 1824,1826
+p "$EC" common/common.h 332,332
 p "$R1" common/common.h 333,333
+p "$EC" tools/server/server-context.cpp 3044,3044
+p "$EC" tools/server/server-context.cpp 3747,3747
+p "$R1" tools/server/server-context.cpp 3404,3404
+p "$R1" tools/server/server-context.cpp 4232,4232
 # llama-server around the drafts: seq_rm of the draft context after drafting, accept, common_memory::seq_rm on both
 p "$EC" tools/server/server-context.cpp 3063,3063
 p "$EC" tools/server/server-context.cpp 3964,3964
@@ -86,3 +91,15 @@ p "$EC" ggml/src/ggml-cpu/simd-mappings.h 1333,1340
 # the converter: three MiMo MTP layers, remapped to blocks n_layer + i
 p "$R1" conversion/mimo.py 22,24
 p "$R1" conversion/mimo.py 290,298
+# the output crop of the MTP graph (rows before it do not depend on the output flags); the SWA cache size rule
+p "$R1" src/models/mimo2.cpp 378,378
+p "$EC" src/llama-kv-cache-iswa.cpp 73,73
+p "$R1" src/llama-kv-cache-iswa.cpp 73,73
+# the code the two pins share: the CPU flash attention, the mask template, and the MTP drafting (sampler changes only)
+d() {  # d <file> <a,b @ec7630a> <a,b @79e2e74>
+  echo "--- diff $1:$2 @$(git -C "$EC" rev-parse --short HEAD) $1:$3 @$(git -C "$R1" rev-parse --short HEAD)"
+  diff <(sed -n "${2}p" "$EC/$1") <(sed -n "${3}p" "$R1/$1") && echo "identical ($(sed -n "${2}p" "$EC/$1" | wc -l) lines)" || true
+}
+d ggml/src/ggml-cpu/ops.cpp 8843,9592 8842,9591
+d src/llama-kv-cache.cpp 1566,1716 1569,1719
+d common/speculative.cpp 1340,1747 1401,1828
