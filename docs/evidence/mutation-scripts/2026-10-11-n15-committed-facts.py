@@ -5,8 +5,9 @@
              Range requests, gzip bytes, the size check PIN.json recorded, etag / commit checks
   tensors    per layer kind: are the real file's tensor names those of a tinygen layer (needs LLAMA_CPP_GGUF_PY + numpy)
   listing    the discovery listing: counts, and the GLM / MiMo repos the evidence names
+  keys       the keys load_arch_hparams reads without a default at each given llama.cpp checkout, looked up in the files
 
-Usage: python3 <this> pins|tensors|listing
+Usage: python3 <this> pins|tensors|listing|experts ; python3 <this> keys NAME=<llama.cpp checkout> ...
 """
 import collections
 import importlib.util
@@ -82,6 +83,43 @@ def tensors():
                 print(head, f"no identical tiny layer; real-only {sorted(s - best)}, tiny-only {sorted(best - s)}")
 
 
+def keys(srcs):
+    """For each NAME=PATH llama.cpp checkout: the keys load_arch_hparams of glm5-next / qwen4exp reads without a default
+    (ml.get_key / get_key_or_arr / get_arr calls whose last argument is not false; one call per line), each looked up in
+    the real file's KV under the architecture prefix."""
+    import re
+    A = analyzer()
+    models = {"glm5-next": A.Model([f["summary"] for f in A.load_request(os.path.join(HDR, GLM))["files"]]),
+              "qwen4exp": A.Model([f["summary"] for f in A.load_request(os.path.join(HDR, QWEN))["files"]])}
+    for spec in srcs:
+        pin, root = spec.split("=", 1)
+        with open(os.path.join(root, "src", "llama-arch.cpp")) as f:
+            names = dict(re.findall(r'\{\s*(LLM_KV_\w+)\s*,\s*"([^"]+)"\s*\}', f.read()))
+        for arch, src in (("glm5-next", "glm5-next.cpp"), ("qwen4exp", "qwen4exp.cpp")):
+            with open(os.path.join(root, "src", "models", src)) as f:
+                text = f.read()
+            body = text[text.index("::load_arch_hparams"):text.index("::load_arch_tensors")]
+            req = [m.group(2) for m in re.finditer(r"ml\.(get_key|get_key_or_arr|get_arr|get_arr_n)\((LLM_KV_\w+)([^;]*)\);", body)
+                   if not m.group(3).strip().endswith("false")]
+            missing = [(k, names.get(k, "?").replace("%s", arch)) for k in req
+                       if names.get(k, "?").replace("%s", arch) not in models[arch].kv]
+            print(f"{pin} {arch}: {len(req)} keys read without a default, missing in the real file: {missing}")
+
+
+def experts():
+    """ggml type of each routed-expert projection, counted over the layers (from the committed summaries)."""
+    import glob
+    for d in (GLM, QWEN):
+        types = {}
+        for p in sorted(glob.glob(os.path.join(HDR, d, "*.summary.json"))):
+            with open(p) as f:
+                for t in json.load(f)["tensors"]:
+                    if "_exps" in t["name"]:
+                        k = t["name"].split(".")[2]
+                        types.setdefault(k, collections.Counter())[t["type"]] += 1
+        print(d, {k: dict(sorted(v.items())) for k, v in sorted(types.items())})
+
+
 def listing():
     with open(os.path.join(HDR, "discover-glm-mimo", "LISTING.json")) as f:
         lst = json.load(f)
@@ -110,4 +148,7 @@ def listing():
 
 
 if __name__ == "__main__":
-    {"pins": pins, "tensors": tensors, "listing": listing}[sys.argv[1]]()
+    if sys.argv[1] == "keys":
+        keys(sys.argv[2:])
+    else:
+        {"pins": pins, "tensors": tensors, "listing": listing, "experts": experts}[sys.argv[1]]()
