@@ -16,9 +16,9 @@
 # N16 (gap 12): mimo2 (MiMo) several ubatches, decode past the 256-cell SWA cache, rollbacks, the MTP block and MXFP4
 # routed experts (MXFP4_MOE by the pin's llama-quantize), tools/tinygen/run_parity_mimo2_decode.sh.
 # N19 (gap 10): qwen4exp several sequences in one context (one KV stream and one per sequence), seq_cp, seq_rm and
-# rollback edges; the pins differ on purpose in two places (ec7630a: shared cells re-pool every k-pool, a rollback of a
-# shared recurrent cell is accepted; 79e2e74: one pooled row per rep cell, that rollback refused),
-# tools/tinygen/run_parity_qwen4exp_multiseq.sh.
+# rollback edges; the pins differ on purpose in three places (ec7630a: shared cells re-pool every k-pool, a rollback of a
+# shared recurrent cell is accepted, padded entries of indexer_pool_k_new share one cell; 79e2e74: one pooled row per rep
+# cell, that rollback refused, every padded entry its own non-rep cell), tools/tinygen/run_parity_qwen4exp_multiseq.sh.
 # CPU only, tiny random-weight models.
 name: parity-r1-pin
 on:
