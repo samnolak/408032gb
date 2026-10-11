@@ -49,20 +49,25 @@ cited line is printed in 6.9 (script `docs/evidence/mutation-scripts/2026-10-11-
      shapes than a run without it, so on a GPU its greedy tokens can differ from the non-speculative run at near-ties
      (UNKNOWN whether the CUDA kernels of 79e2e74 are batch-invariant); the bug changes which batch shapes occur, not the
      correctness of any of them.
-2. **Reachability (task 1)**: every process call whose placement crosses the end of the 768-cell MTP SWA ring
-   (pad(min(n_ctx, 128 + 512), 256), KVI:73, window 128 from `config.json:303`), and every process call of more than one
-   ubatch (a prompt batch of up to `-b` 2048 tokens is 4 ubatches of 512) can trigger it (CONFIRMED on the tiny model,
-   2.3); in steady decode the ring end is crossed roughly once per 768 placed positions and the corruption lasts for the
-   window that follows (PROVISIONAL reading of the placement rule, 1.2; counted by the model, 1.3). Only the MTP context
-   is affected; the target context is never touched (CONFIRMED, 1.4).
+2. **Reachability (task 1)**: a process call whose placement crosses the end of the MTP SWA ring, and a process call of
+   more than one ubatch (a prompt batch of up to `-b` 2048 tokens is 4 ubatches of 512), can trigger it. CONFIRMED only
+   for the two instances on the tiny model (runs mtp3 and mtp3b, 2.3); that it holds for such calls in general, and how
+   often, is PROVISIONAL (the placement rule, 1.2, and the placement model, 1.3). The ring has
+   pad(min(n_ctx, n_swa·(unified ? n_seq_max : 1) + n_ubatch), 256) cells (KVI:73), window 128 (`config.json:303`):
+   **768 cells with `-np 1`** (R1's templates, the hardware experiment), **1024 with `-np 4` and a unified KV cache**,
+   which is llama-server's default when `-np` is not given (n_parallel auto = 4, kv_unified true: ARG:1405-1406,
+   `tools/server/server.cpp:168-173`; the MTP context inherits both, `common/speculative.cpp:2527-2531`). In steady decode
+   the ring end is crossed roughly once per ring-size placed positions and the corruption lasts for the window that
+   follows (PROVISIONAL). Only the MTP context is affected; the target context is never touched (CONFIRMED, 1.4).
 3. **Fix (task 2)**: `patches/llama.cpp/0001-mtp-heads-slot-replay.patch` at 79e2e74: `process()` runs each ubatch through
    all heads before the next one, heads 1 .. H-1 in exactly head 0's cells (new staging API
    `llama_memory_set_slot_replay`). Proven on CPU on the tiny 3-head model (2.3): with the patch no row of any head reads
    foreign K/V or an incomplete window, every MTP tensor equals the full-sequence oracle (A) within 1e-4 (f32) and
    TOL16 (f16 / flash attention), the 11 head-0 rows N17 found wrong now match (A) (kqv_out 5.8e-07, logits 3.6e-07
    against 2.05 and 0.40 upstream), the real patched `common_speculative` computes bit for bit what the replay of the
-   patched order computes, all N16 / N17 and other dump steps still pass at both pins, and 17 of 18 mutants are caught
-   (2.4; the survivor is a defensive check no N21 run reaches). GPU, the llama-server binary and real weights: NOT RUN.
+   patched order computes, all N16 / N17 and other dump steps still pass at both pins, and all 18 mutants are caught
+   (2.4; P5, the check that a replayed cell is free, survived the first round and is caught by the probe added after the
+   audit, 7.2). GPU, the llama-server binary and real weights: NOT RUN.
 4. **Workaround without the patch (task 3)**: `--swa-full` (no placement problem; +6.41 GiB of KV at 32K, +52.35 GiB at
    262K, PROVISIONAL from the config), or a one-head GGUF (`tools/gguf_mtp_heads.py --keep 1`; acceptance cost UNKNOWN),
    or no MTP (R1's default). `--spec-draft-n-max 1` does not help (process still runs all three heads; 10.0 % to 12.4 %
@@ -89,7 +94,8 @@ cited line is printed in 6.9 (script `docs/evidence/mutation-scripts/2026-10-11-
 * KV placement: `seq_rm` moves the cache head back to the **lowest freed cell index** (KV:428-437); `find_slot` walks from
   the head (from 0 when head > used + 2 n, KV:1019-1025), taking empty cells and cells whose position is masked by the
   window (KV:1061-1078); `apply_ubatch` purges every position up to the largest one it overwrote and sets head = last
-  cell + 1 (KV:1185-1205). The MTP context's SWA cache has pad(min(n_ctx, n_swa + n_ubatch), 256) cells (KVI:73).
+  cell + 1 (KV:1185-1205). The MTP context's SWA cache has pad(min(n_ctx, n_swa·(unified ? n_seq_max : 1) + n_ubatch),
+  256) cells (KVI:73): 768 for MiMo with `-np 1`, 1024 with `-np 4` unified (llama-server's default, item 2 of section 0).
 
 ### 1.2 When it happens (CONFIRMED on the tiny model, 2.3; the MiMo numbers derived)
 
@@ -97,9 +103,10 @@ cited line is printed in 6.9 (script `docs/evidence/mutation-scripts/2026-10-11-
 0]; `seq_rm` frees them and the head moves to cell 0 (the lowest index), so heads 1 and 2 take [0, 1, 2, 3]; the cells now
 name heads 1-2's placement, and head 0's layer holds, under them, K/V of other positions. Every head-0 row whose window
 reaches those cells (the next n_swa - 1 positions, process and draft) attends to them. Any call of 2 or more tokens can
-straddle; with MiMo the ring is 768 cells (n_swa 128 from `config.json:303`; n_ubatch 512), so in steady decode the ring
-end comes round about once per 768 placed positions, and a verify batch of 4 straddles it unless it happens to end there
-(PROVISIONAL reading of the placement rule; the model of 1.3 counts it).
+straddle; with MiMo the ring is 768 cells with `-np 1` (n_swa 128 from `config.json:303`; n_ubatch 512; 1024 with `-np 4`
+and a unified KV cache, KVI:73), so in steady decode the ring end comes round about once per ring-size placed positions,
+and a verify batch of 4 straddles it unless it happens to end there (PROVISIONAL reading of the placement rule; the model
+of 1.3 counts it; one active request assumed).
 
 (b) **A call of more than one ubatch** (new in N21): head 0's later ubatches may take cells that the window of the first
 ubatch still needs (positions just before the call, masked only for the later ubatches), before heads 1 and 2 run that
@@ -120,7 +127,7 @@ the first rows of heads 1-2 in process calls of case (b).
 `ref/mtp_cells.py` replays llama-server's calls on the cells alone with ref/mimo2.py's `Cells` (KV placement as above,
 checked against llama.cpp's own cells since N16 and, here, graph by graph against llama.cpp's dumps of both plans and of
 llama.cpp's own common_speculative: `test_cell_model_agrees`, `test_cell_model_counts`, 2.3). `tools/mtp_ring_exposure.py`
-runs it at MiMo-V2.6-Flash geometry: 3 heads, window 128, ring 768, `-b 2048 -ub 512`, drafts of 3, verify batches of 4,
+runs it at MiMo-V2.6-Flash geometry: 3 heads, window 128, ring 768 (`-np 1`), `-b 2048 -ub 512`, drafts of 3, verify batches of 4,
 i.i.d. acceptance per draft token (0.3 / 0.6 / 0.85, a stand-in: the bug itself would lower it), 4000 generated tokens,
 seeds 1-3 (literal output 6.7):
 
@@ -131,6 +138,7 @@ seeds 1-3 (literal output 6.7):
 | one head (GGUF with 1 MTP layer) | 0 | - | |
 | `--swa-full` (ring = context) | 0 | 0 | |
 | upstream, `--spec-draft-n-max 1` | 10.0 % to 12.4 % (prompt 700) | - | process still runs 3 heads |
+| upstream, `--np 4` (ring 1024, unified KV, one active request) | 3.2 % to 8.4 % (prompt 700, 5000) | 0 | the server's default `-np`; fixed: 0 (7.4) |
 
 So with MTP on and no fix, roughly one draft in 6 to 30 has a first token computed from wrong K/V (PROVISIONAL). Whether
 such a draft is rejected more often, and by how much the acceptance and the speed drop, depends on the real weights:
@@ -150,9 +158,14 @@ fixed replays of the same plan are identical (`SpecReplay.test_target_independen
   and the draft token is accepted only if equal; the emitted tokens are the target's (SA:689-721).
 * Sampling (temperature > 0, `use_spec_rejection`, SC:504-506) with `--spec-draft-sampling probabilistic`: rejection
   sampling, "Preserves the target distribution exactly" (SA:732-735, 794-803), with q = the draft sampler's own candidate
-  distribution, from which the draft token was drawn (SP:1728-1740, 1757-1759). Exactness needs q to be the distribution
-  actually sampled, not a good one; wrong K/V only make q worse. With greedy drafting and temperature > 0 the server falls
+  distribution, from which the draft token was drawn (SP:1728-1740, 1757-1759). The exactness of the emitted tokens'
+  distribution rests on q being exactly the distribution the draft token was sampled from (here the same candidate array,
+  SP:1728-1731, 1757-1758), not on q being good; wrong K/V only make q worse. With greedy drafting and temperature > 0 the server falls
   back to sample-and-match (SP:1666-1669, SC:4412, 4424-4425), again the target's tokens.
+* Replay after a checkpoint restore (`server_accept_replay`, SC:56-79, used at SC:4420-4421 when `spec_is_replay` and
+  temperature > 0): re-accepts tokens the target had already accepted by one of the paths above before the restore, so it
+  adds no draft-decided token. It is taken only when the target context needs checkpoints (`use_ckpt_tgt`); the iSWA cache
+  of mimo2 takes partial seq_rm (N16), so not for mimo2 (PROVISIONAL reading).
 * Synthetic acceptance (`server_sample_and_accept_synth`, SC:4415-4419) is a benchmarking mode that accepts drafts at
   random; it is only active when synthetic rates are configured (`--spec-synth-len`, `--spec-synth-rates`, ARG:4177,
   4190), not in R1.
@@ -170,12 +183,17 @@ fixed replays of the same plan are identical (`SpecReplay.test_target_independen
 * `common/speculative.cpp` draft-mtp: `process_heads_once()` cuts the batch into chunks of `n_ubatch` tokens and runs, per
   chunk, head 0 after `seq_rm(chunk's first position)` and heads 1 .. H-1 after the same `seq_rm` with replay on. Used when
   the heads are chained and the memory supports replay; `LLAMA_SPEC_MTP_NO_SLOT_REPLAY=1` keeps the upstream loop (for A/B
-  runs). `draft()` is unchanged (each step writes and reads its own layer for the draft positions, which the server
+  runs; only a value whose first character is `1` counts, `std::getenv(..)[0] == '1'`). `draft()` is unchanged (each step writes and reads its own layer for the draft positions, which the server
   removes afterwards).
 * Invariant: for every position in the MTP cache, every head layer holds that position's K/V under the cell that holds
   the position. Cost: the same number of graphs per process call (H x ubatches; 87 and 54 MTP graphs in both orders,
   2.3); on CPU no other cost was measured (timings NOT RUN); on GPU UNKNOWN.
-* Scope: other memory types (hybrid, DSA, DSv4, recurrent) keep the upstream order (the setter returns false). Whether
+* Scope: every architecture whose MTP heads are chained (`n_layer_nextn` > 1, memory not shared with the target) and
+  whose MTP context's memory is `llama_kv_cache` or `llama_kv_cache_iswa` takes the new path, not only mimo2; other
+  memory types (hybrid, DSA, DSv4, recurrent) keep the upstream order (the setter returns false). A refused replay stays
+  a `LLAMA_LOG_WARN` and falls back to the search (tested after the audit, 7.2); it was not made an error or abort,
+  because in `process_heads_once` it cannot happen (the cells were freed by the `seq_rm` just before) and an abort would
+  turn a draft-quality problem into an outage. Whether
   other architectures with several NextN heads (glm5-next, deepseek4, step35, bailingmoe3, hy-v3 use
   `nextn_layer_offset`, `src/models/*.cpp`) hit the same placement problem: UNKNOWN (it needs a ring, i.e. sliding-window
   MTP layers, or holes in the cells; not analysed).
@@ -245,12 +263,12 @@ section 3). Every graph_mtp component, kq on all n_kv cells, kq_soft_max, the f1
 | P2 patch: `process_heads_once` without replay | SpecReplay (3): the real code no longer equals the fixed replay |
 | P3 patch: `process_heads_once` without chunks | SpecReplay.test_mtp_graphs_identical |
 | P4 patch: seq_rm from the batch's start, not the chunk's | the run itself (`llama_process(ctx_dft) head=0 failed rc=-1 (pos=108)`) |
-| P5 patch: `slot_replay_fits` does not check that a cell is free | **survived**: every replay in these runs targets cells the `seq_rm` just before freed, so the check never decides; a defensive guard, not exercised (NOT RUN: a case that replays onto a taken cell) |
+| P5 patch: `slot_replay_fits` does not check that a cell is free | survived the first round (no run replayed onto a taken cell); after the audit caught by `ReplayRefusal.test_refused_replay_falls_back_to_the_search` (7.2) |
 | D1 dump tool: DUMP_MTP_FIX without replay | 15 tests |
 | D2 dump tool: DUMP_MTP_FIX without chunks | setUpClass of the 3 fixed classes, SpecReplay |
 | D3 dump tool: DUMP_MTP_SPEC accept() off by one | SpecReplay (2) |
 
-**17 of 18 caught**; after the C++ mutants the sources were restored (the patched scratch repo clean, the worktree's
+**17 of 18 caught in the first round, P5 caught after the audit (7.2): 18 of 18**; after the C++ mutants the sources were restored (the patched scratch repo clean, the worktree's
 dump tool unchanged) and the driver passed again (6.8). P2 and P3 are caught only by SpecReplay: the fixed replay alone
 would not notice a broken real `process()`, which is why the step compares the two.
 
@@ -314,8 +332,7 @@ single-file GGUF) on the pristine pin.
 * GPU, the llama-server binary (its call sequence is driven through llama.cpp's own `common_speculative` by the dump tool,
   not through the server's HTTP loop), real MiMo weights or GGUF, several slots (`-np` > 1), checkpoint-based MTP contexts
   (`use_ckpt_dft`; the iSWA cache takes partial seq_rm, N16), probabilistic drafting.
-* The guard `slot_replay_fits` of the patch is not reached by any N21 run (every replay targets cells the `seq_rm` just
-  before freed): mutant P5 survives (2.4).
+* Several slots with the patch (`-np` > 1, per-sequence seq_rm in `process_heads_once`): NOT RUN.
 * Other architectures with several NextN heads: UNKNOWN (2.1).
 * Timings of the patched process (CPU or GPU): NOT RUN.
 * GitHub Actions for the new step and job: NOT RUN (branch not pushed).
@@ -817,7 +834,7 @@ caught 17/18
 
 ### 6.9 Source lines
 
-`bash docs/evidence/mutation-scripts/2026-10-11-n21-source-lines.sh` (worktree lines at `b3a728f`):
+`bash docs/evidence/mutation-scripts/2026-10-11-n21-source-lines.sh` (worktree lines at `eec0fc1`, regenerated after the audit with the lines it added):
 ```
 == common/speculative.cpp:1481-1486 @79e2e74
 1481	        is_mem_shared = llama_get_ctx_other(ctx_dft) == ctx_tgt;
@@ -1053,6 +1070,16 @@ caught 17/18
 4292	    ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SPEC_TYPE"));
 == common/common.cpp:1725-1725 @79e2e74
 1725	    cparams.swa_full          = params.swa_full;
+== common/arg.cpp:1405-1406 @79e2e74
+1405	    } else if (ex == LLAMA_EXAMPLE_SERVER) {
+1406	        params.n_parallel = -1;     // auto by default
+== tools/server/server.cpp:168-173 @79e2e74
+168	        if (params.n_parallel < 0) {
+169	            SRV_TRC("%s", "n_parallel is set to auto, using n_parallel = 4 and kv_unified = true\n");
+170	
+171	            params.n_parallel = 4;
+172	            params.kv_unified = true;
+173	        }
 == common/sampling.cpp:689-721 @79e2e74
 689	std::vector<llama_token> common_sampler_sample_and_accept_n(struct common_sampler * gsmpl, struct llama_context * ctx, const std::vector<int> & idxs, const llama_tokens & draft, bool grammar_first) {
 690	    GGML_ASSERT(idxs.size() == draft.size() + 1 && "idxs.size() must be draft.size() + 1");
@@ -1107,6 +1134,12 @@ caught 17/18
 801	        residual.clear();
 802	        float sum = 0.0f;
 803	        for (size_t k = 0; k < cur_p->size; ++k) {
+== tools/server/server-context.cpp:56-60 @79e2e74
+56	// a checkpoint restore dropped tokens the target had accepted - re-accept them rather than verify again
+57	static std::vector<llama_token> server_accept_replay(
+58	        common_sampler * smpl,
+59	        llama_context * ctx,
+60	        const std::vector<int32_t> & idxs,
 == tools/server/server-context.cpp:504-506 @79e2e74
 504	    bool use_spec_rejection() const {
 505	        return task && task->params.sampling.temp > 0.0f;
@@ -1323,34 +1356,34 @@ caught 17/18
 1555	            if (chain_heads) {
 1556	                llama_set_nextn_layer_offset(ctx_dft, 0); // restore default for non-draft decodes
 1557	            }
-== third_party/hf/mimo-v2.6-flash-chat/config.json:162-162 @b3a728f
+== third_party/hf/mimo-v2.6-flash-chat/config.json:162-162 @eec0fc1
 162	  "num_nextn_predict_layers": 3,
-== third_party/hf/mimo-v2.6-flash-chat/config.json:303-303 @b3a728f
+== third_party/hf/mimo-v2.6-flash-chat/config.json:303-303 @eec0fc1
 303	  "sliding_window": 128,
-== scripts/r1/configs/llamacpp-server.json:10-10 @b3a728f
+== scripts/r1/configs/llamacpp-server.json:10-10 @eec0fc1
 10	    "mode": "overlap no (llama.cpp: no CPU/GPU overlap inside a layer, tools/roofline.py decode() docstring), hit 1.0 (PROVISIONAL: every expert in VRAM, ROOFLINE.md table 2 'in VRAM 1.00'), no speculation",
-== scripts/r1/configs/llamacpp-server.json:36-39 @b3a728f
+== scripts/r1/configs/llamacpp-server.json:36-39 @eec0fc1
 36	    "argv": ["${LLAMA_BIN}/llama-server", "-m", "${MODEL}", "--host", "${HOST}", "--port", "${PORT}",
 37	             "-c", "${CTX}", "-np", "1", "-ngl", "all", "-sm", "layer", "-ts", "${TENSOR_SPLIT}", "-fa", "on",
 38	             "-ctk", "${KV_TYPE}", "-ctv", "${KV_TYPE}", "--jinja", "--metrics",
 39	             "--slot-save-path", "${SLOT_DIR}"],
-== scripts/r1/configs/llamacpp-server.json:42-42 @b3a728f
+== scripts/r1/configs/llamacpp-server.json:42-42 @eec0fc1
 42	    "env": {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
-== scripts/r1/configs/llamacpp-server.json:51-51 @b3a728f
+== scripts/r1/configs/llamacpp-server.json:51-51 @eec0fc1
 51	    "desc": "Qwen3.8-Flash-Next UD-Q4_K_XL (unsloth/Qwen3.8-Flash-Next-GGUF @38bb39ee97821de2c9009abb7e93950eec396e66, 4 files)",
-== scripts/r1/configs/llamacpp-server.json:66-66 @b3a728f
+== scripts/r1/configs/llamacpp-server.json:66-66 @eec0fc1
 66	  "mode": {"overlap": "no", "strategy": "pp", "miss": "cpu", "hit": "${HIT}", "spec_k": 0, "spec_accept": 0.0},
-== scripts/r1/configs/llamacpp-server-moecache.json:52-52 @b3a728f
+== scripts/r1/configs/llamacpp-server-moecache.json:52-52 @eec0fc1
 52	    "desc": "GLM-5.3-Flash, glm5-next GGUF (file, quant and revision UNKNOWN: set GLM_GGUF)",
-== scripts/r1/configs/llamacpp-server-moecache.json:64-64 @b3a728f
+== scripts/r1/configs/llamacpp-server-moecache.json:64-64 @eec0fc1
 64	  "mode": {"overlap": "no", "strategy": "pp", "miss": "pcie", "hit": "${HIT}", "spec_k": 0, "spec_accept": 0.0},
-== scripts/r1/configs/ik-llamacpp-server.json:50-50 @b3a728f
+== scripts/r1/configs/ik-llamacpp-server.json:50-50 @eec0fc1
 50	    "desc": "GLM-5.3-Flash UD-Q4_K_XL (Unsloth GGUF, 6 shards, architecture glm5next; HF revision UNKNOWN)",
-== scripts/r1/configs/ik-llamacpp-server.json:62-62 @b3a728f
+== scripts/r1/configs/ik-llamacpp-server.json:62-62 @eec0fc1
 62	  "mode": {"overlap": "no", "strategy": "pp", "miss": "cpu", "hit": "${HIT}", "spec_k": 0, "spec_accept": 0.0},
-== third_party/hf/mimo-v2.6-flash-chat/config.json:47-47 @b3a728f
+== third_party/hf/mimo-v2.6-flash-chat/config.json:47-47 @eec0fc1
 47	  "hybrid_layer_pattern": [
-== docs/reassessment/ROADMAP.md:55-55 @b3a728f
+== docs/reassessment/ROADMAP.md:55-55 @eec0fc1
 55	| R4.4 | S1/S2: MTP и n-gram/suffix-спекуляция, принятие и чистый выигрыш на 262K; DFlash2 — только при основаниях (S3) | движок с поддержкой | ≥ 1.1× или выключено | NOT RUN |
 ```
 
@@ -1381,4 +1414,89 @@ $ python3 -m unittest tests.test_hooks
 Ran 21 tests in 9.357s
 
 OK
+```
+
+## 7. After the audit (4 MINORs, nits)
+
+### 7.1 Changes
+
+* M1: `patches/llama.cpp/README.md` says CI applies 0001 in job `n21-patched` (it did; the README said otherwise).
+* M2: the ring size is qualified everywhere it is used for MiMo: 768 cells with `-np 1`, 1024 with `-np 4` and a unified
+  KV cache, which is llama-server's default when `-np` is not given (section 0 item 2, 1.1, 1.2, 1.3);
+  `tools/mtp_ring_exposure.py --np` models a unified ring of `-np` slots with one active request (7.4).
+* M3: section 0 item 2 now labels only the two tiny-model instances CONFIRMED and the generalisation PROVISIONAL.
+* M4: the fallback of a refused replay is tested. `DUMP_MTP_REPLAY_PROBE=1` (tools/dump/dump_tensors.cpp, with
+  `DUMP_MTP_FIX`) runs four head-0 calls after the plan: (a) at 41 by a plain search, (b) at 41 by replay of (a)'s freed
+  cell, (c) at 42 with replay on while (a)'s cell holds 41, (d) at 42 by a plain search. The new run `fix/probe` (driver,
+  patched builds only) and class `ReplayRefusal` check (a) = (b) and (c) = (d) bit for bit, the refusal warning once per
+  cache of the iSWA pair, and that (c) attends to its whole 8-position window. Mutant P5 (no "cell is free" check) is now
+  caught (7.2). The refusal stays a warning, not an abort (2.1, last-but-one bullet). Expectations: 32 tests with 6
+  expected skips at both unpatched pins (the new class skips in setUpClass), 57 on the patched copy.
+* Nits: `LLAMA_SPEC_MTP_NO_SLOT_REPLAY` honours only a leading `1` (2.1, patches README); `server_accept_replay` (1.5);
+  output exactness rests on q being the sampled distribution (1.5); every chained-heads architecture on
+  `llama_kv_cache` / iSWA takes the new path (2.1).
+
+### 7.2 The probe and mutant P5 (CONFIRMED)
+
+From `<S>/n21/final-n21-mimo2-mtp-fix-patched-r1p.log` (the re-run of 7.3):
+```
+fix/probe: 13 MTP graphs, {'draft': 3, 'probe': 4, 'process': 6} (DUMP_MTP_FIX=1 DUMP_MTP_REPLAY_PROBE=1)
+test_refused_replay_falls_back_to_the_search (tests.test_mimo2_mtp_fix_parity.ReplayRefusal.test_refused_replay_falls_back_to_the_search)
+(c) = (d) bit for bit; llama.cpp warned once per cache of the iSWA pair (the base and the SWA cache both ... 
+replay probe: (a) = (b) and (c) = (d) bit for bit (68 tensors each), refused in both caches, (c) sees 8 cells
+ok
+test_replay_of_a_freed_cell_equals_the_search (tests.test_mimo2_mtp_fix_parity.ReplayRefusal.test_replay_of_a_freed_cell_equals_the_search)
+(b) = (a) bit for bit (every dumped tensor of the graph). ... ok
+test_the_probe_calls (tests.test_mimo2_mtp_fix_parity.ReplayRefusal.test_the_probe_calls) ... ok
+```
+
+`MUT_ONLY='P5' python3 docs/evidence/mutation-scripts/2026-10-11-n21-mutations.py /home/user/wt-n21 <S>/n21/llama-r1-fix <S>/n21/build-r1fix <S>/n21/mut` on `ff25111`:
+```
+patched llama.cpp <S>/n21/llama-r1-fix: cb9cd77 common/speculative: place each MTP process ubatch once for all heads (slot replay); build <S>/n21/build-r1fix; worktree ff25111fa6c727add15c9657e975cb20b0731d91
+baseline (no mutation), driver: rc=0 Ran 57 tests in 23.030s | OK
+P5 slot_replay_fits does not check that a replayed cell is free
+    src/llama-kv-cache.cpp: 'if (idx >= cells.size() || (!cells.is_empty(idx) && taken[strm].count(idx) == 0)) {' -> 'if (idx >= cells.size()) {'
+    rc=1 Ran 57 tests in 25.498s | FAILED (failures=1)
+    test_mimo2_mtp_fix_parity: 1 failing: ReplayRefusal.test_refused_replay_falls_back_to_the_search
+after the C++ mutants, restored sources (patched llama.cpp status: clean; worktree tools/dump/dump_tensors.cpp: unchanged), driver: rc=0 Ran 57 tests in 25.773s | OK
+caught 1/1
+```
+
+### 7.3 The N21 steps at both pins and on the patched copy, and the checker and hook tests
+
+`ONLY='^n21-' bash docs/evidence/mutation-scripts/2026-10-11-n21-final-runs.sh` on `ff25111`:
+```
+worktree HEAD ff25111fa6c727add15c9657e975cb20b0731d91; status: 0 changed or untracked files
+n21-mimo2-mtp-fix @ec (ec7630a) wrapper_rc=0 wall_s=25: Ran 32 tests in 10.072s OK (skipped=6) ::notice::n21-mimo2-mtp-fix @ llama.cpp ec7630a: Ran 32, skipped 6 as expected (tests.test_mimo2_mtp_fix_parity.MtpFix.setUpClass, tests.test_mimo2_mtp_fix_parity.MtpFixB.setUpClass, tests.test_mimo2_mtp_fix_parity.MtpFixF16FA.setUpClass, tests.test_mimo2_mtp_fix_parity.ReplayRefusal.setUpClass, tests.test_mimo2_mtp_fix_parity.SpecReplay.test_fix_changes_drafts, tests.test_mimo2_mtp_fix_parity.SpecReplay.test_target_independent_of_the_mtp_order); the driver's checkout <S>/llama-ec7630a is at ec7630a
+n21-mimo2-mtp-fix @r1 (79e2e74) wrapper_rc=0 wall_s=26: Ran 32 tests in 10.632s OK (skipped=6) ::notice::n21-mimo2-mtp-fix @ llama.cpp 79e2e74: Ran 32, skipped 6 as expected (tests.test_mimo2_mtp_fix_parity.MtpFix.setUpClass, tests.test_mimo2_mtp_fix_parity.MtpFixB.setUpClass, tests.test_mimo2_mtp_fix_parity.MtpFixF16FA.setUpClass, tests.test_mimo2_mtp_fix_parity.ReplayRefusal.setUpClass, tests.test_mimo2_mtp_fix_parity.SpecReplay.test_fix_changes_drafts, tests.test_mimo2_mtp_fix_parity.SpecReplay.test_target_independent_of_the_mtp_order); the driver's checkout <S>/llama.cpp is at 79e2e74
+n21-mimo2-mtp-fix-patched @r1p (79e2e74 + patches/llama.cpp/0001) wrapper_rc=0 wall_s=45: Ran 57 tests in 23.735s OK ::notice::n21-mimo2-mtp-fix-patched @ llama.cpp 79e2e74: Ran 57, skipped 0 as expected; the driver's checkout <S>/n21/llama-r1-patched is at 79e2e74
+FINAL-DONE
+```
+
+```
+$ python3 -m unittest tests.test_check_unittest tests.test_hooks
+----------------------------------------------------------------------
+Ran 54 tests in 27.723s
+
+OK
+```
+
+### 7.4 Exposure with the server's default `-np` (PROVISIONAL model numbers)
+
+`python3 tools/mtp_ring_exposure.py --np 4 --prompts 700,5000 --modes upstream,fixed` on `ff25111`:
+```
+SWA ring of the MTP context: 1024 cells (pad(min(262144, 128 * 4 + 512), 256)); 3 heads, verify batches of 4, prompt calls of 2048, gen 4000, seeds [1, 2, 3]
+mode      prompt accept  drafts  head-0 drafts on foreign K/V   share  first heads 1.. proc ub incompl. window
+upstream     700   0.30    8389                           630    7.5%   1022         0                       0
+upstream     700   0.60    5522                           354    6.4%   1022         0                       0
+upstream     700   0.85    3773                           121    3.2%   1025         0                       0
+upstream    5000   0.30    8389                           703    8.4%   6140         0                      12
+upstream    5000   0.60    5522                           298    5.4%   5120         0                      12
+upstream    5000   0.85    3773                           278    7.4%   5121         0                      12
+fixed        700   0.30    8389                             0    0.0%      -         0                       0
+fixed        700   0.60    5522                             0    0.0%      -         0                       0
+fixed        700   0.85    3773                             0    0.0%      -         0                       0
+fixed       5000   0.30    8389                             0    0.0%      -         0                       0
+fixed       5000   0.60    5522                             0    0.0%      -         0                       0
+fixed       5000   0.85    3773                             0    0.0%      -         0                       0
 ```
