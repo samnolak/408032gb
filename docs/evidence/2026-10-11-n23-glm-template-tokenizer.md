@@ -69,9 +69,12 @@ round 2 (section 13) fills it in from the vendor run, or marks it NOT RUN with t
    than N15 saw:** every assistant turn with empty, missing or whitespace-only reasoning breaks token reuse at the last
    token of the previous prompt (`<think> Ċ | Ċ </think>` held vs `<think> ĊĊ </think>` re-tokenized): 1 of 6 requests
    in the empty-reasoning session, **4 of 7** in the mixed loop; with `enable_thinking=false` no break (its generation
-   prompt already ends `<think>\n\n</think>\n\n`). With the HF tokenizer and HF-vs-llama.cpp id parity: **NOT RUN
-   yet** — the first runner run (job 114554706860) failed on my relative-path bug before printing any HF result
-   (section 13.3); fixed, needs the next push.
+   prompt already ends `<think>\n\n</think>\n\n`). **With the real HF tokenizer too, CONFIRMED on the runner (section
+   13.5, run 38169032753 job 114557534609 on `96dd906`):** the same expectations hold for `tokenizers` + the pinned
+   tokenizer.json (GLM breaks only where bytes break, tags single tokens, the Qwen `ĊĊ` merge at the same requests),
+   and **HF and llama.cpp's GGUF tokenizer give identical ids** on every rendered prompt and turn (`Parity`).
+   transformers' own renderer equals hf_render on the runner as well. The per-request summary / artifact of that run
+   failed on a second relative-path bug of mine (`--out`); fixed, NOT RUN until the next run.
 10. **The Qwen break is real in llama-server too, CONFIRMED live (section 7.3)** on a tiny qwen4exp carrying the real
     Qwen vocabulary (248 320 tokens, 247 587 merges, pre `qwen35`, from N15's header) with the slot pre-filled with the
     canonical tokens of each turn: reuse breaks exactly where the tokenizer predicts, and the server restores the
@@ -247,7 +250,7 @@ GLM ids of the 16 tags: `[gMASK]` 154822 … `</tool_response>` 154846, each one
 three tokens each. At every Qwen newline break: held `… <think>(248068) Ċ(198) | Ċ(198) </think>(248069)`, next
 `… <think> ĊĊ(271) </think>`.
 
-### 7.2 HF tokenizer and parity: NOT RUN yet (section 13.3)
+### 7.2 HF tokenizer and parity: CONFIRMED on the runner (section 13.5)
 
 `tests/test_token_level.py` `HFTokenLevel` asserts the same table for `tokenizers` + tokenizer.json
 (`add_special_tokens=False`, as transformers' `apply_chat_template(tokenize=True)`), `Parity` that both tokenizers give
@@ -324,7 +327,7 @@ Also for the client side of R1's agent loop: never send `"reasoning_content": nu
 | test_token_level | PinRecords (1) | vendored tokenizer pins | pass (round 2) |
 | | LlamaTokenLevel (5) | llama-tokenize + vocab GGUFs | pass |
 | | LlamaTokPaths (1, round 2) | nothing | pass |
-| | HFTokenLevel (5), Parity (1) | tokenizer.json in the cache (+ llama) | skip in the sandbox; runner: NOT RUN yet (13.3) |
+| | HFTokenLevel (5), Parity (1) | tokenizer.json in the cache (+ llama) | skip in the sandbox; runner: pass (13.5) |
 | test_hf_lfs | VendorLfs (7), Fetch (7), Requests (1) | nothing (no network) | pass |
 
 The N14 suite (`tests/test_chat_templates.py`, 14 tests) still passes with the refactored `run_n14.py` (section 11).
@@ -516,9 +519,10 @@ tests`) is in the report of this round.
 ## 12. NOT RUN / PENDING runner
 
 - Vendoring of both tokenizer requests: done in round 2 (section 13.1).
-- NOT RUN yet: `token-level.yml` results (HF tokenizer token-level table, HF-vs-llama.cpp id parity, transformers render
-  on the runner). Its first run failed on a bug of mine (13.3); the fix and the richer annotations are committed and run on
-  the next push of this branch (the workflow's push paths include `tools/chattmpl/**` and the workflow file).
+- `token-level.yml` tests (HF tokenizer, parity, transformers render on the runner): pass on the second run (13.5).
+- NOT RUN: the per-request token-prefix summary with the HF tokenizer and the `token-prefix.json` artifact on the runner;
+  the second run's summary step failed on a relative `--out` (13.5) and stayed green; both fixed, they run with the next
+  push (the workflow's push paths include `tools/chattmpl/**`).
 - The live Qwen probe uses canonical tokens for the turn; tokens a real model samples may differ (UNKNOWN), which can
   only add breaks.
 - NOT RUN: ik_llama.cpp's template engine with our file; image / video / audio content parts; `add_vision_id`.
@@ -672,6 +676,78 @@ Ran 7 tests in 2.283s
 
 OK
 ```
+
+### 13.5 Second token-level run (run 38169032753, job 114557534609, on `96dd906`): tests pass; summary step false-green
+
+I cannot read the job log (13.3). The lead read it and passed it on; the lines below are as relayed, conclusion
+`success`:
+
+```
+##[notice]Ran 17 tests in 89.090s OK
+test_glm_official_and_corrected_identical (HFTokenLevel) ... ok
+test_glm_tags_single_tokens (HFTokenLevel) ... ok
+test_glm_tokens_break_only_where_bytes_break (HFTokenLevel) ... ok
+test_qwen_newline_merge_after_empty_reasoning (HFTokenLevel) ... ok
+test_qwen_tags (HFTokenLevel) ... ok
+test_relative_paths_are_made_absolute (LlamaTokPaths) ... ok
+test_glm_official_and_corrected_identical (LlamaTokenLevel) ... ok
+test_glm_tags_single_tokens (LlamaTokenLevel) ... ok
+test_glm_tokens_break_only_where_bytes_break (LlamaTokenLevel) ... ok
+test_qwen_newline_merge_after_empty_reasoning (LlamaTokenLevel) ... ok
+test_qwen_tags (LlamaTokenLevel) ... ok
+test_same_ids (Parity) ... ok
+test_lfs_records_match_the_template_pins (PinRecords) ... ok
+test_transformers_renders_like_hf_render (TransformersRender) ... ok
+test_agent_loops_prefix_stable (JinjaEquality) ... ok
+test_byte_equal_everywhere (JinjaEquality) ... ok
+test_turn_without_reasoning_renders_an_empty_think_block (JinjaEquality) ... ok
+##[notice]tokenizer.json sha256: 19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d (glm) 0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3 (qwen)
+```
+
+What this confirms, CONFIRMED (runner log, relayed by the lead):
+- **Tokenizer files.** The fetched tokenizer.json files hash to the pinned sha256: GLM `19e77364…a82d`, Qwen
+  `0997f410…b9f3`, both equal to PIN.json.
+- **HF tokenizer, `HFTokenLevel`.** `tokenizers` 0.23.3 with the HF tokenizer.json reproduces the llama.cpp-tokenizer
+  table of 7.1:
+  - GLM, official and corrected template: token-level breaks only where the bytes break; all 16 tags are single
+    tokens.
+  - Qwen: the 8 listed tags are single tokens.
+  - Qwen: the `<think> Ċ Ċ </think>` vs `<think> ĊĊ </think>` merge breaks reuse at exactly the same requests,
+    at the last prompt token. **N15's finding holds with the real HF tokenizer.**
+- **Parity, `Parity.test_same_ids`.** HF and llama.cpp's GGUF tokenizer give identical ids on all distinct rendered
+  texts of the corrected GLM template and the Qwen template (more than 30 each; 47 / 50 in the sandbox count).
+- **transformers render.** transformers 5.16.0's `render_jinja_template` equals hf_render for both GLM templates on
+  the runner (`TransformersRender`).
+
+**Summary step: false green (my bug).** It logged:
+
+```
+##[error]token_prefix.py failed: ... RuntimeError: error while handling argument "-f": error: failed to open file 'tok-out/tok-glm/010c9cf0....txt'
+```
+
+- Cause: `--out tok-out` was relative. `LlamaTok` writes each text under its work directory and runs llama-tokenize
+  from inside that directory, so the relative `-f` path was resolved twice.
+- The step only echoed `::error::`, so the job stayed green.
+
+Fixes, round 2b:
+- `LlamaTok` makes its work directory absolute.
+- `token_prefix.py` makes `--out` absolute.
+- `LlamaTokPaths` gains a case that fails without the fix: a fake tokenizer that exits 3 when it cannot open `-f`,
+  run with a relative work directory from another cwd.
+- The summary step now exits non-zero when token_prefix.py fails, when `tok-out/token-prefix.json` is missing or
+  empty, or when the summary has parity `DIFF` lines.
+
+Sandbox check of the failing case (relative `--out` from a different cwd):
+
+```
+$ cd <S>/n23/r2b && python3 /home/user/wt-n23/tools/chattmpl/token_prefix.py --llama-tokenize <S>/n15/build-tok/bin/llama-tokenize --vocab-glm ../n15/vocab-glm.gguf --vocab-qwen ../n15/vocab-qwen.gguf --out tok-out > summary.txt 2>&1; echo "exit $?"; ls -la tok-out/token-prefix.json; diff summary.txt <S>/n23/tok-llama.txt && echo SAME-AS-ROUND1
+exit 0
+-rw-r--r-- 1 root root 49111 Oct 11 21:12 tok-out/token-prefix.json
+SAME-AS-ROUND1
+```
+
+The per-request summary with the HF tokenizer (counts per session, as in 7.1) and the artifact are **NOT RUN** until
+the next run.
 
 ## Appendix A. `tools/chattmpl/run_n23.sh` at `4ed71cb`, full output
 
