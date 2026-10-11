@@ -86,7 +86,7 @@ class MtpHeadsRef(unittest.TestCase):
         pending = self.h[19]
         snapshot = {k: (v.copy() if hasattr(v, "copy") else v) for k, v in cache.items()}
         own, steps = M.mtp_draft(7, pending, self.W, self.hp, cache, 5)
-        self.assertEqual(len(steps), 3)                                     # at most H steps (speculative.cpp:1485)
+        self.assertEqual(len(steps), 3)    # at most H steps (speculative.cpp:1485 @79e2e74, 1424 @ec7630a)
         for k, st in enumerate(steps):
             self.assertEqual(st["head"], k)
             self.assertEqual(st["pos0"], 20)

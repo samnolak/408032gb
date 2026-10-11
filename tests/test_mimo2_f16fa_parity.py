@@ -188,9 +188,9 @@ class _FaRun:
 
     def test_cache_store_and_rows(self):
         """(a) the store: the cells graph g wrote (B's cell model) hold f16 of g's own dumped Kcur / Vcur, every element
-        (src/llama-kv-cache.cpp:1328-1361 ggml_set_rows, ref/fattn.py f16); (b) every cell the attention read (the
-        get_k / get_v views over n_kv cells: the cells this graph and earlier ones wrote, stale and never-written ones
-        included) against the rows the oracle stored there."""
+        (src/llama-kv-cache.cpp:1328-1361 @ec7630a, 1348-1381 @79e2e74, ggml_set_rows; ref/fattn.py f16); (b) every cell
+        the attention read (the get_k / get_v views over n_kv cells: the cells this graph and earlier ones wrote, stale
+        and never-written ones included) against the rows the oracle stored there."""
         R, hp = self.R, self.hp
         stats, n_store = {}, 0
         for gr in R.graphs:

@@ -41,7 +41,7 @@ round K and V even with -ctk f32 -ctv f32.
 Shapes: q (T, H, DK); k (S, Hkv, DK); v (S, Hkv, DV); query head h reads kv head h // (H / Hkv) (GQA broadcast
 O:8891, 8954, 8958); cells: per query row the sorted cell indices it may attend to (None = causal 0..t).
 The emulation of "fa_chunk" follows the scalar code the AVX2 build runs for DK, DV < GGML_F16_STEP = 32
-(ggml/src/ggml-cpu/simd-mappings.h:635-636; leftover loops V:580 mad, V:854 scale, VC:373 and 377 dot): products of
+(ggml/src/ggml-cpu/simd-mappings.h:635-636; leftover loops V:580 mad, V:854 scale, VC:365-367 and 377 dot): products of
 f16 values are exact in f32, the dot is summed in double and rounded to f32 once.
 
 Attention sinks (N17, mimo2; sinks=None runs the sink-free code above). A sink is one logit per query head (f32,
@@ -114,11 +114,12 @@ def _cells(cells, T):
 
 def _dot_f16(qq, kc):
     """ggml_vec_dot_f16 of f16 rows, (G, DK) x (n, DK) -> (G, n) float64 (sumf before *s = sumf, VC:377). DK below
-    GGML_F16_STEP: the scalar loop, products exact, summed in double (VC:373; written as one product here, as N10 had
-    it). DK >= 32 on x86 AVX2 (N17, MiMo's 192-wide heads): blocks of 32 into 4 accumulators of 8 f32 lanes, each
-    lane fma(x, y, acc) (VC:352-359, simd-mappings.h:595-596, 646, 670), reduced in f32 as GGML_F32x8_REDUCE
-    (simd-mappings.h:602-620: acc0 += acc2, acc1 += acc3, acc0 += acc1, then the two 128-bit halves, then two hadd),
-    the leftovers in double (VC:365-367)."""
+    GGML_F16_STEP: np = 0, the reduce of the four zero accumulators gives 0 and the leftover loop sums the exact
+    products in double (VC:345, 362, 365-367 on AVX2; VC:373 is the build without GGML_SIMD, the same sum; written as
+    one product here, as N10 had it). DK >= 32 on x86 AVX2 (N17, MiMo's 192-wide heads): blocks of 32 into 4
+    accumulators of 8 f32 lanes, each lane fma(x, y, acc) (VC:352-359, simd-mappings.h:595-596, 646, 670), reduced in
+    f32 as GGML_F32x8_REDUCE (simd-mappings.h:602-620: acc0 += acc2, acc1 += acc3, acc0 += acc1, then the two 128-bit
+    halves, then two hadd), the leftovers in double (VC:365-367)."""
     n_simd = qq.shape[1] & ~(F16_STEP - 1)
     if n_simd == 0:
         return qq @ kc.T

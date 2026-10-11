@@ -63,41 +63,43 @@ MTP block, graph_mtp (M:272-407), layer il = n_layer, on the MTP context with it
 
 Several MTP heads (N17; MiMo-V2-Flash / V2.5 / V2.6 ship 3, conversion/mimo.py:22-24 @79e2e74): head k is layer
 n_layer + k (graph_mtp takes il = n_layer + cparams.nextn_layer_offset and asserts 0 <= offset < n_layer_nextn,
-M:276-279 @ec7630a, M:267-270 @79e2e74); every head is a sliding-window layer of the one MTP context, whose memory holds
-all n_layer_nextn layers on shared cells (the filter il >= n_layer, LM:2807-2812). common/speculative.cpp drives them
-(chain_heads = n_mtp_layers > 1, :1482 @79e2e74, :1421 @ec7630a; the same code at both pins):
+M:276-279 @ec7630a, M:267-270 @79e2e74); every head is a sliding-window layer of the one MTP context, whose memory
+holds all n_layer_nextn layers on shared cells (the filter il >= n_layer, LM:2807-2812 @ec7630a, 2846-2851 @79e2e74).
+common/speculative.cpp drives them (chain_heads = n_mtp_layers > 1, :1482 @79e2e74, :1421 @ec7630a; the same code at
+both pins):
   process (every target call): for head k = 0 .. H-1: llama_memory_seq_rm(mtp, seq, first position of the call, -1),
       nextn_layer_offset = k, decode the call's tokens with the TARGET's h rows (token p with the target h_nextn of p-1,
       the first with the pending row); offset back to 0 (:1583-1621 @79e2e74, :1519-1557 @ec7630a). So every head
       holds the K/V of its own layer for every processed position, each computed from the target's h.
-  draft (one sequence, id_last at pos0, pending = the target row of pos0-1; at most H steps, :1485): step k = 0 .. H-1
-      runs head k on the whole prefix after seq_rm(pos0): tokens [id_last, d_1, .., d_k] at pos0 .. pos0+k with the
-      rows [pending, h_0, .., h_{k-1}], where h_j is the MTP h_nextn that step j output at its last row (pos0 + j);
-      only the last row is an output, its argmax is d_{k+1} (:1681-1688, 1700-1708, 1767-1777 @79e2e74; :1604-1611,
-      1623-1631, 1686-1696 @ec7630a). Head k thus takes, at its new token, the h of head k-1 one position back, and at
-      the earlier rows those of heads 0 .. k-2 (and the target's at pos0).
-  llama-server around it (tools/server/server-context.cpp @79e2e74; 3063, 3998 @ec7630a): after drafting it removes
-      the draft positions from the MTP memory (seq_rm(pos0), :3423); after verification, accept() pairs the next token
-      with the target row of the last accepted position (speculative.cpp:1814-1827) and common_memory::seq_rm cuts both
-      contexts after it (:4505, common/common.cpp:1558-1563 @ec7630a).
+  draft (one sequence, id_last at pos0, pending = the target row of pos0-1; at most H steps, :1485 @79e2e74; 1424
+      @ec7630a): step k = 0 .. H-1 runs head k on the whole prefix after seq_rm(pos0): tokens [id_last, d_1, .., d_k] at
+      pos0 .. pos0+k with the rows [pending, h_0, .., h_{k-1}], where h_j is the MTP h_nextn that step j output at its
+      last row (pos0 + j); only the last row is an output, its argmax is d_{k+1} (:1681-1688, 1700-1708, 1767-1777
+      @79e2e74; :1604-1611, 1623-1631, 1686-1696 @ec7630a). Head k thus takes, at its new token, the h of head k-1 one
+      position back, and at the earlier rows those of heads 0 .. k-2 (and the target's at pos0).
+  llama-server around it (tools/server/server-context.cpp @79e2e74; 3063, 3998 @ec7630a): after drafting it removes the
+      draft positions from the MTP memory (seq_rm(pos0), :3423); after verification, accept() pairs the next token with
+      the target row of the last accepted position (speculative.cpp:1814-1827 @79e2e74, 1733-1746 @ec7630a) and
+      common_memory::seq_rm cuts both contexts after it (:4505, common/common.cpp:1558-1563 @ec7630a).
 mtp_forward_chunk(..., offset=k) is head k; mtp_process / mtp_draft are the two loops above (tools/dump/dump_tensors.cpp
 DUMP_MTP replays them, with the server's seq_rm steps as plan steps "d<n>" and "r<n>").
 The cells are shared but each head writes only its own layer, and seq_rm moves the cache head back to the first freed
-cell (KV:410-419): when head 0's ubatch wraps around the end of the SWA ring, heads 1 .. H-1 place it from that cell on,
-the cells' positions follow them, and head 0's layer keeps under those cells K/V of other positions. The cache records
-per layer the position each cell's K/V was computed for (cache["P"]); attention_layer reports the rows that see such a
-cell (attn["foreign"]): there llama.cpp follows this cell model and not the full-sequence oracle
-(docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md).
+cell (KV:410-419 @ec7630a, 428-437 @79e2e74): when head 0's ubatch wraps around the end of the SWA ring, heads 1 .. H-1
+place it from that cell on, the cells' positions follow them, and head 0's layer keeps under those cells K/V of other
+positions. The cache records per layer the position each cell's K/V was computed for (cache["P"]); attention_layer
+reports the rows that see such a cell (attn["foreign"]): there llama.cpp follows this cell model and not the
+full-sequence oracle (docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md).
 
-Precision (N17; prec=None keeps every result above bit for bit): prec = ref/fattn.py precision(kv, fa) is the cache
-type of -ctk / -ctv and the -fa flag. With an f16 cache the K and V rows are stored rounded to f16 (cpy_k / cpy_v are
-ggml_set_rows, src/llama-kv-cache.cpp:1328-1361; ref/fattn.py store()); flash attention casts f32 K / V to f16 anyway
-(LG:2660-2666) and runs the CPU path of ref/fattn.py attend() with the layer's sinks (one_chunk below 64 query rows,
-tiled at 64 and more; one query row over n_kv >= 512 cells takes the split-KV path, which with -t 1 equals one_chunk,
-ref/fattn.py docstring). Every layer's mask is the one of the f32 path: llama_kv_cache::set_input_kq_mask fills an f16
-(flash attention) or f32 mask with the same template (KV:1566-1716, 1789-1793 @ec7630a), 0 or -inf, both exact in f16.
-The rows the online softmax visits are the visible cells in CELL order (a wrapped SWA ring visits position 256 in cell 0
-before 249..255); the full-sequence oracle (cache None) visits positions in order.
+Precision (N17; prec=None keeps every result above bit for bit): prec = ref/fattn.py precision(kv, fa) is the cache type
+of -ctk / -ctv and the -fa flag. With an f16 cache the K and V rows are stored rounded to f16 (cpy_k / cpy_v are
+ggml_set_rows, src/llama-kv-cache.cpp:1328-1361 @ec7630a, 1348-1381 @79e2e74; ref/fattn.py store()); flash attention
+casts f32 K / V to f16 anyway (LG:2660-2666) and runs the CPU path of ref/fattn.py attend() with the layer's sinks
+(one_chunk below 64 query rows, tiled at 64 and more; one query row over n_kv >= 512 cells takes the split-KV path,
+which with -t 1 equals one_chunk, ref/fattn.py docstring). Every layer's mask is the one of the f32 path:
+llama_kv_cache::set_input_kq_mask fills an f16 (flash attention) or f32 mask with the same template (KV:1566-1716,
+1789-1793 @ec7630a), 0 or -inf, both exact in f16. The rows the online softmax visits are the visible cells in CELL
+order (a wrapped SWA ring visits position 256 in cell 0 before 249..255); the full-sequence oracle (cache None) visits
+positions in order.
 
 Quantized weights (N10): a weight may be a ref/quant.py QWeight; every product with a weight is written x @ w.T or
 w @ x, which for a QWeight applies the CPU activation conversion. Everything else runs in float64; shapes are

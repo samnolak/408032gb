@@ -30,24 +30,24 @@
 //                  1686-1696 @ec7630a): every target call is processed by every head h = 0..H-1 in turn, each after
 //                  llama_memory_seq_rm(mtp, 0, first position of the call, -1) and llama_set_nextn_layer_offset(h),
 //                  all with the target's h rows; the offset is set back to 0 afterwards.
-//                  Plan steps in this mode (DUMP_CALLS): "<n>" as above; "r<n>" rolls back both contexts by n
-//                  positions the way llama-server rejects a draft (common_memory::seq_rm on the target and the MTP
-//                  memory, tools/server/server-context.cpp:4505 @79e2e74, 3998 @ec7630a) and pairs the next token with
-//                  the target row of the new last position (common_speculative accept(), speculative.cpp:1824-1826
-//                  @79e2e74); n must be smaller than the last call (the server keeps at least its first token);
-//                  "d<n>" drafts at the current position with the next token of DUMP_TOKENS as the target's sampled
-//                  token (not consumed: the next call feeds it), n steps (H > 1: at most H, speculative.cpp:1485),
-//                  then llama_memory_seq_rm(mtp, 0, position, -1) as the server does after drafting
-//                  (server-context.cpp:3423 @79e2e74, 3063 @ec7630a).
-//                  Draft steps (common/speculative.cpp draft()): one head: step 1 the token with the pending target
-//                  row at the position, step j > 1 the argmax of step j-1 at the next position with step j-1's MTP
-//                  h_nextn row. H > 1: step j runs head j-1 on the whole draft prefix (the token, then drafts 1..j-1
-//                  at the following positions) after llama_memory_seq_rm(mtp, 0, position, -1), the rows paired with
-//                  the pending target row, then the h_nextn row each earlier step output at its last position; only
-//                  the last row is an output (speculative.cpp:1700-1708, 1767-1777 @79e2e74). Greedy (p_min 0, the
-//                  default, common/common.h:333 @79e2e74). Process calls mark every row as an output (the server
-//                  marks none, speculative.cpp:1586) so their logits and h rows can be compared; the block's tensors
-//                  before the output crop (mimo2.cpp:378 @79e2e74) do not depend on it.
+//                  Plan steps in this mode (DUMP_CALLS): "<n>" as above; "r<n>" rolls back both contexts by n positions
+//                  the way llama-server rejects a draft (common_memory::seq_rm on the target and the MTP memory,
+//                  tools/server/server-context.cpp:4505 @79e2e74, 3998 @ec7630a) and pairs the next token with the
+//                  target row of the new last position (common_speculative accept(), speculative.cpp:1824-1826
+//                  @79e2e74, 1743-1745 @ec7630a); n must be smaller than the last call (the server keeps at least its
+//                  first token); "d<n>" drafts at the current position with the next token of DUMP_TOKENS as the
+//                  target's sampled token (not consumed: the next call feeds it), n steps (H > 1: at most H,
+//                  speculative.cpp:1485 @79e2e74, 1424 @ec7630a), then llama_memory_seq_rm(mtp, 0, position, -1) as the
+//                  server does after drafting (server-context.cpp:3423 @79e2e74, 3063 @ec7630a).
+//                  Draft steps (common/speculative.cpp draft()): one head: step 1 the token with the pending target row
+//                  at the position, step j > 1 the argmax of step j-1 at the next position with step j-1's MTP h_nextn
+//                  row. H > 1: step j runs head j-1 on the whole draft prefix (the token, then drafts 1..j-1 at the
+//                  following positions) after llama_memory_seq_rm(mtp, 0, position, -1), the rows paired with the
+//                  pending target row, then the h_nextn row each earlier step output at its last position; only the
+//                  last row is an output (speculative.cpp:1700-1708, 1767-1777 @79e2e74). Greedy (p_min 0, the default,
+//                  common/common.h:333 @79e2e74). Process calls mark every row as an output (the server marks none,
+//                  speculative.cpp:1586 @79e2e74, 1522 @ec7630a) so their logits and h rows can be compared; the
+//                  block's tensors before the output crop (mimo2.cpp:378 @79e2e74) do not depend on it.
 //                  The MTP manifest records per call its kind (process | draft | rollback | seq_rm, the last the
 //                  server's removal after a "d" draft), head, tokens, out0 (first row in logits.bin / h_nextn.bin) and
 //                  outputs (the output batch indices).

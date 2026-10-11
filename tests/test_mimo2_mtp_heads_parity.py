@@ -9,10 +9,11 @@ and MTP block 6, plus MTP blocks 7 and 8) and runs it with DUMP_MTP=1 (tools/dum
   240, 8 x 1, d3, 4 (2 wrong), r2, d3, 4 (1 wrong), r1, d3, 4, 2 x 1, d3, 4 (3 wrong), r3, 6 x 1, then DUMP_MTP_DRAFT=3
 (-ub 64, -c 512): "d3" is a 3-step draft at the current position (the next token of the sequence as the target's
 sampled token, then llama-server's seq_rm of the draft positions, server-context.cpp:3423 @79e2e74), "4" the target's
-verify batch, "r<n>" the rejection: seq_rm of both contexts (server-context.cpp:4505) and the pending h row of the last
-kept position (speculative.cpp accept(), :1814-1827). Every target call is processed by head 0, 1, 2 in turn, each
-after seq_rm from the call's first position (speculative.cpp:1598-1621 @79e2e74); a draft step k runs head k on the
-whole draft prefix (:1700-1708, 1767-1777). The run reaches position 266: both the target's and the MTP context's SWA
+verify batch, "r<n>" the rejection: seq_rm of both contexts (server-context.cpp:4505 @79e2e74, 3998 @ec7630a) and the
+pending h row of the last kept position (speculative.cpp accept(), :1814-1827 @79e2e74, 1733-1746 @ec7630a). Every
+target call is processed by head 0, 1, 2 in turn, each after seq_rm from the call's first position
+(speculative.cpp:1598-1621 @79e2e74); a draft step k runs head k on the whole draft prefix (:1700-1708, 1767-1777
+@79e2e74). The run reaches position 266: both the target's and the MTP context's SWA
 caches (256 cells) wrap.
 
 Compared, every MTP graph row by row, per head:
@@ -375,13 +376,13 @@ class _Heads:
     def test_head0_reads_foreign_kv(self):
         """Finding (docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md): process() re-places every call once per head
         after seq_rm(first position) (speculative.cpp:1598-1617 @79e2e74), and each head writes only its own layer.
-        seq_rm moves the cache head back to the first freed cell (src/llama-kv-cache.cpp:410-419), so a call whose
-        ubatch head 0 wrapped around the end of the 256-cell SWA ring (cells 253, 254, 255, 0) is placed by heads 1
-        and 2 from cell 0 (cells 0, 1, 2, 3); the cell positions follow the last head. Head 0's layer then holds, under
-        cells 0..3, the K/V of positions 256, 1, 2, 3 where the cells say 253..256, and every later head-0 row whose
-        window reaches them attends to those. llama.cpp equals the cell-accurate oracle (B) there (test_kv_cells,
-        test_mtp_heads_block) and differs from the full-sequence oracle (A); no other head and no other row is
-        affected (they are compared with (A) in test_mtp_heads_block)."""
+        seq_rm moves the cache head back to the first freed cell (src/llama-kv-cache.cpp:410-419 @ec7630a, 428-437
+        @79e2e74), so a call whose ubatch head 0 wrapped around the end of the 256-cell SWA ring (cells 253, 254, 255,
+        0) is placed by heads 1 and 2 from cell 0 (cells 0, 1, 2, 3); the cell positions follow the last head. Head 0's
+        layer then holds, under cells 0..3, the K/V of positions 256, 1, 2, 3 where the cells say 253..256, and every
+        later head-0 row whose window reaches them attends to those. llama.cpp equals the cell-accurate oracle (B) there
+        (test_kv_cells, test_mtp_heads_block) and differs from the full-sequence oracle (A); no other head and no other
+        row is affected (they are compared with (A) in test_mtp_heads_block)."""
         nl = self.hp["n_layer"]
         per_call = {}
         for gr in self.graphs:
@@ -417,6 +418,8 @@ class _Heads:
                     wl = self.A[0]["logits"][gr["pos"][r]]
                     worst_lo = max(worst_lo, float(np.abs(lr - wl).max() / np.abs(wl).max()))
         self.assertGreater(worst_kqv, 1e-2)
+        self.assertEqual(sorted({gr["pos"][r] for gr, rows in foreign for r in rows}), list(range(257, 264)))
+        self.assertEqual(n_rows, 11)
         self.TABLE.append((self.RUN, f"head 0 kqv_out vs (A), {n_rows} rows reading foreign K/V (expected to differ)",
                            0, -1, 0.0, worst_kqv))
         self.TABLE.append((self.RUN, "head 0 logits vs (A), the same rows (expected to differ)", 0, -1, 0.0, worst_lo))
