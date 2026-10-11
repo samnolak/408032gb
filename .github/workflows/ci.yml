@@ -22,8 +22,17 @@ jobs:
       # The `unit tests` step right below is not wrapped: discover skips every dump test by design
       # (docs/evidence/2026-10-11-n13-ci-no-silent-skips.md section 6); the other unwrapped steps of the parity jobs are
       # listed with their reasons in ALLOWED_UNWRAPPED of tests/test_check_unittest.py.
+      # No nvcc in this job: tests.test_diag_kit.CudaCompile (scripts/diag/*.cu for sm_89) skips here and is reported as
+      # a warning annotation; the build itself runs in the cuda-compile job below, which fails on that skip
+      # (docs/reassessment/CORRECTNESS.md gap 11 (c)). shell: bash = -eo pipefail, so the tee keeps unittest's status.
       - name: unit tests
-        run: python3 -m unittest discover -s tests -v
+        shell: bash
+        run: |
+          python3 -m unittest discover -s tests -v 2>&1 | tee unit.log
+          echo "::notice::unit tests: $(grep -E '^Ran |^OK|^FAILED' unit.log | tr '\n' ' ')"
+          if grep -q "skipped 'nvcc not available" unit.log; then
+            echo "::warning::scripts/diag/*.cu NOT compiled in this job (no nvcc here): tests.test_diag_kit.CudaCompile skipped; the sm_89 build runs in job cuda-compile"
+          fi
       - name: ggml delta-net parity (CPU)
         run: |
           cmake -S ../llama.cpp/ggml -B ../ggml-build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_OPENMP=OFF -DGGML_BACKEND_DL=OFF -DGGML_BUILD_TESTS=OFF -DGGML_BUILD_EXAMPLES=OFF
@@ -80,19 +89,31 @@ jobs:
           grep -q 'skipped' t.log && { echo "::error::reference tests were skipped: torch did not import"; rc=1; }
           exit $rc
   cuda-compile:
+    # The repo's own CUDA sources built for sm_89 (docs/reassessment/CORRECTNESS.md gap 11 (b), (c)). There is no
+    # kernels/ directory; today these are the R0 diagnostics scripts/diag/*.cu. tests.test_diag_kit.CudaSourcesInCi
+    # fails if a tracked .cu outside third_party/ is not among them. The engine forks are built elsewhere
+    # (strata-glm-sm89, lt-strata-sm89 below, engines-sm89.yml), not here. No GPU: nothing is executed.
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: CUDA toolkit (compile only, no GPU on the runner)
         run: |
           wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb && sudo apt-get update -q
-          sudo apt-get install -y -q cuda-nvcc-13-0 cuda-cudart-dev-13-0
-      - name: compile kernels for sm_89
+          sudo apt-get install -y -q cuda-nvcc-13-0 cuda-cudart-dev-13-0 cuda-cuobjdump-13-0
+      - name: scripts/diag/*.cu built for sm_89, binaries hold sm_89 code (tests/test_diag_kit.py CudaCompile; a skip or an empty run fails)
+        shell: bash
         run: |
-          shopt -s nullglob; files=(kernels/*.cu)
-          if [ ${#files[@]} -eq 0 ]; then echo "no kernels yet"; exit 0; fi
-          for f in "${files[@]}"; do /usr/local/cuda-13.0/bin/nvcc -arch=sm_89 -c "$f" -o /dev/null; done
+          set +e
+          NVCC=/usr/local/cuda-13.0/bin/nvcc python3 -m unittest tests.test_diag_kit.CudaCompile tests.test_diag_kit.CudaSourcesInCi -v > t.log 2>&1; rc=$?
+          cat t.log
+          echo "::notice::sm_89 CUDA build: $(grep -E '^Ran |^OK|^FAILED|nvcc -arch=sm_89 OK' t.log | tr '\n' ' ') $(/usr/local/cuda-13.0/bin/nvcc --version | tail -n 2 | tr '\n' ' ')"
+          if [ $rc -ne 0 ]; then grep -nE 'FAIL|ERROR|Error|error' t.log | head -8 | while IFS= read -r l; do echo "::error::${l:0:600}"; done; fi
+          # a skip: the summary's skipped=K or a `... skipped '<reason>'` line (a bare 'skipped' matches test names)
+          grep -qE "skipped=|\.\.\. skipped '" t.log && { echo "::error::the sm_89 CUDA build was skipped (nvcc, cuobjdump or git not found)"; rc=1; }
+          grep -qE '^Ran [1-9][0-9]* tests? ' t.log || { echo "::error::no test ran"; rc=1; }
+          exit $rc
   strata-glm-sm89:
     # ADR-007: the GLM engine base (sergqwer/strata-glm, MIT) built for the server's GPUs on Linux.
     runs-on: ubuntu-24.04
