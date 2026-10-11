@@ -114,8 +114,8 @@ class _F16(F16Mixin, base._RunParity):
             self.assertEqual(modes, {"fa_tiled"} if self.RUN == "pf64" else {"fa_chunk"})
 
     def test_attention_path(self):
-        """The CPU path the run took: flash attention leaves no kq_soft_max node (src/llama-graph.cpp:2651-2697 vs
-        2698-2735), and the cache tensors have the type of -ctk / -ctv."""
+        """The CPU path the run took: flash attention (src/llama-graph.cpp:2651-2694 @ec7630a) leaves no kq_soft_max
+        node, the other branch names it (2695-2732); and the cache tensors have the type of -ctk / -ctv."""
         R = self.R
         for gr in R.graphs:
             for il in self.ATT:

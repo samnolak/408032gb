@@ -81,8 +81,8 @@ class _F16(F16Mixin, base._RunParity):
                           "exact", modes)
 
     def test_attention_path(self):
-        """Mask path: flash attention leaves fattn_mla (src/llama-graph.cpp:2681-2688) and no kq_soft_max; gather path
-        (ec7630a): kq_soft_max_gathered only. The latent and indexer caches have the type of -ctk."""
+        """Mask path: flash attention leaves fattn_mla (src/llama-graph.cpp:2687-2688 @ec7630a) and no kq_soft_max;
+        gather path (ec7630a): kq_soft_max_gathered only. The latent and indexer caches have the type of -ctk."""
         R = self.R
         for gr in R.graphs:
             g = gr["g"]
