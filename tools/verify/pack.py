@@ -16,6 +16,11 @@ Hard rules
     and whose measured usage.prompt_tokens + output >= ctx_tokens - ctx_slack_tokens; short-context cells never count;
   * overall PASS only if every mandatory criterion is PASS and every input artifact parsed; FAIL if any mandatory
     criterion is FAIL; NOT RUN otherwise.
+  * a run declared synthetic in the criteria file ("synthetic_run": true, N24) is never PASS overall; the criteria that
+    judge the model's behaviour (subset of BEHAVIOUR_CRITERIA listed in "synthetic_not_applicable") become NOT RUN with
+    reason "not_applicable_synthetic" and their raw verdict is kept and listed - only if every bench run's model
+    description carries the positive marker SYNTHETIC (upper case, whole word, not after "non-"/"not "); a probe request
+    error, including a rejected response_format (HTTP 400/422), stays FAIL (that is the engine, not the model).
 
 Inputs (--runs DIR, any layout; artifacts are recognised by content, see tools/verify/README.md)
   run dir, meta.json scenario "matrix"            tools/bench/run_matrix.py --out-dir DIR
@@ -71,6 +76,17 @@ MOCK_BANNER = "MOCK SERVER RUN"
 INPUTS = "artifacts"
 MANIFEST = "MANIFEST.sha256"
 TYPE_BPW = {name: size * 8.0 / block for name, block, size in gguf_quant_audit.GGML_TYPES.values()}
+# Criteria that judge what the MODEL does (scores of answers), not what the engine, the API or the tools do. Only these
+# may be declared not applicable to a synthetic (random-weight) model: criteria "synthetic_not_applicable" (N24).
+BEHAVIOUR_CRITERIA = ("agent_api_probes", "context_probes_full_length", "manual_quality_eval")
+# A declared synthetic run needs this positive marker in every bench run's model_desc (N24 audit M1): the upper-case
+# word SYNTHETIC as a whole word, not negated by a preceding "non-"/"not " (any case of those); "non-synthetic",
+# "NOT SYNTHETIC" or "synthetic" in lower case do not count.
+SYNTHETIC_MARK = re.compile(r"(?<![A-Za-z0-9_-])(?<!non-)(?<!Non-)(?<!NON-)(?<!not )(?<!Not )(?<!NOT )SYNTHETIC(?![A-Za-z0-9_])")
+
+
+def synthetic_marked(desc):
+    return bool(SYNTHETIC_MARK.search(str(desc or "")))
 
 # id -> Russian title (VERDICT.md); order = report order
 TITLES = [
@@ -117,6 +133,7 @@ REASON_RU = {
     "mismatch": "прогоны относятся к разным конфигурациям",
     "manual": "проверяется вручную, не автоматически",
     "invalid": "сравнение недействительно: входы границы не соответствуют конфигурации",
+    "not_applicable_synthetic": "не применимо: прогон объявлен синтетическим, критерий проверяет поведение модели",
 }
 
 
@@ -154,6 +171,10 @@ def fmt(x, nd=1):
     if isinstance(x, float):
         return ("%%.%df" % nd) % x
     return str(x)
+
+
+def fmt_g(x):
+    return "n/a" if not is_num(x) else "%.3g" % x
 
 
 def norm_url(u):
@@ -195,6 +216,15 @@ def load_criteria(path=None):
     bad = [m for m in crit.get("mandatory", []) if m not in CRITERIA_IDS]
     if bad:
         raise ValueError("unknown criterion ids in 'mandatory': %s" % ", ".join(bad))
+    if not isinstance(crit.get("synthetic_run"), bool):
+        raise ValueError("synthetic_run must be true or false")
+    na = crit.get("synthetic_not_applicable")
+    if not isinstance(na, list) or any(c not in BEHAVIOUR_CRITERIA for c in na):
+        raise ValueError("synthetic_not_applicable must be a list of model-behaviour criteria (%s); got %r"
+                         % (", ".join(BEHAVIOUR_CRITERIA), na))
+    tol = crit.get("logprob_tie_tolerance_nats")
+    if isinstance(tol, bool) or not is_num(tol) or tol < 0 or tol > 1.0:
+        raise ValueError("logprob_tie_tolerance_nats must be a number in [0, 1] (nats); got %r" % (tol,))
     deviations = {k: {"default": base.get(k), "used": crit[k]} for k in sorted(crit)
                   if k not in ("_notes", "schema") and crit[k] != base.get(k)}
     return crit, deviations
@@ -789,7 +819,7 @@ def crit_context_probes(inp, crit):
     for r, x in probe_results(inp.probes, req):
         if is_int(x.get("context")) and x["context"] >= ctx:
             qual[x["probe"]].append((r, x))
-    fail, nr, scores = [], [], {}
+    fail, nr, scores, errs = [], [], {}, []
     missing = [p for p in req if not qual[p]]
     if missing:
         nr.append("not run at context >= %d: %s" % (ctx, ", ".join(missing)))
@@ -799,6 +829,7 @@ def crit_context_probes(inp, crit):
             at = (r.meta.get("args") or {}).get("answer_tokens")
             if x.get("error"):
                 fail.append("%s: error %s" % (t, str(x["error"])[:200]))
+                errs.append(fail[-1])
                 continue
             if not is_int(at) or at > crit["probe_answer_tokens_max"]:
                 nr.append("%s: --answer-tokens %s not in [0, %d]" % (t, at, crit["probe_answer_tokens_max"]))
@@ -822,7 +853,7 @@ def crit_context_probes(inp, crit):
     th = {p: thr[p] for p in req}
     if fail:
         return res(FAIL, "threshold" if any("score" in x for x in fail) else "failed", "; ".join(fail), measured=meas,
-                   threshold=th, evidence=ev, details={"scores_min": scores})
+                   threshold=th, evidence=ev, details={"scores_min": scores, "request_errors": errs})
     if nr:
         return res(NOT_RUN, "not_filled" if any("not filled" in x or "not run at" in x for x in nr) else "insufficient",
                    "; ".join(nr), measured=meas, threshold=th, evidence=ev, details={"scores_min": scores})
@@ -896,23 +927,29 @@ def crit_agent_api_probes(inp, crit):
     found = {p: [] for p in req}
     for r, x in probe_results(inp.probes, req):
         found[x["probe"]].append((r, x))
-    fail, scores = [], {}
+    fail, scores, errs = [], {}, []
     for p in req:
         for r, x in found[p]:
             t = "%s %s" % (r.rel, p)
             sc = x.get("score")
             if x.get("error"):
                 fail.append("%s: error %s" % (t, str(x["error"])[:200]))
+                errs.append(fail[-1])
             elif sc is None or sc < thr[p]:
                 fail.append("%s: score %s < %.2f" % (t, fmt(sc, 3), thr[p]))
             elif p == "json" and not (x.get("details") or {}).get("all_attempted_valid"):
                 fail.append("%s: not every attempted JSON answer is valid" % t)
+            if p == "json" and (x.get("details") or {}).get("response_format_accepted") is False:
+                # N24 audit M2: a rejected response_format (probes.py: HTTP 400/422) is an API defect whatever the score
+                fail.append("%s: the server rejected response_format json_object (API defect)" % t)
+                errs.append(fail[-1])
             if sc is not None:
                 scores[p] = min(scores.get(p, sc), sc)
     meas = ", ".join("%s %.3f" % (p, scores[p]) for p in req if p in scores) or None
     th = {p: thr[p] for p in req}
     if fail:
-        return res(FAIL, "threshold", "; ".join(fail), measured=meas, threshold=th, evidence=ev)
+        return res(FAIL, "threshold", "; ".join(fail), measured=meas, threshold=th, evidence=ev,
+                   details={"request_errors": errs})
     missing = [p for p in req if not found[p]]
     if missing:
         return res(NOT_RUN, "missing", "probe(s) not run: " + ", ".join(missing), measured=meas, threshold=th, evidence=ev)
@@ -992,9 +1029,24 @@ def crit_quant(inp, crit):
                threshold=thr, evidence=ev, details={"audits": det})
 
 
+def near_tie(row, tol):
+    """A top-1 disagreement that numerical noise alone can explain (N24, V6 tie tolerance): both greedy tokens are in
+    both top-K lists and ref_gap + cand_gap <= tol, where ref_gap = lp_ref(r1) - lp_ref(c1) and cand_gap =
+    lp_cand(c1) - lp_cand(r1) (tools/quality/logprob_compare.py compare()). Their sum is the change of the logit
+    difference l(r1) - l(c1) between the engines, at most 2 * max_t |lp_ref(t) - lp_cand(t)|. Rows without the gaps
+    (files written before N24, or a token outside the other top-K) are never excused."""
+    if row.get("top1_agree") or tol <= 0:
+        return False
+    g, h = row.get("ref_gap"), row.get("cand_gap")
+    if not (is_num(g) and is_num(h)) or isinstance(g, bool) or isinstance(h, bool):
+        return False
+    return g >= 0 and h >= 0 and g + h <= tol
+
+
 def crit_logprob(inp, crit):
     arts = inp.art["logprob"]
     thr = float(crit["top1_agreement_min"])
+    tol = float(crit["logprob_tie_tolerance_nats"])
     if not arts:
         return res(NOT_RUN, "missing", "no tools/quality/logprob_compare.py --out file under --runs", threshold=thr)
     ev = [a.rel for a in arts]
@@ -1025,21 +1077,30 @@ def crit_logprob(inp, crit):
         if n < crit["logprob_min_prefixes"]:
             nr.append("%s: %d prefixes < %d" % (a.rel, n, crit["logprob_min_prefixes"]))
             continue
+        ties = [r.get("prefix") for r in rows if near_tie(r, tol)]
+        eff = (sum(1 for r in rows if r.get("top1_agree")) + len(ties)) / float(n)
         det.append({"file": a.rel, "ref": d.get("ref"), "cand": d.get("cand"), "ref_model": d.get("ref_model"),
                     "cand_model": d.get("cand_model"), "n": n, "top_k": d.get("top_k"), "top1_agree": top1,
-                    "kl_topk_median": s.get("kl_topk_median"), "kl_topk_p95": s.get("kl_topk_p95")})
-        worst = top1 if worst is None else min(worst, top1)
-        if top1 < thr:
-            fail.append("%s: top-1 agreement %.4f < %.3f over %d prefixes" % (a.rel, top1, thr, n))
-    meas = "; ".join("top-1 %.4f over %d prefixes (KL top-K median %s)" % (x["top1_agree"], x["n"],
-                                                                           fmt(x["kl_topk_median"], 4)) for x in det) or None
+                    "near_tie_flips": len(ties), "near_tie_prefixes": ties[:50], "top1_agree_with_ties": eff,
+                    "kl_topk_median": s.get("kl_topk_median"), "kl_topk_p95": s.get("kl_topk_p95"),
+                    "max_abs_dlogprob_p99": s.get("max_abs_dlogprob_p99"),
+                    "max_abs_dlogprob_max": s.get("max_abs_dlogprob_max")})
+        worst = eff if worst is None else min(worst, eff)
+        if eff < thr:
+            fail.append("%s: top-1 agreement %.4f (%.4f strict + %d near-tie flip(s) within %.3g nats) < %.3f over %d "
+                        "prefixes" % (a.rel, eff, top1, len(ties), tol, thr, n))
+    meas = "; ".join("top-1 %.4f over %d prefixes (strict %.4f, near-tie flips %d at tolerance %.3g nats; KL top-K "
+                     "median %s; max |d logprob| p99 %s)" % (x["top1_agree_with_ties"], x["n"], x["top1_agree"],
+                                                              x["near_tie_flips"], tol, fmt(x["kl_topk_median"], 4),
+                                                              fmt_g(x["max_abs_dlogprob_p99"])) for x in det) or None
     if fail:
         return res(FAIL, "threshold", "; ".join(fail), measured=meas, value=worst, threshold=thr, evidence=ev,
                    details={"comparisons": det})
     if nr:
         return res(NOT_RUN, "insufficient", "; ".join(nr), measured=meas, value=worst, threshold=thr, evidence=ev,
                    details={"comparisons": det})
-    return res(PASS, "ok", "top-1 agreement >= %.3f" % thr, measured=meas, value=worst, threshold=thr, evidence=ev,
+    return res(PASS, "ok", "top-1 agreement >= %.3f (near-tie flips within %.3g nats count as agreement)" % (thr, tol),
+               measured=meas, value=worst, threshold=thr, evidence=ev,
                details={"comparisons": det, "note": "ref/cand engines are identified only by URL and model id in the "
                                                     "artifact; the operator states them in tools/verify/README.md terms"})
 
@@ -1340,15 +1401,53 @@ EVAL = {
 }
 
 
+def synthetic_declaration(inp, crit):
+    """N24 rule. None when the criteria do not declare a synthetic run; otherwise a dict: applied (bool), why, and the
+    bench runs whose model description lacks the SYNTHETIC word (the declaration must match the artifacts: a real-model
+    run cannot hide a behaviour FAIL by a flag in the criteria file)."""
+    if not crit.get("synthetic_run"):
+        return None
+    runs = inp.matrix + inp.probes
+    unmarked = [r.rel for r in runs if not synthetic_marked((r.meta or {}).get("model_desc"))]
+    if not runs:
+        return {"declared": True, "applied": False, "unmarked_runs": [],
+                "why": "no matrix/probes run to check the declaration against; nothing declared not applicable"}
+    if unmarked:
+        return {"declared": True, "applied": False, "unmarked_runs": unmarked,
+                "why": "declared synthetic, but the model description of %d run(s) has no positive SYNTHETIC marker: %s; the "
+                       "behaviour criteria are judged as usual" % (len(unmarked), ", ".join(unmarked[:5]))}
+    return {"declared": True, "applied": True, "unmarked_runs": [],
+            "why": "declared synthetic in the criteria file and every bench run's model description says SYNTHETIC"}
+
+
+def apply_synthetic(r, crit, decl):
+    """Turn a PASS or a score FAIL of a model-behaviour criterion into NOT RUN 'not_applicable_synthetic', keeping the
+    raw verdict. NOT RUN results (missing, mock, unparseable, ...) and FAILs with probe request errors are kept."""
+    if not (decl and decl["applied"]) or r["id"] not in crit["synthetic_not_applicable"]:
+        return r, None
+    if r["status"] not in (PASS, FAIL) or (r["status"] == FAIL and (r.get("details") or {}).get("request_errors")):
+        return r, None
+    raw = {"id": r["id"], "raw_status": r["status"], "raw_reason_code": r["reason_code"], "raw_reason": r["reason"]}
+    out = dict(r, status=NOT_RUN, reason_code="not_applicable_synthetic",
+               reason="not applicable to the declared synthetic model (%s judges model behaviour); raw verdict %s: %s"
+                      % (r["id"], r["status"], r["reason"]),
+               details=dict(r.get("details") or {}, synthetic_raw=raw))
+    return out, raw
+
+
 def evaluate(inputs_dir, crit):
     inp = Inputs(inputs_dir)
-    results = []
+    decl = synthetic_declaration(inp, crit)
+    results, not_applicable = [], []
     for cid in CRITERIA_IDS:
         try:
             r = EVAL[cid](inp, crit)
         except Exception as e:  # noqa: BLE001 - a pack bug must never become a PASS
             r = res(NOT_RUN, "unparseable", "evaluator error: %s: %s" % (type(e).__name__, e))
         r = dict({"id": cid, "v": VNUM[cid], "title_ru": TITLE[cid], "mandatory": cid in crit["mandatory"]}, **r)
+        r, raw = apply_synthetic(r, crit, decl)
+        if raw:
+            not_applicable.append(raw)
         results.append(r)
     mand = [r for r in results if r["mandatory"]]
     if not mand:
@@ -1363,6 +1462,10 @@ def evaluate(inputs_dir, crit):
         if inp.unparseable:
             why = (why + "; " if why else "") + "unparseable inputs: " + ", ".join(p for p, _ in inp.unparseable)
         overall = NOT_RUN
+    if decl and overall == PASS:
+        overall, why = NOT_RUN, "declared synthetic run: never acceptance evidence (every mandatory criterion PASS)"
+    elif decl and overall == NOT_RUN:
+        why = (why + "; " if why else "") + "declared synthetic run"
     markers = []
     for p in inp.files:
         if "synthetic" in p.lower():
@@ -1377,7 +1480,8 @@ def evaluate(inputs_dir, crit):
                  + [{"path": a.rel, "kind": k} for k, arts in inp.art.items() for a in arts])
     return {"overall": overall, "overall_reason": why, "criteria_results": results, "artifacts": artifacts,
             "unparseable": [{"path": p, "error": e} for p, e in inp.unparseable], "unclassified": inp.unclassified,
-            "synthetic_markers": markers}
+            "synthetic_markers": markers,
+            "synthetic_run": dict(decl, not_applicable=not_applicable) if decl else {"declared": False}}
 
 
 # ---------------------------------------------------------------------------- environment, manifest
@@ -1477,6 +1581,15 @@ def render_md(v):
     if v["synthetic_markers"]:
         L += ["> **ВНИМАНИЕ: во входных данных есть пометки SYNTHETIC — это тестовые данные, а не доказательство.** "
               "Пометки: %s" % md_cell(", ".join(v["synthetic_markers"][:8]) + (" …" if len(v["synthetic_markers"]) > 8 else "")), ""]
+    sr = v.get("synthetic_run") or {}
+    if sr.get("declared"):
+        L += ["> **Прогон объявлен СИНТЕТИЧЕСКИМ в файле критериев (`synthetic_run: true`): итог никогда не PASS.** %s." % (
+            "Правило применено" if sr.get("applied") else "Правило НЕ применено")
+              + " %s" % md_cell(sr.get("why"))]
+        for x in sr.get("not_applicable") or []:
+            L.append("> - `%s`: не применимо к синтетической модели; исходный вердикт **%s** (%s): %s" % (
+                x["id"], x["raw_status"], x["raw_reason_code"], md_cell(x["raw_reason"][:300])))
+        L.append("")
     if v["criteria_deviations"]:
         L += ["> **Критерии отличаются от `tools/verify/criteria.default.json`: вердикт НЕ относится к требованиям заказчика "
               "в их исходном виде.** Изменено: %s" % md_cell(", ".join(

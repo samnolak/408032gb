@@ -11,8 +11,12 @@ Two layouts exist (merged in claude/n25-integration, docs/evidence/2026-10-11-n2
 * `patches/llama.cpp/0001-mtp-heads-slot-replay.patch` (N21): `git -C <copy of llama.cpp @base> apply <patch>`. CI
   applies it in job `n21-patched` of `.github/workflows/parity-r1-pin.yml` (to a copy of the R1 pin, step
   `n21-mimo2-mtp-fix-patched`). apply.sh does not pick it up (it reads only the pin directories).
+* `patches/llama.cpp/n24-swiglu-clamp-after-silu.patch` (N24): an experiment patch, NOT for production (its own header);
+  applied (`patch -p1`, to a copy) only by `tools/quality/swiglu_clamp_experiment.sh`, never by CI or apply.sh;
+  `docs/evidence/mutation-scripts/2026-10-11-n24-swiglu-patch-check.sh` compares a stock and a patched build it is
+  given; docs/evidence/2026-10-11-n24-owner-decisions.md section 3.4.
 
-Every other step runs the unpatched pins. The two patches touch disjoint files (N20: `src/llama-memory-recurrent.{cpp,h}`;
+Every other step runs the unpatched pins. The N20 and N21 patches touch disjoint files (N20: `src/llama-memory-recurrent.{cpp,h}`;
 N21: `common/speculative.cpp`, `src/llama-context.cpp`, `src/llama-ext.h`, `src/llama-kv-cache.{cpp,h}`,
 `src/llama-kv-cache-iswa.{cpp,h}`, `src/llama-memory.h`); no CI job applies both together.
 
