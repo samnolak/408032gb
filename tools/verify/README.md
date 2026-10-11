@@ -56,11 +56,13 @@ scripts/verify_pack.sh --check docs/evidence/verification-pack-<YYYY-MM-DD>     
 печатается при `--check`).
 
 **Синтетический прогон (N24).** `"synthetic_run": true` в файле `--criteria` объявляет прогон на синтетической
-(случайной) модели. Если в `model_desc` каждого прогона `run_matrix`/`probes` есть слово SYNTHETIC, критерии из
+(случайной) модели. Если в `model_desc` каждого прогона `run_matrix`/`probes` есть положительная пометка SYNTHETIC (заглавными, целым
+словом, не после «non-»/«not »: «non-synthetic», «NOT SYNTHETIC», «synthetic» строчными не считаются), критерии из
 `synthetic_not_applicable` (допустимы только оценивающие ответы модели: `agent_api_probes`, `context_probes_full_length`,
 `manual_quality_eval`) из PASS или FAIL по порогу становятся NOT RUN с причиной `not_applicable_synthetic`; исходный
 вердикт сохраняется (`details.synthetic_raw`) и перечисляется в `verdict.json` (`synthetic_run.not_applicable`) и
-плашкой в `VERDICT.md`. Ошибка запроса пробы остаётся FAIL. Итог такого прогона никогда не PASS. Если хотя бы один
+плашкой в `VERDICT.md`. Ошибка запроса пробы остаётся FAIL; отказ сервера принять `response_format` (HTTP 400/422,
+`response_format_accepted: false` у пробы json) — тоже ошибка запроса: FAIL при любом балле и при любом объявлении. Итог такого прогона никогда не PASS. Если хотя бы один
 прогон не помечен SYNTHETIC, объявление записывается, но не применяется.
 
 Если критерии отличаются от `criteria.default.json`, в `VERDICT.md` стоит плашка «вердикт НЕ относится к требованиям

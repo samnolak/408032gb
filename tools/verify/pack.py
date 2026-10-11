@@ -19,7 +19,8 @@ Hard rules
   * a run declared synthetic in the criteria file ("synthetic_run": true, N24) is never PASS overall; the criteria that
     judge the model's behaviour (subset of BEHAVIOUR_CRITERIA listed in "synthetic_not_applicable") become NOT RUN with
     reason "not_applicable_synthetic" and their raw verdict is kept and listed - only if every bench run's model
-    description says SYNTHETIC; a probe request error stays FAIL (that is the engine, not the model).
+    description carries the positive marker SYNTHETIC (upper case, whole word, not after "non-"/"not "); a probe request
+    error, including a rejected response_format (HTTP 400/422), stays FAIL (that is the engine, not the model).
 
 Inputs (--runs DIR, any layout; artifacts are recognised by content, see tools/verify/README.md)
   run dir, meta.json scenario "matrix"            tools/bench/run_matrix.py --out-dir DIR
@@ -78,7 +79,14 @@ TYPE_BPW = {name: size * 8.0 / block for name, block, size in gguf_quant_audit.G
 # Criteria that judge what the MODEL does (scores of answers), not what the engine, the API or the tools do. Only these
 # may be declared not applicable to a synthetic (random-weight) model: criteria "synthetic_not_applicable" (N24).
 BEHAVIOUR_CRITERIA = ("agent_api_probes", "context_probes_full_length", "manual_quality_eval")
-SYNTHETIC_WORD = "synthetic"   # a declared synthetic run needs this word (any case) in every bench run's model_desc
+# A declared synthetic run needs this positive marker in every bench run's model_desc (N24 audit M1): the upper-case
+# word SYNTHETIC as a whole word, not negated by a preceding "non-"/"not " (any case of those); "non-synthetic",
+# "NOT SYNTHETIC" or "synthetic" in lower case do not count.
+SYNTHETIC_MARK = re.compile(r"(?<![A-Za-z0-9_-])(?<!non-)(?<!Non-)(?<!NON-)(?<!not )(?<!Not )(?<!NOT )SYNTHETIC(?![A-Za-z0-9_])")
+
+
+def synthetic_marked(desc):
+    return bool(SYNTHETIC_MARK.search(str(desc or "")))
 
 # id -> Russian title (VERDICT.md); order = report order
 TITLES = [
@@ -931,6 +939,10 @@ def crit_agent_api_probes(inp, crit):
                 fail.append("%s: score %s < %.2f" % (t, fmt(sc, 3), thr[p]))
             elif p == "json" and not (x.get("details") or {}).get("all_attempted_valid"):
                 fail.append("%s: not every attempted JSON answer is valid" % t)
+            if p == "json" and (x.get("details") or {}).get("response_format_accepted") is False:
+                # N24 audit M2: a rejected response_format (probes.py: HTTP 400/422) is an API defect whatever the score
+                fail.append("%s: the server rejected response_format json_object (API defect)" % t)
+                errs.append(fail[-1])
             if sc is not None:
                 scores[p] = min(scores.get(p, sc), sc)
     meas = ", ".join("%s %.3f" % (p, scores[p]) for p in req if p in scores) or None
@@ -1396,13 +1408,13 @@ def synthetic_declaration(inp, crit):
     if not crit.get("synthetic_run"):
         return None
     runs = inp.matrix + inp.probes
-    unmarked = [r.rel for r in runs if SYNTHETIC_WORD not in str((r.meta or {}).get("model_desc") or "").lower()]
+    unmarked = [r.rel for r in runs if not synthetic_marked((r.meta or {}).get("model_desc"))]
     if not runs:
         return {"declared": True, "applied": False, "unmarked_runs": [],
                 "why": "no matrix/probes run to check the declaration against; nothing declared not applicable"}
     if unmarked:
         return {"declared": True, "applied": False, "unmarked_runs": unmarked,
-                "why": "declared synthetic, but the model description of %d run(s) does not say SYNTHETIC: %s; the "
+                "why": "declared synthetic, but the model description of %d run(s) has no positive SYNTHETIC marker: %s; the "
                        "behaviour criteria are judged as usual" % (len(unmarked), ", ".join(unmarked[:5]))}
     return {"declared": True, "applied": True, "unmarked_runs": [],
             "why": "declared synthetic in the criteria file and every bench run's model description says SYNTHETIC"}

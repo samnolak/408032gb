@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Mutation check of the N24 changes: the declared-synthetic rule and the V6 near-tie tolerance of tools/verify/pack.py
-(P1-P9), the gap fields of tools/quality/logprob_compare.py (L1-L2), the read-only GGUF host check
+(P1-P11), the gap fields of tools/quality/logprob_compare.py (L1-L2), the read-only GGUF host check
 tools/hostcheck/glm_gguf_check.py (H1-H5) and tools/quality/swiglu_gate_stats.py (G1-G2). Each mutant must make
 tests.test_verify_pack_n24, tests.test_hostcheck_glm_gguf or tests.test_swiglu_clamp_tools fail. The repository is never
 edited: the files of `git ls-files -co --exclude-standard` (minus third_party/) are copied into <scratch>/<mutant>.
@@ -35,6 +35,11 @@ MUTANTS = [   # (label, tests, [(path, old, new), ...])
     ("P8 near_tie treats a missing gap as 0", T_PACK,
      [(PK, "    if not (is_num(g) and is_num(h)) or isinstance(g, bool) or isinstance(h, bool):\n        return False",
        "    g, h = g or 0.0, h or 0.0")]),
+    ("P10 the SYNTHETIC marker as a case-insensitive substring again (audit M1)", T_PACK,
+     [(PK, "    return bool(SYNTHETIC_MARK.search(str(desc or \"\")))", "    return \"synthetic\" in str(desc or \"\").lower()")]),
+    ("P11 a rejected response_format not recorded as a request error (audit M2)", T_PACK,
+     [(PK, "            if p == \"json\" and (x.get(\"details\") or {}).get(\"response_format_accepted\") is False:",
+       "            if False:")]),
     ("P9 the threshold judged on strict top-1 (near-tie flips not counted)", T_PACK,
      [(PK, "        if eff < thr:", "        if top1 < thr:")]),
     ("L1 cand_gap with the wrong sign", T_PACK,

@@ -35,9 +35,9 @@ def tearDownModule():
         shutil.rmtree(FIX, ignore_errors=True)
 
 
-def edit_probes(src, dst, scores=None, error=None, model_desc=None):
-    """Copy a probes run; set probe scores / a request error in summary.json and raw.jsonl alike; optionally replace
-    meta.model_desc. SYNTHETIC."""
+def edit_probes(src, dst, scores=None, error=None, model_desc=None, details=None):
+    """Copy a probes run; set probe scores / a request error / details keys ({probe: {key: value}}) in summary.json and
+    raw.jsonl alike; optionally replace meta.model_desc. SYNTHETIC."""
     shutil.copytree(src, dst)
     sp, rp, mp = (os.path.join(dst, n) for n in ("summary.json", "raw.jsonl", "meta.json"))
     with open(sp) as f:
@@ -52,6 +52,8 @@ def edit_probes(src, dst, scores=None, error=None, model_desc=None):
             x["pass"] = False
         if error and p == error[0]:
             x["error"] = error[1]
+        if details and p in details:
+            x["details"] = dict(x.get("details") or {}, **details[p])
     for x in summ["results"]:
         fix(x)
     for r in rows:
@@ -191,6 +193,40 @@ class SyntheticRun(Case):
         self.assertEqual(sr["not_applicable"], [])
         self.assertEqual(v["overall"], "FAIL")
         self.assertIn("Правило НЕ применено", md)
+
+    def test_negated_marker_does_not_count(self):
+        """N24 audit M1: "non-synthetic" (or "NOT SYNTHETIC", lower-case "synthetic") is not a positive marker."""
+        for i, desc in enumerate(("Qwen3.8-Flash-Next UD-Q4_K_XL, non-synthetic real weights",
+                                  "real model, NOT SYNTHETIC", "real model, non-SYNTHETIC", "synthetic lower case")):
+            k = self.probes_variant("neg%d" % i, scores=N11_SCORES, model_desc=desc)
+            code, v, md = self.build_with(self.make_runs(probes=k), criteria_file("synth-neg", synthetic_run=True),
+                                          name="pack-neg%d" % i)
+            self.assertEqual(self.by_id(v)["agent_api_probes"]["status"], "FAIL", desc)
+            self.assertFalse(v["synthetic_run"]["applied"], desc)
+            self.tmp = tempfile.mkdtemp(prefix="case-SYNTHETIC-", dir=FIX)
+        for desc, want in (("SYNTHETIC tiny model", True), ("x (SYNTHETIC)", True), ("SYNTHETIC-qwen.gguf", True),
+                           ("non-synthetic", False), ("NON-SYNTHETIC", False), ("not SYNTHETIC", False),
+                           ("Not SYNTHETIC", False), ("UNSYNTHETIC", False), ("SYNTHETICS", False), ("", False),
+                           (None, False)):
+            self.assertIs(vp.synthetic_marked(desc), want, desc)
+
+    def test_rejected_response_format_stays_fail(self):
+        """N24 audit M2: a json probe whose response_format was rejected (HTTP 400/422) is an API defect: FAIL with a
+        request error, also under a synthetic declaration, even when the plain attempt scored."""
+        k = self.probes_variant("rf", details={"json": {"response_format_accepted": False}})
+        runs = self.make_runs(**dict(T.PASSING, probes=k))
+        for name, crit in (("plain", criteria_file("rf-plain")), ("synth", criteria_file("rf-synth", synthetic_run=True))):
+            code, v, md = self.build_with(runs, crit, name="pack-rf-" + name)
+            r = self.by_id(v)["agent_api_probes"]
+            self.assertEqual(r["status"], "FAIL", "%s: %s" % (name, r["reason"]))
+            self.assertIn("rejected response_format", r["reason"])
+            self.assertTrue(r["details"]["request_errors"])
+            self.assertEqual(v["overall"], "FAIL", name)
+        self.tmp = tempfile.mkdtemp(prefix="case-SYNTHETIC-", dir=FIX)
+        k2 = self.probes_variant("rf-n11", scores=N11_SCORES, details={"json": {"response_format_accepted": False}})
+        code, v, md = self.build_with(self.make_runs(**dict(T.PASSING, probes=k2)),
+                                      criteria_file("rf-synth2", synthetic_run=True), name="pack-rf-low")
+        self.assertEqual(self.by_id(v)["agent_api_probes"]["status"], "FAIL")   # low score + rejection: still FAIL
 
     def test_probe_request_error_stays_fail(self):
         k = self.probes_variant("err", error=("tools", "HTTPError 500: SYNTHETIC server error"))
