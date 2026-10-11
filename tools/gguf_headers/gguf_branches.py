@@ -1,4 +1,6 @@
-"""Graph branches of llama.cpp glm5-next / qwen4exp that depend on GGUF hyperparameters or on which tensors a file has.
+"""Graph branches of llama.cpp glm5-next / qwen4exp / mimo2 that depend on GGUF hyperparameters or on which tensors a
+file has, and (N18) what each pin's loader asks of a separate MTP-only file (MTP_LOAD) and how a separate MTP file is
+attached at run time (MTP_ATTACH).
 
 Each probe names the code it is about by literal anchors (a substring of one source line); tools/gguf_headers/
 analyze.py finds each anchor's line in every llama.cpp checkout it is given and prints file:line per pin, so no line
@@ -8,7 +10,8 @@ checks it when the sources are available); "ec7630a" is the CI pin, "79e2e74" th
 A probe's regime(m) returns the set of branch labels a model takes; a branch of the real file is "exercised by the tiny
 models" when its labels are a subset of the union over the tiny variants (default, --mtp, --quant-dims). detail(m) is
 the numbers behind it. m is analyze.Model (KV by arch-relative key, tensor names and shapes).
-Code read at ec7630a640789c393694fb194f1bbbf0369fc62d and 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6 (N15).
+Code read at ec7630a640789c393694fb194f1bbbf0369fc62d and 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6 (N15; mimo2 and the
+MTP-file rules N18).
 """
 import math
 
@@ -17,8 +20,18 @@ R1 = ("79e2e74",)
 EC = ("ec7630a",)
 GLM = "src/models/glm5-next.cpp"
 QWEN = "src/models/qwen4exp.cpp"
+MIMO = "src/models/mimo2.cpp"
 GRAPH = "src/llama-graph.cpp"
 MODEL = "src/llama-model.cpp"
+HPARAMS = "src/llama-hparams.h"
+ARG = "common/arg.cpp"
+DOWNLOAD = "common/download.cpp"
+SPEC = "common/speculative.cpp"
+COMMON = "common/common.cpp"
+LOADER = "src/llama-model-loader.cpp"
+VOCAB = "src/llama-vocab.cpp"
+CONTEXT = "src/llama-context.cpp"
+ARCH_SOURCES = {"glm5-next": GLM, "qwen4exp": QWEN, "mimo2": MIMO}   # load_arch_hparams / load_arch_tensors per arch
 
 
 class Probe:
@@ -127,6 +140,181 @@ def _has(m, pattern):
     return any(pattern(n) for n in m.names)
 
 
+# ------------------------------------------------------------------ mimo2 helpers (N18)
+
+def _suffixes(m, i):
+    """tensor names of layer i without the "blk.<i>." prefix"""
+    p = f"blk.{i}."
+    return {n[len(p):] for n in m.names if n.startswith(p)}
+
+
+def _mtp_layers(m):
+    return list(range(_layers(m), m.a("block_count") or 0))
+
+
+def _pattern(m):
+    """sliding_window_pattern as 0/1 per layer (bool or int arrays), or None"""
+    v = m.a("attention.sliding_window_pattern")
+    return [int(bool(x)) for x in v] if isinstance(v, list) else None
+
+
+def _kind(m, i):
+    pat = _pattern(m) or []
+    return "SWA" if i < len(pat) and pat[i] else "full"
+
+
+def _mimo_pattern(m):
+    pat = _pattern(m)
+    if pat is None:
+        return {"sliding_window_pattern absent: the required get_arr fails"}
+    return {f"{'sliding-window' if x else 'full-attention'} layers" for x in pat[:_layers(m)]}
+
+
+def _mimo_pattern_detail(m):
+    pat, n = _pattern(m), _layers(m)
+    if pat is None:
+        return "sliding_window_pattern absent"
+    full = [i for i in range(min(n, len(pat))) if not pat[i]]
+    return (f"window {m.a('attention.sliding_window')}; full-attention trunk layers {full}; sliding-window "
+            f"{n - len(full)} of {n}; pattern entries of the MTP layers {pat[n:]}; pattern length {len(pat)}, "
+            f"block_count {m.a('block_count')}")
+
+
+def _kv_by_kind(m):
+    kv = _per_layer(m.a("attention.head_count_kv"), m.a("block_count") or 0)
+    out = {}
+    for i, x in enumerate(kv[:_layers(m)]):
+        out.setdefault(_kind(m, i), set()).add(x)
+    return out
+
+
+def _mimo_kv(m):
+    kv = m.a("attention.head_count_kv")
+    if not isinstance(kv, list):
+        return {"one KV head count for every layer"}
+    by = _kv_by_kind(m)
+    return {"per-layer KV heads, full != SWA"} if by.get("full") != by.get("SWA") and len(by) > 1 else \
+        {"per-layer KV heads, one value per layer kind"}
+
+
+def _mimo_kv_detail(m):
+    kv = _per_layer(m.a("attention.head_count_kv"), m.a("block_count") or 0)
+    by = {k: sorted(v) for k, v in _kv_by_kind(m).items()}
+    return (f"head_count {m.a('attention.head_count')}; KV heads by trunk layer kind {by}; MTP layers "
+            f"{kv[_layers(m):]}")
+
+
+def _mimo_dims(m):
+    k, v = m.a("attention.key_length"), m.a("attention.value_length")
+    return {"K head dim != V head dim"} if k is not None and v is not None and k != v else {"K head dim = V head dim"}
+
+
+def _mimo_rope(m):
+    n_rot, k = m.a("rope.dimension_count"), m.a("attention.key_length")
+    out = {"partial rotary (n_rot < K head dim)"} if n_rot is not None and k is not None and n_rot < k else \
+        {"full rotary (n_rot = K head dim)"}
+    out.add("own SWA freq base (rope.freq_base_swa)" if m.has("rope.freq_base_swa") else
+            "SWA layers use the default base 10000 (rope.freq_base_swa absent)")
+    return out
+
+
+def _mimo_sinks(m):
+    out = set()
+    for i in range(_layers(m)):
+        out.add(f"{_kind(m, i)} layers {'with' if 'attn_sinks.weight' in _suffixes(m, i) else 'without'} sinks")
+    return out
+
+
+def _mimo_sinks_detail(m):
+    n = _layers(m)
+    w = [i for i in range(n) if "attn_sinks.weight" in _suffixes(m, i)]
+    return (f"trunk layers with attn_sinks: {_ranges(w)} ({len(w)} of {n}; full-attention layers among them "
+            f"{[i for i in w if _kind(m, i) == 'full']}); MTP layers with attn_sinks: "
+            f"{[i for i in _mtp_layers(m) if 'attn_sinks.weight' in _suffixes(m, i)]}")
+
+
+def _ranges(xs):
+    xs, out = sorted(xs), []
+    for x in xs:
+        if out and x == out[-1][1] + 1:
+            out[-1][1] = x
+        else:
+            out.append([x, x])
+    return ", ".join(f"{a}" if a == b else f"{a}-{b}" for a, b in out) or "none"
+
+
+def _mimo_qkv(m):
+    out = set()
+    for i in range(_layers(m)):
+        sx = _suffixes(m, i)
+        out.add("fused attn_qkv" if "attn_qkv.weight" in sx else "split attn_q/k/v" if "attn_q.weight" in sx
+                else "no attention projection in the file")
+    return out
+
+
+def _mimo_ffn(m):
+    out = set()
+    for i in range(_layers(m)):
+        sx = _suffixes(m, i)
+        if not sx:
+            continue
+        out.add("MoE (sigmoid + exp_probs_b, renormalised top-k)" if "ffn_gate_inp.weight" in sx else "dense FFN")
+    return out
+
+
+def _mimo_ffn_detail(m):
+    dense = [i for i in range(_layers(m)) if _suffixes(m, i) and "ffn_gate_inp.weight" not in _suffixes(m, i)]
+    return (f"dense trunk layers {dense}; expert_count {m.a('expert_count')}, used {m.a('expert_used_count')}, "
+            f"expert width {m.a('expert_feed_forward_length')}, dense width {m.a('feed_forward_length')}")
+
+
+def _mimo_mtp_detail(m):
+    rows = []
+    for i in _mtp_layers(m):
+        sx = _suffixes(m, i)
+        rows.append(f"blk.{i}: {len(sx)} tensors, nextn {sorted(x for x in sx if x.startswith('nextn.'))}, "
+                    f"other {sorted(x for x in sx if not x.startswith('nextn.'))}")
+    return "; ".join(rows) or "no MTP layers"
+
+
+def _mimo_mtp_block(m):
+    out = set()
+    for i in _mtp_layers(m):
+        sx = _suffixes(m, i)
+        if not sx:
+            out.add("MTP layer declared, no tensors in this file")
+            continue
+        out.add("MTP layer with fused attn_qkv" if "attn_qkv.weight" in sx else
+                "MTP layer without fused attn_qkv (graph_mtp asserts)")
+        out.add("MTP layer with a dense FFN" if {"ffn_gate.weight", "ffn_up.weight", "ffn_down.weight"} <= sx else
+                "MTP layer without a dense FFN (graph_mtp asserts)")
+    return out or {"no MTP layers"}
+
+
+def _mimo_mtp_head(m):
+    out = set()
+    for i in _mtp_layers(m):
+        sx = _suffixes(m, i)
+        if not sx:
+            continue
+        out.add("head norm nextn.shared_head_norm" if "nextn.shared_head_norm.weight" in sx else
+                "head norm layer_output_norm" if "layer_output_norm.weight" in sx else "head norm output_norm")
+        out.add("own nextn.embed_tokens" if "nextn.embed_tokens.weight" in sx else "trunk token_embd")
+        out.add("own nextn.shared_head_head" if "nextn.shared_head_head.weight" in sx else "trunk output head")
+    return out or {"no MTP tensors"}
+
+
+def file_layout(m, trunk_probe):
+    """what a NextN-aware loader sees: trunk + MTP, MTP-only, trunk-only"""
+    nextn = m.a("nextn_predict_layers") or 0
+    if not nextn:
+        return "trunk only (no nextn_predict_layers)"
+    has_trunk = trunk_probe in m.names
+    has_mtp = f"blk.{_layers(m)}.nextn.eh_proj.weight" in m.names
+    return ("trunk + MTP in one file" if has_trunk and has_mtp else "MTP-only file" if has_mtp else
+            "trunk only (nextn declared, NextN tensors absent)" if has_trunk else "neither trunk nor NextN tensors")
+
+
 PROBES = [
     # ------------------------------------------------------------------ glm5-next
     Probe("glm.kda_gate_bound", ("glm5-next",), "KDA decay gate: bounded sigmoid vs softplus",
@@ -203,7 +391,7 @@ PROBES = [
           lambda m: {f"own nextn.{k}" for k in ("embed_tokens", "shared_head_head", "shared_head_norm")
                      if _has(m, lambda n, k=k: f".nextn.{k}." in n)} or {"trunk embedding, head and norm"}),
     # ------------------------------------------------------------------ both (generic builders)
-    Probe("moe.groups", ("glm5-next", "qwen4exp"), "group-limited routing (expert_group_count > 1)",
+    Probe("moe.groups", ("glm5-next", "qwen4exp", "mimo2"), "group-limited routing (expert_group_count > 1)",
           [(MODEL, "ml.get_key(LLM_KV_EXPERT_GROUP_COUNT,      hparams.n_expert_groups, false);", BOTH),
            (GRAPH, "if (hparams.n_expert_groups > 1 && n_tokens > 0) {", BOTH)],
           _groups, lambda m: f"expert_group_count = {m.a('expert_group_count')}, used = {m.a('expert_group_used_count')}"),
@@ -221,7 +409,7 @@ PROBES = [
     Probe("moe.clamp_qwen", ("qwen4exp",), "routed SwiGLU clamp (qwen4exp is not in the fused list: generic clamp)",
           [(GRAPH, "const float limit = hparams.swiglu_clamp_exp[il];", BOTH)],
           _clamp("swiglu_clamp_exp", False), _clamp_detail("swiglu_clamp_exp")),
-    Probe("moe.used_array", ("glm5-next", "qwen4exp"), "experts per token: one value or per layer",
+    Probe("moe.used_array", ("glm5-next", "qwen4exp", "mimo2"), "experts per token: one value or per layer",
           [(MODEL, "ml.get_key_or_arr(LLM_KV_EXPERT_USED_COUNT, hparams.n_expert_used_arr, hparams.n_layer_all, false);",
             BOTH)],
           lambda m: {"per-layer array"} if isinstance(m.a("expert_used_count"), list) else {"scalar"},
@@ -279,4 +467,156 @@ PROBES = [
     Probe("qwen.mtp", ("qwen4exp",), "MTP (NextN) block count",
           [(QWEN, 'GGML_ASSERT(hparams.n_layer_nextn == 1 && "qwen4exp MTP has a single block");', BOTH)],
           lambda m: {f"nextn_predict_layers {m.a('nextn_predict_layers') or 0}"}),
+    # ------------------------------------------------------------------ mimo2 (N18)
+    Probe("mimo.swa_pattern", ("mimo2",), "sliding-window / full-attention layers from the required pattern array",
+          [(MIMO, "ml.get_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.is_swa_impl);", BOTH),
+           (MIMO, "ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,   hparams.n_swa);", BOTH)],
+          _mimo_pattern, _mimo_pattern_detail),
+    Probe("mimo.kv_heads", ("mimo2",), "KV heads per layer (full and sliding-window layers differ)",
+          [(MODEL, "ml.get_key_or_arr(LLM_KV_ATTENTION_HEAD_COUNT_KV, hparams.n_head_kv_arr, hparams.n_layer_all, false);",
+            BOTH),
+           (MIMO, "uint32_t n_head_kv_l = hparams.n_head_kv(il);", BOTH)],
+          _mimo_kv, _mimo_kv_detail),
+    Probe("mimo.head_dims", ("mimo2",), "K and V head dims (key_length / value_length)",
+          [(MODEL, "ml.get_key(LLM_KV_ATTENTION_VALUE_LENGTH, hparams.n_embd_head_v_full, false);", BOTH),
+           (MIMO, "const size_t row_v    = ggml_row_size(qkv->type, n_embd_head_v);", BOTH)],
+          _mimo_dims, lambda m: (f"key_length {m.a('attention.key_length')}, value_length "
+                                 f"{m.a('attention.value_length')}, key_length_swa {m.a('attention.key_length_swa')}, "
+                                 f"value_length_swa {m.a('attention.value_length_swa')}")),
+    Probe("mimo.rope", ("mimo2",), "partial rotary and the two freq bases (full layers / SWA layers)",
+          [(MIMO, "ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA,         hparams.rope_freq_base_train_swa, false);", BOTH),
+           (MODEL, "return hparams.is_swa(il) ? hparams.rope_freq_base_train_swa : cparams.rope_freq_base;", BOTH),
+           (HPARAMS, "float    rope_freq_base_train_swa  = 10000.0f;", BOTH)],
+          _mimo_rope, lambda m: (f"rope.dimension_count {m.a('rope.dimension_count')}, key_length "
+                                 f"{m.a('attention.key_length')}, freq_base {m.a('rope.freq_base')}, freq_base_swa "
+                                 f"{m.a('rope.freq_base_swa')}")),
+    Probe("mimo.value_scale", ("mimo2",), "attn_out scaled by attention.value_scale (read only if != 1)",
+          [(MIMO, "if (ml.get_key(LLM_KV_ATTENTION_VALUE_SCALE, value_scale, false) && value_scale != 1.0f) {", BOTH),
+           (MIMO, "cur = ggml_scale(ctx0, cur, v_scale);", BOTH)],
+          lambda m: {"attn_out x value_scale"} if m.has("attention.value_scale") and
+          _f(m.a("attention.value_scale")) != 1.0 else {"no value scale"},
+          lambda m: f"attention.value_scale = {m.a('attention.value_scale')}"),
+    Probe("mimo.sinks", ("mimo2",), "attention sinks per layer kind (attn_sinks is TENSOR_NOT_REQUIRED)",
+          [(MIMO, 'layer.attn_sinks = create_tensor(tn(LLM_TENSOR_ATTN_SINKS, "weight", i), {n_head}, '
+                  'TENSOR_NOT_REQUIRED | flags);', BOTH),
+           (MIMO, "ggml_tensor * sinks = model.layers[il].attn_sinks;", BOTH)],
+          _mimo_sinks, _mimo_sinks_detail),
+    Probe("mimo.qkv", ("mimo2",), "attention projections: fused attn_qkv or split attn_q/k/v",
+          [(MIMO, "if (model.layers[il].wqkv) {", BOTH)],
+          _mimo_qkv),
+    Probe("mimo.ffn", ("mimo2",), "dense FFN (no ffn_gate_inp) or MoE with sigmoid + bias routing",
+          [(MIMO, "if (model.layers[il].ffn_gate_inp == nullptr) {", BOTH),
+           (MIMO, "LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID,", BOTH)],
+          _mimo_ffn, _mimo_ffn_detail),
+    Probe("mimo.mtp", ("mimo2",), "MTP (NextN) layers: count; graph_mtp runs layer n_layer + nextn_layer_offset",
+          [(MIMO, "const int il = hparams.n_layer() + cparams.nextn_layer_offset;", BOTH),
+           (MIMO, "cparams.nextn_layer_offset < (int) hparams.n_layer_nextn &&", BOTH)],
+          lambda m: {f"nextn_predict_layers {m.a('nextn_predict_layers') or 0}"}, _mimo_mtp_detail),
+    Probe("mimo.mtp_block", ("mimo2",), "what graph_mtp asserts of an MTP layer: fused attn_qkv and a dense FFN",
+          [(MIMO, 'GGML_ASSERT(layer.wqkv          && "MIMO2 MTP requires fused attn_qkv");', BOTH),
+           (MIMO, 'GGML_ASSERT(layer.ffn_gate && layer.ffn_down && layer.ffn_up && "MIMO2 MTP requires dense FFN tensors");',
+            BOTH)],
+          _mimo_mtp_block),
+    Probe("mimo.mtp_head", ("mimo2",), "MTP embedding / head / head norm: own NextN tensors or the fallbacks",
+          [(MIMO, "ggml_tensor * tok_embd_w = layer.nextn.embed_tokens ? layer.nextn.embed_tokens : model.tok_embd;", BOTH),
+           (MIMO, ": (layer.layer_out_norm ? layer.layer_out_norm : model.output_norm);", BOTH),
+           (MIMO, "ggml_tensor * head_w = layer.nextn.shared_head_head ? layer.nextn.shared_head_head : model.output;",
+            BOTH)],
+          _mimo_mtp_head),
+    Probe("mimo.file_layout", ("mimo2",), "trunk + MTP, MTP-only or trunk-only file (loader flags)",
+          [(MIMO, 'const bool mtp_only = (hparams.n_layer_nextn > 0) && (ml.get_weight("blk.0.attn_norm.weight") == nullptr);',
+            EC),
+           (MIMO, "const auto nf = nextn_flags(ml);", R1)],
+          lambda m: {file_layout(m, "blk.0.attn_norm.weight")}),
+]
+
+
+# ------------------------------------------------------------------ separate MTP files (N18)
+# What each pin's loader asks of a file that holds only the NextN block(s), per architecture. Anchors are located in
+# every checkout at run time (tools/gguf_headers/analyze.py); "pins" say where they must be found (BranchAnchors test).
+#   detect     an MTP-only file is recognised (trunk tensors become TENSOR_NOT_REQUIRED) when this anchor is found
+#   no_detect  found: the loader has no MTP-only handling (every trunk tensor is required)
+#   no_graph   found: the MTP graph (LLM_GRAPH_TYPE_DECODER_MTP) is not implemented
+#   globals    non-layer tensors created with flags 0 (required in any file) when the anchor is found
+#   optional   MTP-layer tensor names the loader creates TENSOR_NOT_REQUIRED (not counted as missing)
+MTP_LOAD = {
+    "glm5-next": {
+        "trunk_probe": "blk.0.attn_norm.weight",
+        "detect": [(GLM, "const auto nf = nextn_flags(ml);", R1),
+                   (MODEL, 'if (ml.get_weight(tn(trunk_probe, "weight", 0).str().c_str()) == nullptr) {', R1)],
+        "no_detect": [(GLM, "// Separated trunk_only/mtp_only handling TODO with DECODER_MTP graph in the MTP follow up",
+                       EC)],
+        "no_graph": [(GLM, 'throw std::runtime_error("GLM5-Next NextN graph not implemented yet");', EC)],
+        "graph": [(GLM, "return std::make_unique<graph_mtp>(*this, params);", R1)],
+        "globals": [("token_embd.weight", (GLM, 'tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), '
+                                                '{n_embd, n_vocab}, 0);', BOTH)),
+                    ("output_norm.weight", (GLM, 'output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), '
+                                                 '{n_embd}, 0);', BOTH)),
+                    ("output.weight", (GLM, 'output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), '
+                                            '{n_embd, n_vocab}, 0);', BOTH))],
+        "optional": {"nextn.embed_tokens.weight", "nextn.shared_head_head.weight", "nextn.shared_head_norm.weight"},
+    },
+    "qwen4exp": {
+        "trunk_probe": "blk.0.hc_attn_norm.weight",
+        "detect": [(QWEN, "const bool mtp_only    = n_layer_nextn > 0 && ml.get_weight(tn(LLM_TENSOR_HC_ATTN_NORM, "
+                          '"weight", 0).str().c_str()) == nullptr;', EC),
+                   (QWEN, "const auto nf = nextn_flags(ml, LLM_TENSOR_HC_ATTN_NORM);", R1)],
+        "no_detect": [], "no_graph": [],
+        "graph": [(QWEN, "return std::make_unique<graph_mtp>(*this, params);", BOTH)],
+        "globals": [("token_embd.weight", (QWEN, 'tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), '
+                                                 '{ n_embd, n_vocab }, 0);', BOTH))],
+        # output.weight is optional (falls back to token_embd); the PLE table is required whenever ple.layers is set
+        "fallbacks": [(QWEN, 'output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, '
+                             'TENSOR_DUPLICATED);', BOTH)],
+        "ple_table": (QWEN, 'per_layer_tok_embd = create_tensor(tn(LLM_TENSOR_PER_LAYER_TOKEN_EMBD, "weight"),', BOTH),
+        "optional": set(),
+    },
+    "mimo2": {
+        "trunk_probe": "blk.0.attn_norm.weight",
+        "detect": [(MIMO, 'const bool mtp_only = (hparams.n_layer_nextn > 0) && (ml.get_weight("blk.0.attn_norm.weight") '
+                          '== nullptr);', EC),
+                   (MIMO, "const auto nf = nextn_flags(ml);", R1)],
+        "no_detect": [], "no_graph": [],
+        "graph": [(MIMO, "return std::make_unique<graph_mtp>(*this, params);", BOTH)],
+        "globals": [("token_embd.weight", (MIMO, 'tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), '
+                                                 '{n_embd, n_vocab}, 0);', BOTH)),
+                    ("output_norm.weight", (MIMO, 'output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), '
+                                                  '{n_embd}, 0);', BOTH)),
+                    ("output.weight", (MIMO, 'output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), '
+                                             '{n_embd, n_vocab}, 0);', BOTH))],
+        "optional": {"attn_sinks.weight", "nextn.embed_tokens.weight", "nextn.shared_head_head.weight",
+                     "nextn.shared_head_norm.weight", "layer_output_norm.weight", "exp_probs_b.bias",
+                     "ffn_gate_inp.weight", "ffn_gate_exps.weight", "ffn_up_exps.weight", "ffn_down_exps.weight"},
+    },
+}
+
+# How llama.cpp attaches a separate MTP file (the same at both pins unless the anchor says otherwise): (file, anchor,
+# pins, what it shows). Read at ec7630a and 79e2e74 (N18).
+MTP_ATTACH = [
+    (ARG, '{"--spec-draft-model", "-md", "--model-draft"}, "FNAME",', BOTH,
+     "a local MTP file is given as the draft model: -md FILE (sets speculative.draft.mparams.path)"),
+    (ARG, '{"--spec-type"}, common_speculative_all_types_str(),', BOTH, "--spec-type draft-mtp selects the MTP drafter"),
+    (SPEC, '{"draft-mtp",     COMMON_SPECULATIVE_TYPE_DRAFT_MTP},', BOTH, "the type name draft-mtp"),
+    (ARG, '{"--mtp"},', BOTH, "--mtp (download example): also fetch the repo's MTP sidecar"),
+    (DOWNLOAD, 'return find_best_sibling(files, model, "mtp-", tag);', BOTH,
+     "-hf: the sidecar is the sibling file whose name starts with mtp-"),
+    (DOWNLOAD, 'filename.find("mtp-")    == std::string::npos &&', BOTH, "an mtp- file is never taken as the model"),
+    (ARG, "params.speculative.draft.mparams.path = hf_cache::finalize_file(plan.mtp);", BOTH,
+     "the downloaded sidecar becomes the draft model path"),
+    (SPEC, "model_path = params.speculative.draft.mparams.path;", BOTH,
+     "with a draft path the MTP file is loaded as its own llama_model (llama_model_load_from_file)"),
+    (SPEC, "cparams.ctx_type = LLAMA_CONTEXT_TYPE_MTP;", BOTH, "its context is an MTP context"),
+    (SPEC, "LOG_INF(\"%s: creating MTP draft context against the target model '%s'\\n\", __func__, model_path.c_str());",
+     BOTH, "without a draft path the MTP context runs on the target model's own NextN layers"),
+    (SPEC, "GGML_ASSERT(n_embd == llama_model_n_embd_out(llama_get_model(ctx_tgt)) &&", BOTH,
+     "the MTP model's output width must equal the target's (h_nextn rows)"),
+    (COMMON, "mparams.load_mtp                    =", BOTH, "draft-mtp sets load_mtp (otherwise NextN tensors are skipped)"),
+    (VOCAB, "ml.get_key(LLM_KV_TOKENIZER_MODEL, tokenizer_model);", BOTH,
+     "a separate model file needs its own tokenizer metadata (tokenizer.ggml.model is required)"),
+    (LOADER, 'throw std::runtime_error(format("%s: wrong number of tensors; expected %d, got %d", __func__, n_tensors, '
+             'n_created));', BOTH, "every tensor in the file must be created by the arch loader"),
+    (CONTEXT, "if (model.arch == LLM_ARCH_EAGLE3 || model.arch == LLM_ARCH_DFLASH) {", BOTH,
+     "only EAGLE3 / DFlash drafts borrow the target's embeddings and head through ctx_other"),
+    (MODEL, "filter = [&](uint32_t il) { return il >= hparams.n_layer(); };", BOTH,
+     "an MTP context's KV cache holds only the NextN layers"),
 ]

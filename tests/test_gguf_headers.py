@@ -8,6 +8,9 @@ LLAMA_CPP_GGUF_PY points at a llama.cpp gguf-py and numpy imports, the tinygen g
 models, whose data offsets and tensor offsets are compared with gguf-py's GGUFReader. The server counts every byte it
 sends, so the tests see that the fetcher stops at the header, never passes the cap and fetches nothing in --plan.
 The workflow check needs PyYAML (installed in ci.yml); without it, or without gguf-py / numpy, those classes skip.
+N18: discover requests with named repos (Fetch), mimo2 support and separate MTP files (N18Analyzer: generated mimo2 /
+MTP-only headers; fake llama.cpp source trees written from gguf_branches.MTP_LOAD / MTP_ATTACH stand in for the pins, so
+the class needs no checkout), and BranchAnchors also checks the MTP_LOAD / MTP_ATTACH anchors at the real pins.
 """
 import contextlib
 import functools
@@ -886,6 +889,297 @@ class Analyzer(HubCase):
         self.assertIn("tiny OK", out)
 
 
+# ------------------------------------------------------------------------------------------------ N18: mimo2, MTP files
+
+def mimo2_kv(extra=(), drop=(), nextn=2, vocab=96):
+    """a MiMo-V2.x-like split-shard KV block in miniature: 4 trunk layers (full at 0 and 3), nextn MTP layers (SWA)"""
+    pat = [0, 1, 1, 0] + [1] * nextn
+    kv = [("general.architecture", G.T_STRING, "mimo2"), ("mimo2.context_length", G.T_UINT32, 512),
+          ("mimo2.embedding_length", G.T_UINT32, 64), ("mimo2.block_count", G.T_UINT32, 4 + nextn),
+          ("mimo2.feed_forward_length", G.T_UINT32, 96), ("mimo2.attention.head_count", G.T_UINT32, 4),
+          ("mimo2.attention.head_count_kv", G.T_ARRAY, (G.T_UINT32, [2 if x else 1 for x in pat])),
+          ("mimo2.attention.key_length", G.T_UINT32, 24), ("mimo2.attention.value_length", G.T_UINT32, 16),
+          ("mimo2.attention.layer_norm_rms_epsilon", G.T_FLOAT32, 1e-6), ("mimo2.rope.dimension_count", G.T_UINT32, 8),
+          ("mimo2.rope.freq_base", G.T_FLOAT32, 1e7), ("mimo2.rope.freq_base_swa", G.T_FLOAT32, 1e4),
+          ("mimo2.attention.value_scale", G.T_FLOAT32, 0.707), ("mimo2.attention.sliding_window", G.T_UINT32, 8),
+          ("mimo2.attention.sliding_window_pattern", G.T_ARRAY, (G.T_BOOL, [bool(x) for x in pat])),
+          ("mimo2.expert_count", G.T_UINT32, 8), ("mimo2.expert_used_count", G.T_UINT32, 2),
+          ("mimo2.expert_feed_forward_length", G.T_UINT32, 32),
+          ("tokenizer.ggml.model", G.T_STRING, "gpt2"), ("tokenizer.ggml.pre", G.T_STRING, "qwen2"),
+          ("tokenizer.ggml.tokens", G.T_ARRAY, (G.T_STRING, [f"t{i}" for i in range(vocab)])), *extra]
+    if nextn:
+        kv.append(("mimo2.nextn_predict_layers", G.T_UINT32, nextn))
+    return [e for e in kv if e[0] not in drop]
+
+
+def mimo2_layer(i, swa, mtp=False, moe=True):
+    """tensors of one mimo2 layer: fused qkv, sinks on SWA layers only, dense FFN on layer 0 and on MTP layers, MXFP4
+    experts elsewhere; an MTP layer adds nextn.eh_proj / enorm / hnorm and layer_output_norm"""
+    b, kv = f"blk.{i}", 2 if swa else 1
+    t = [(f"{b}.attn_norm.weight", [64], "F32"), (f"{b}.ffn_norm.weight", [64], "F32"),
+         (f"{b}.attn_qkv.weight", [64, 4 * 24 + kv * 24 + kv * 16], "Q8_0"), (f"{b}.attn_output.weight", [64, 64], "Q8_0")]
+    if swa:
+        t.append((f"{b}.attn_sinks.weight", [4], "F32"))
+    if moe and not mtp:
+        t += [(f"{b}.ffn_gate_inp.weight", [64, 8], "F32"), (f"{b}.exp_probs_b.bias", [8], "F32"),
+              (f"{b}.ffn_gate_exps.weight", [64, 32, 8], "MXFP4"), (f"{b}.ffn_up_exps.weight", [64, 32, 8], "MXFP4"),
+              (f"{b}.ffn_down_exps.weight", [32, 64, 8], "MXFP4")]
+    else:
+        t += [(f"{b}.ffn_gate.weight", [64, 96], "Q8_0"), (f"{b}.ffn_up.weight", [64, 96], "Q8_0"),
+              (f"{b}.ffn_down.weight", [96, 64], "Q8_0")]
+    if mtp:
+        t += [(f"{b}.nextn.eh_proj.weight", [128, 64], "Q8_0"), (f"{b}.nextn.enorm.weight", [64], "F32"),
+              (f"{b}.nextn.hnorm.weight", [64], "F32"), (f"{b}.layer_output_norm.weight", [64], "F32")]
+    return t
+
+
+def mimo2_tensors(nextn=2, trunk=True, mtp=True):
+    g = [("token_embd.weight", [64, 96], "Q8_0"), ("output_norm.weight", [64], "F32"), ("output.weight", [64, 96], "Q8_0")]
+    t = []
+    if trunk:
+        for i, swa in enumerate([0, 1, 1, 0]):
+            t += mimo2_layer(i, swa, moe=i > 0)
+    if mtp:
+        for i in range(4, 4 + nextn):
+            t += mimo2_layer(i, 1, mtp=True)
+    return g + t
+
+
+MIMO2_CONFIG = {"num_hidden_layers": 4, "num_nextn_predict_layers": 2, "hidden_size": 64, "intermediate_size": 96,
+                "moe_intermediate_size": 32, "n_routed_experts": 8, "num_experts_per_tok": 2, "num_attention_heads": 4,
+                "num_key_value_heads": 1, "swa_num_key_value_heads": 2, "hybrid_layer_pattern": [0, 1, 1, 0],
+                "head_dim": 24, "v_head_dim": 16, "sliding_window": 8, "partial_rotary_factor": 0.334,
+                "rope_theta": 10000000.0, "swa_rope_theta": 10000.0, "attention_value_scale": 0.707,
+                "layernorm_epsilon": 1e-06, "max_position_embeddings": 512, "n_group": 1, "topk_group": 1,
+                "vocab_size": 96}
+
+# the load_arch_hparams of src/models/mimo2.cpp at ec7630a (lines 3-23; the same at 79e2e74), for a fake source tree
+MIMO2_HPARAMS_SRC = """void llama_model_mimo2::load_arch_hparams(llama_model_loader & ml) {
+    ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+
+    hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
+
+    ml.get_key_or_arr(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp_arr, hparams.n_layer_all);
+    ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,   hparams.n_swa);
+    ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA,         hparams.rope_freq_base_train_swa, false);
+
+    ml.get_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.is_swa_impl);
+
+    float value_scale = 0.0f;
+    if (ml.get_key(LLM_KV_ATTENTION_VALUE_SCALE, value_scale, false) && value_scale != 1.0f) {
+        hparams.f_attn_value_scale = value_scale;
+    }
+}
+
+void llama_model_mimo2::load_arch_tensors(llama_model_loader & ml) {
+}
+"""
+GLM_HPARAMS_SRC = """void llama_model_glm5_next::load_arch_hparams(llama_model_loader & ml) {
+    ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+    ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS,     hparams.f_norm_eps, false);
+}
+
+void llama_model_glm5_next::load_arch_tensors(llama_model_loader & ml) {
+}
+"""
+FAKE_KV_NAMES = ["CONTEXT_LENGTH:context_length", "EMBEDDING_LENGTH:embedding_length", "BLOCK_COUNT:block_count",
+                 "NEXTN_PREDICT_LAYERS:nextn_predict_layers",
+                 "ATTENTION_LAYERNORM_RMS_EPS:attention.layer_norm_rms_epsilon",
+                 "ATTENTION_LAYERNORM_EPS:attention.layer_norm_epsilon",
+                 "EXPERT_FEED_FORWARD_LENGTH:expert_feed_forward_length",
+                 "ATTENTION_SLIDING_WINDOW:attention.sliding_window", "ROPE_FREQ_BASE_SWA:rope.freq_base_swa",
+                 "ATTENTION_SLIDING_WINDOW_PATTERN:attention.sliding_window_pattern",
+                 "ATTENTION_VALUE_SCALE:attention.value_scale"]
+
+
+def fake_src(root, pin):
+    """a llama.cpp-like source tree: the hparams functions above, the generic load_hparams in miniature, and every
+    MTP_LOAD / MTP_ATTACH anchor whose pins include `pin`, one per line, in its file"""
+    files = {"src/llama-arch.cpp": "".join(f'    {{ LLM_KV_{k}, "%s.{v}" }},\n' for k, v in
+                                           (x.split(":") for x in FAKE_KV_NAMES)),
+             "src/llama-model.cpp": "void llama_model_base::load_hparams(llama_model_loader & ml) {\n"
+                                    "    ml.get_key(LLM_KV_CONTEXT_LENGTH,          hparams.n_ctx_train);\n"
+                                    "    ml.get_key(LLM_KV_EMBEDDING_LENGTH,        hparams.n_embd);\n"
+                                    "    ml.get_key(LLM_KV_BLOCK_COUNT,             hparams.n_layer_all);\n"
+                                    "    ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,    hparams.n_layer_nextn,   false);\n"
+                                    "    if (arch == LLM_ARCH_WAVTOKENIZER_DEC) {\n"
+                                    "        ml.get_key(LLM_KV_FEATURES_LENGTH,  hparams.n_embd);\n    }\n"
+                                    "    load_arch_hparams(ml);\n}\n",
+             "src/models/mimo2.cpp": MIMO2_HPARAMS_SRC, "src/models/glm5-next.cpp": GLM_HPARAMS_SRC,
+             "src/llama-vocab.cpp": "        ml.get_key(LLM_KV_TOKENIZER_MODEL, tokenizer_model);\n"}
+    anchors = [a for r in B.MTP_LOAD.values() for k in ("detect", "no_detect", "no_graph", "graph", "fallbacks")
+               for a in r.get(k, [])] + [a for r in B.MTP_LOAD.values() for _, a in r["globals"]] + \
+        [e[:3] for e in B.MTP_ATTACH]
+    for rel, needle, pins in anchors:
+        if pin in pins:
+            files[rel] = files.get(rel, "") + needle + "\n"
+    for rel, text in files.items():
+        os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
+        with open(os.path.join(root, rel), "w") as f:
+            f.write(text)
+    return root
+
+
+class N18Analyzer(HubCase):
+    """mimo2 support and separate MTP files (N18) on generated headers; fake source trees stand in for the pins"""
+    fetch_model = Analyzer.fetch_model          # the helpers only (inheriting Analyzer would run its tests twice)
+    analyze = Analyzer.analyze
+
+    def srcs(self):
+        return {p: fake_src(os.path.join(self.tmp, "src-" + p), p) for p in ("ec7630a", "79e2e74")}
+
+    def test_mimo2_config_branches_keys_experts_audit(self):
+        cfg = os.path.join(self.tmp, "mimo2-config.json")
+        with open(cfg, "w") as f:
+            json.dump({"text_config": MIMO2_CONFIG}, f)
+        an = {"graph": "mimo2", "hf_config": cfg}
+        t = mimo2_tensors()
+        split = lambda i: [("split.no", G.T_UINT16, i), ("split.count", G.T_UINT16, 2),  # noqa: E731
+                           ("split.tensors.count", G.T_INT32, len(t))]
+        self.fetch_model("MiMoA", [make_gguf(mimo2_kv() + split(0), [], seed=6),
+                                   make_gguf([("general.architecture", G.T_STRING, "mimo2")] + split(1), t, seed=7)], an)
+        self.fetch_model("MiMoB", [make_gguf(mimo2_kv(drop=("mimo2.attention.sliding_window",)), t, seed=8)], an)
+        srcs = self.srcs()
+        rc, out, res = self.analyze(*sum((["--src", f"{k}={v}"] for k, v in srcs.items()), []))
+        self.assertEqual(rc, 0, out)
+        a = res["MiMoA"]
+        self.assertEqual([ok for _, ok in a["integrity"]], [True, True])
+        rows = {(c["config"], c["gguf"]): c for c in a["config"]}
+        self.assertEqual({k: c["match"] for k, c in rows.items() if c["match"] is not True},
+                         {("n_group", "expert_group_count"): None, ("topk_group", "expert_group_used_count"): None})
+        self.assertEqual(rows[("hybrid_layer_pattern", "attention.head_count_kv")]["config_value_compared"],
+                         [1, 2, 2, 1, 2, 2])                          # + SWA per MTP layer of this file
+        self.assertEqual(rows[("hybrid_layer_pattern", "attention.sliding_window_pattern")]["config_value_compared"],
+                         [0, 1, 1, 0, 1, 1])
+        self.assertEqual(rows[("partial_rotary_factor", "rope.dimension_count")]["config_value_compared"], 8)
+        self.assertEqual(rows[("num_hidden_layers", "layers")]["gguf_value"], 4)
+        br = {b["id"]: b for b in a["branches"]}
+        self.assertEqual({p.id for p in B.PROBES if "mimo2" in p.graphs}, set(br))
+        self.assertEqual(br["mimo.sinks"]["real"], ["SWA layers with sinks", "full layers without sinks"])
+        self.assertIn("trunk layers with attn_sinks: 1-2 (2 of 4", br["mimo.sinks"]["real_detail"])
+        self.assertIn("MTP layers with attn_sinks: [4, 5]", br["mimo.sinks"]["real_detail"])
+        self.assertIn("full-attention trunk layers [0, 3]", br["mimo.swa_pattern"]["real_detail"])
+        self.assertEqual(br["mimo.kv_heads"]["real"], ["per-layer KV heads, full != SWA"])
+        self.assertEqual(br["mimo.head_dims"]["real"], ["K head dim != V head dim"])
+        self.assertEqual(br["mimo.rope"]["real"], ["own SWA freq base (rope.freq_base_swa)",
+                                                   "partial rotary (n_rot < K head dim)"])
+        self.assertEqual(br["mimo.value_scale"]["real"], ["attn_out x value_scale"])
+        self.assertEqual(br["mimo.qkv"]["real"], ["fused attn_qkv"])
+        self.assertEqual(br["mimo.ffn"]["real"], ["MoE (sigmoid + exp_probs_b, renormalised top-k)", "dense FFN"])
+        self.assertEqual(br["mimo.mtp"]["real"], ["nextn_predict_layers 2"])
+        self.assertIn("blk.4: 12 tensors, nextn ['nextn.eh_proj.weight', 'nextn.enorm.weight', 'nextn.hnorm.weight']",
+                      br["mimo.mtp"]["real_detail"])
+        self.assertEqual(br["mimo.mtp_block"]["real"], ["MTP layer with a dense FFN", "MTP layer with fused attn_qkv"])
+        self.assertEqual(br["mimo.mtp_head"]["real"], ["head norm layer_output_norm", "trunk output head",
+                                                       "trunk token_embd"])
+        self.assertEqual(br["mimo.file_layout"]["real"], ["trunk + MTP in one file"])
+        self.assertEqual(a["experts"], {p: {"MXFP4": 3} for p in ("ffn_down_exps", "ffn_gate_exps", "ffn_up_exps")})
+        self.assertEqual(a["audit"]["verdict"], "PASS")
+        self.assertAlmostEqual(a["audit"]["classes"]["routed_experts"]["bpw"], 4.25)
+        for pin in srcs:
+            k = a["required_keys"][pin]
+            self.assertEqual(sorted(x["key"] for x in k["rows"]), sorted(
+                ["mimo2.context_length", "mimo2.embedding_length", "mimo2.block_count",
+                 "mimo2.attention.layer_norm_rms_epsilon", "mimo2.expert_feed_forward_length",
+                 "mimo2.attention.sliding_window", "mimo2.attention.sliding_window_pattern", "tokenizer.ggml.model"]))
+            self.assertEqual(k["missing"], [])
+            self.assertEqual(res["MiMoB"]["required_keys"][pin]["missing"], ["mimo2.attention.sliding_window"])
+        self.assertIn("keys read without a default", out)
+        self.assertIn('{"ffn_down_exps": {"MXFP4": 3}', out)
+
+    @unittest.skipUnless(GGUF_PY and HAVE_NUMPY, "set LLAMA_CPP_GGUF_PY=<llama.cpp>/gguf-py (and install numpy)")
+    def test_mimo2_tiny_exercises_its_own_branches(self):
+        tm, note = A.build_tiny("mimo2", GGUF_PY, os.path.join(self.tmp, "tiny"))
+        self.assertIn("default", tm)
+        takes_mtp = "mtp" in A.inspect.signature(importlib.import_module("mimo2_tiny").build).parameters
+        self.assertEqual(note is None, takes_mtp, note)                   # the N16 generator builds both variants
+        for lab, t in tm.items():
+            br = A.section_branches(t, "mimo2", tm, {})
+            self.assertEqual([b["id"] for b in br if not b["exercised_by_tiny"]], [], lab)
+        d = {b["id"]: b["real"] for b in A.section_branches(tm["default"], "mimo2", None, {})}
+        self.assertEqual(d["mimo.sinks"], ["SWA layers with sinks", "full layers with sinks"])
+        self.assertEqual(d["mimo.qkv"], ["split attn_q/k/v"])
+
+    def mtp_case(self):
+        """GLM-like separate MTP files: a trunk-only request, a reference trunk + MTP request, and the MTP files"""
+        base = [("general.architecture", G.T_STRING, "glm5-next"), ("glm5-next.context_length", G.T_UINT32, 512),
+                ("glm5-next.embedding_length", G.T_UINT32, 64),
+                ("glm5-next.attention.layer_norm_rms_epsilon", G.T_FLOAT32, 1e-5),
+                ("tokenizer.ggml.model", G.T_STRING, "gpt2"),
+                ("tokenizer.ggml.tokens", G.T_ARRAY, (G.T_STRING, ["a", "b", "c"]))]
+        nx = [("glm5-next.block_count", G.T_UINT32, 4), ("glm5-next.nextn_predict_layers", G.T_UINT32, 1)]
+        glob = [("token_embd.weight", [64, 3], "Q8_0"), ("output_norm.weight", [64], "F32"),
+                ("output.weight", [64, 3], "Q8_0")]
+        layer = lambda i: [(f"blk.{i}.attn_norm.weight", [64], "F32"), (f"blk.{i}.ffn_norm.weight", [64], "F32"),  # noqa
+                           (f"blk.{i}.attn_q_a.weight", [64, 32], "Q8_0")]
+        mtp = [("blk.3.attn_norm.weight", [64], "F32"), ("blk.3.ffn_norm.weight", [64], "F32"),
+               ("blk.3.attn_q_a.weight", [64, 32], "Q8_0"), ("blk.3.nextn.eh_proj.weight", [128, 64], "Q4_0"),
+               ("blk.3.nextn.enorm.weight", [64], "F32"), ("blk.3.nextn.hnorm.weight", [64], "F32")]
+        trunk = glob + layer(0) + layer(1) + layer(2)
+        self.fetch_model("trunk", [make_gguf(base + [("glm5-next.block_count", G.T_UINT32, 3)], trunk, seed=9)], {})
+        self.fetch_model("ref", [make_gguf(base + nx, trunk + mtp + [("blk.3.nextn.shared_head_norm.weight", [64],
+                                                                      "F32")], seed=10)], {})
+        files = {"MTP/mtp-ok.gguf": make_gguf(base + nx, glob + mtp, seed=11)[0],
+                 "MTP/mtp-shared.gguf": make_gguf(base + nx, [glob[1]] + mtp, seed=12)[0],
+                 "MTP/mtp-nohnorm.gguf": make_gguf(base + nx, glob + mtp[:-1], seed=13)[0],
+                 "MTP/mtp-extra.gguf": make_gguf(base + nx, glob + mtp + [("blk.3.foo.weight", [64], "F32")], seed=14)[0],
+                 "MTP/mtp-novocab.gguf": make_gguf(base[:4] + nx, glob + mtp, seed=15)[0]}
+        self.hub.add("org/GLM-MTP", files)
+        p = self.request("mtp", repo="org/GLM-MTP", files=["MTP/mtp-*.gguf"], expect_count=len(files),
+                         analysis={"mode": "mtp_files", "graph": "glm5-next", "trunk": "trunk",
+                                   "mtp_reference": {"request": "ref"}})
+        rc, out = self.run_fetch(p)
+        self.assertEqual(rc, 0, out)
+
+    def test_separate_mtp_files_loader_verdicts_per_pin(self):
+        self.mtp_case()
+        srcs = self.srcs()
+        rc, out, res = self.analyze("--name", "mtp", *sum((["--src", f"{k}={v}"] for k, v in srcs.items()), []))
+        self.assertEqual(rc, 0, out)
+        r = res["mtp"]
+        self.assertEqual((r["mode"], r["trunk"], r["mtp_reference"]), ("mtp_files", "trunk", "request ref, blk.3"))
+        f = {os.path.basename(x["path"]): x for x in r["mtp_files"]}
+        ok = f["mtp-ok.gguf"]
+        self.assertEqual((ok["layout"], ok["n_layer"], ok["layers_present"]), ("MTP-only file", 3, [3]))
+        self.assertEqual(ok["reference"], {"3": {"missing": [], "missing_optional": ["nextn.shared_head_norm.weight"],
+                                                 "extra": []}})                          # JSON: layer keys are strings
+        self.assertEqual(ok["trunk"]["keys_differ"], [["block_count", 3, 4], ["nextn_predict_layers", "(absent)", 1]])
+        self.assertTrue(ok["trunk"]["tokens_equal"])
+        lo = {n: {pin: v for pin, v in x["loader"].items()} for n, x in f.items()}
+        # the ec7630a-like tree: no MTP-only handling and no MTP graph for glm5-next
+        for n in f:
+            self.assertEqual(lo[n]["ec7630a"]["verdict"], "NOT loadable as a separate MTP model", n)
+        self.assertTrue(any("no MTP-only handling" in h for h in lo["mtp-ok.gguf"]["ec7630a"]["hard"]))
+        self.assertTrue(any("not implemented" in h for h in lo["mtp-ok.gguf"]["ec7630a"]["hard"]))
+        # the 79e2e74-like tree: nextn_flags + graph_mtp
+        v = lo["mtp-ok.gguf"]["79e2e74"]
+        self.assertEqual((v["verdict"], v["hard"], v["check"]),
+                         ("loadable as a separate MTP model (PROVISIONAL: by reading, nothing loaded)", [], []))
+        self.assertEqual([h.split(" absent")[0] for h in lo["mtp-shared.gguf"]["79e2e74"]["hard"]],
+                         ["token_embd.weight", "output.weight"])
+        self.assertEqual(lo["mtp-nohnorm.gguf"]["79e2e74"]["hard"],
+                         ["blk.3 lacks ['nextn.hnorm.weight'] (present in the reference NextN layer, not optional)"])
+        self.assertEqual(lo["mtp-extra.gguf"]["79e2e74"]["verdict"], "CHECK")
+        self.assertIn("tokenizer.ggml.model absent", " ".join(lo["mtp-novocab.gguf"]["79e2e74"]["hard"]))
+        self.assertEqual(f["mtp-novocab.gguf"]["required_keys"]["79e2e74"]["missing"], ["tokenizer.ggml.model"])
+        self.assertEqual(f["mtp-ok.gguf"]["audit"]["verdict"], "PASS")
+        # every attach anchor of the 79e2e74-like tree is found and printed
+        self.assertTrue(all(x["at"] != "not found" for x in r["attach"]["79e2e74"] if x["expected"]))
+        self.assertIn("loader [79e2e74]: loadable as a separate MTP model", out)
+        self.assertIn("how llama.cpp attaches a separate MTP file:", out)
+
+    def test_listing_renders_named_repos(self):
+        self.hub.add("org/M-GGUF", {"Q/m-00001-of-00002.gguf": b"GGUF1", "Q/m-00002-of-00002.gguf": b"GGUF22"},
+                     gguf={"architecture": "mimo2"})
+        p = self.request("dl", kind="discover", repos=[{"repo": "org/M-GGUF"}, {"repo": "nobody/X"}])
+        self.assertEqual(self.run_fetch(p)[0], 0)
+        rc, out, res = self.analyze("--name", "dl")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"named repo org/M-GGUF @ {SHA} (requested main): ok, arch=mimo2", out)
+        self.assertIn("    Q/m-00002-of-00002.gguf  6 B", out)
+        self.assertIn("named repo nobody/X @ None (requested main): repo_unavailable, HTTP 404", out)
+
+
 import vocab_gguf as V  # noqa: E402
 
 TOKENIZE_BIN = os.environ.get("LLAMA_TOKENIZE_BIN")
@@ -959,12 +1253,16 @@ class VocabOnly(unittest.TestCase):
 class BranchAnchors(unittest.TestCase):
     def test_every_anchor_is_where_its_pins_say(self):
         bad = []
+        load = [(f"MTP_LOAD.{arch}.{k}", a) for arch, r in B.MTP_LOAD.items()
+                for k in ("detect", "no_detect", "no_graph", "graph", "fallbacks") for a in r.get(k, [])] + \
+            [(f"MTP_LOAD.{arch}.{name}", a) for arch, r in B.MTP_LOAD.items() for name, a in r["globals"]] + \
+            [(f"MTP_LOAD.{arch}.ple_table", r["ple_table"]) for arch, r in B.MTP_LOAD.items() if "ple_table" in r] + \
+            [("MTP_ATTACH", e[:3]) for e in B.MTP_ATTACH]
         for pin, root in _src_pins().items():
-            for p in B.PROBES:
-                for rel, needle, pins in p.anchors:
-                    hits = A.locate(root, rel, needle)
-                    if bool(hits) != (pin in pins):
-                        bad.append((p.id, pin, rel, needle, hits))
+            for pid, (rel, needle, pins) in [(p.id, a) for p in B.PROBES for a in p.anchors] + load:
+                hits = A.locate(root, rel, needle)
+                if bool(hits) != (pin in pins):
+                    bad.append((pid, pin, rel, needle, hits))
         self.assertEqual(bad, [])
 
 

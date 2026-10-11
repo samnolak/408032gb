@@ -17,7 +17,18 @@ Works from the committed bytes only (no network, no weights). Per request with P
              file:line of every anchor at every --src checkout;
   (a)+(f) tools/gguf_quant_audit.py on the header-only shards rebuilt from the committed bytes (it reads headers
              only), i.e. the ADR-012 D5 floor: routed experts and non-expert matrices >= 4.0 bpw.
-A discover request's LISTING.json is printed as a table. Exit 1 if an integrity check fails.
+  keys       (N18) the keys load_hparams / load_arch_hparams of each --src checkout read without a default
+             (src/llama-model.cpp, src/models/<arch>.cpp; calls inside a nested block are listed as conditional), and
+             which of them the file lacks;
+  experts    (N18) the ggml type of every routed-expert projection, counted over the layers.
+Architectures: glm5-next, qwen4exp, mimo2 (N18: config map, graph-branch probes, tiny model tools/tinygen/mimo2_tiny.py).
+A request with "analysis": {"mode": "mtp_files"} (N18) holds separate MTP (NextN) files: each file is its own model;
+per file the KV / tensor layout, the NextN layer against a reference (another request's NextN layer, "mtp_reference":
+{"request": NAME}, or a tiny model's, {"tiny": ..., "variant": ...}), the trunk request's KV ("trunk": NAME), the
+required keys, the quant audit, and per --src checkout what that pin's loader asks of an MTP-only file
+(gguf_branches.MTP_LOAD) and how a separate MTP file is attached (gguf_branches.MTP_ATTACH); the loader verdict is
+PROVISIONAL (by reading; nothing is loaded).
+A discover request's LISTING.json is printed as a table (searches and named repos). Exit 1 if an integrity check fails.
 
 Usage: python3 tools/gguf_headers/analyze.py [--root third_party/gguf-headers] [--name NAME ...]
          [--src ec7630a=<llama.cpp checkout>] [--src 79e2e74=<checkout>] [--src ik=<ik_llama.cpp>] [--json OUT]
@@ -27,6 +38,7 @@ import difflib
 import gzip
 import hashlib
 import importlib
+import inspect
 import json
 import math
 import os
@@ -50,10 +62,30 @@ TINY = {  # request "analysis.tiny" -> (tools/tinygen module, variants: (label, 
                                    ("--dialect ik", {"dialect": "ik"}, "glm5next")]),
     "qwen4exp": ("qwen4exp_tiny", [("default", {}, None), ("--mtp", {"mtp": True}, None),
                                    ("--quant-dims", {"quant": True}, None)]),
+    # mimo2_tiny.build(path, seed, ...) has no cfg; a variant whose options build() does not take is skipped (noted)
+    "mimo2": ("mimo2_tiny", [("default", {}, None),
+                             ("--fused-qkv --sinks swa --value-scale 0.75 --mtp",
+                              {"fused_qkv": True, "sinks": "swa", "value_scale": 0.75, "mtp": True}, None)]),
 }
 
-# config.json (text_config) key -> GGUF key suffix [, (transform of the config value, label)]; "layers" = block_count -
-# nextn_predict_layers; ABSENT in the report = the GGUF has no such key
+# config.json (text_config) key -> GGUF key suffix [, (transform(config value, config, gguf Model), label)]; "layers" =
+# block_count - nextn_predict_layers; ABSENT in the report = the GGUF has no such key
+
+
+def _mimo_kv_arr(v, cfg, m):
+    """per-layer KV heads as conversion/mimo.py:151-157 writes them: SWA count where the pattern is 1, else the full
+    count, plus the SWA count for each MTP layer of this file"""
+    n = (m.a("nextn_predict_layers") or 0) if m is not None else 0
+    return [cfg.get("swa_num_key_value_heads") if x == 1 else cfg.get("num_key_value_heads") for x in v] + \
+        [cfg.get("swa_num_key_value_heads")] * n
+
+
+def _mimo_pattern_arr(v, cfg, m):
+    """conversion/mimo.py:155, 160: the HF pattern plus 1 (sliding window) per MTP layer of this file"""
+    n = (m.a("nextn_predict_layers") or 0) if m is not None else 0
+    return [int(x) for x in v] + [1] * n
+
+
 CONFIG_MAP = {
     "glm5-next": [("num_hidden_layers", "layers"), ("num_nextn_predict_layers", "nextn_predict_layers"),
                   ("hidden_size", "embedding_length"), ("intermediate_size", "feed_forward_length"),
@@ -88,9 +120,26 @@ CONFIG_MAP = {
                  ("rms_norm_eps", "attention.layer_norm_rms_epsilon"), ("max_position_embeddings", "context_length"),
                  ("rope_parameters.rope_theta", "rope.freq_base"),
                  # 1-based in the HF config; llama.cpp's converter writes i - 1 (conversion/qwen4exp.py:91-94 @79e2e74)
-                 ("ple_layer_ids", "ple.layers", (lambda v: [i - 1 for i in v], "1-based")),
+                 ("ple_layer_ids", "ple.layers", (lambda v, cfg, m: [i - 1 for i in v], "1-based")),
                  ("ngram_size", "ple.ngram_size"), ("heads_per_ngram", "ple.heads_per_ngram"),
                  ("ple_conv_kernel_size", "ple.conv_kernel"), ("vocab_size", "@vocab")],
+    # conversion/mimo.py (identical at ec7630a and 79e2e74): set_gguf_parameters :143-175 and the TextModel base
+    "mimo2": [("num_hidden_layers", "layers"), ("num_nextn_predict_layers", "nextn_predict_layers"),
+              ("hidden_size", "embedding_length"), ("intermediate_size", "feed_forward_length"),
+              ("moe_intermediate_size", "expert_feed_forward_length"), ("n_routed_experts", "expert_count"),
+              ("num_experts_per_tok", "expert_used_count"), ("num_attention_heads", "attention.head_count"),
+              ("hybrid_layer_pattern", "attention.head_count_kv",
+               (_mimo_kv_arr, "swa_num_key_value_heads where 1 else num_key_value_heads, + SWA per MTP layer")),
+              ("head_dim", "attention.key_length"), ("v_head_dim", "attention.value_length"),
+              ("sliding_window", "attention.sliding_window"),
+              ("hybrid_layer_pattern", "attention.sliding_window_pattern", (_mimo_pattern_arr, "+ 1 per MTP layer")),
+              ("partial_rotary_factor", "rope.dimension_count",
+               (lambda v, cfg, m: int(cfg.get("head_dim", 0) * v), "int(head_dim x factor)")),
+              ("rope_theta", "rope.freq_base"), ("swa_rope_theta", "rope.freq_base_swa"),
+              ("attention_value_scale", "attention.value_scale"),
+              ("layernorm_epsilon", "attention.layer_norm_rms_epsilon"),
+              ("max_position_embeddings", "context_length"), ("n_group", "expert_group_count"),
+              ("topk_group", "expert_group_used_count"), ("vocab_size", "@vocab")],
 }
 
 
@@ -211,23 +260,30 @@ def build_tiny(tiny, gguf_py, workdir):
             sys.path.insert(0, p)
     modname, variants = TINY[tiny]
     mod = importlib.import_module(modname)
-    out = {}
+    os.makedirs(workdir, exist_ok=True)
+    out, skipped = {}, []
+    takes = set(inspect.signature(mod.build).parameters)
     for label, kw, arch in variants:
         kw = dict(kw)
-        cfg = dict(mod.QUANT if kw.pop("quant", False) else mod.DEFAULT)
-        if "n_layer" in cfg and modname == "glm5next_tiny":
-            cfg["n_layer"] = 12            # the CLI default the parity drivers use
+        if hasattr(mod, "DEFAULT"):
+            cfg = dict(mod.QUANT if kw.pop("quant", False) else mod.DEFAULT)
+            if "n_layer" in cfg and modname == "glm5next_tiny":
+                cfg["n_layer"] = 12            # the CLI default the parity drivers use
+            kw["cfg"] = cfg
+        if not set(kw) <= takes:
+            skipped.append(f"{label} (tools/tinygen/{modname}.py build() takes no {sorted(set(kw) - takes)})")
+            continue
         path = os.path.join(workdir, f"{tiny}-{len(out)}.gguf")
         saved = mod.ARCH
         if arch:
             mod.ARCH = arch
         try:
-            mod.build(path, cfg=cfg, **kw)
+            mod.build(path, **kw)
         finally:
             mod.ARCH = saved
         h, hb = G.read_file_header(path)
         out[label] = Model([G.summarize(h, hb)])
-    return out, None
+    return out, ("tiny variants skipped: " + "; ".join(skipped)) if skipped else None
 
 
 # ------------------------------------------------------------------------------------------------ sections
@@ -318,7 +374,7 @@ def section_config(m, rel, graph):
         raw = cv = _cfg_get(cfg, ck)
         mapping = None
         if fn and raw is not None:
-            cv, mapping = fn[0][0](raw), fn[0][1]
+            cv, mapping = fn[0][0](raw, cfg, m), fn[0][1]
         if gk == "layers":
             gv = (m.a("block_count") or 0) - (m.a("nextn_predict_layers") or 0) if m.has("block_count") else None
         elif gk == "@vocab":
@@ -396,6 +452,229 @@ def section_audit(files, workdir):
             "file_bytes": sum(f["rec"]["size"] for f in files)}
 
 
+# ------------------------------------------------------------------------------------------------ N18: keys, experts
+
+# a statement-level call: the arguments stay on one line and the call ends the statement; a call inside an if
+# condition (`if (ml.get_key(..., false)) {`) does not match (it is optional there)
+_KV_CALL = re.compile(r"ml\.(get_key|get_key_or_arr|get_arr|get_arr_n)\((LLM_KV_\w+)([^;{\n]*)\);")
+
+
+def _kv_names(root):
+    try:
+        with open(os.path.join(root, "src", "llama-arch.cpp"), errors="replace") as f:
+            return dict(re.findall(r'\{\s*(LLM_KV_\w+)\s*,\s*"([^"]+)"\s*\}', f.read()))
+    except OSError:
+        return None
+
+
+def kv_calls(root, rel, start, end):
+    """[(LLM_KV name, required, depth, line)] of the ml.get_* calls in the function whose text starts at `start` and
+    ends before `end` in root/rel (one call per statement; required = the last argument is not `false`; depth 1 =
+    directly in the function body, > 1 = inside a nested block, i.e. conditional). None if not found."""
+    try:
+        with open(os.path.join(root, rel), errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return None
+    i = text.find(start)
+    if i < 0:
+        return None
+    b = text.index("{", i)
+    j = text.find(end, b)
+    body = text[b:j if j > 0 else len(text)]
+    out = []
+    for mt in _KV_CALL.finditer(body):
+        depth = body.count("{", 0, mt.start()) - body.count("}", 0, mt.start())
+        out.append((mt.group(2), not mt.group(3).strip().endswith("false"), depth,
+                    text.count("\n", 0, b + mt.start()) + 1))
+    return out
+
+
+def section_required_keys(m, srcs):
+    """per checkout: the keys llama_model_base::load_hparams (directly in its body) and <arch>::load_arch_hparams read
+    without a default, plus tokenizer.ggml.model (the vocabulary loader requires it); which of them the file lacks"""
+    out = {}
+    rel = branches.ARCH_SOURCES.get(m.arch)
+    for pin, root in srcs.items():
+        names = _kv_names(root)
+        gen = kv_calls(root, branches.MODEL, "void llama_model_base::load_hparams(llama_model_loader & ml) {",
+                       "load_arch_hparams(ml);")
+        arch = kv_calls(root, rel, "::load_arch_hparams(llama_model_loader & ml) {", "::load_arch_tensors") \
+            if rel else None
+        if names is None or gen is None or arch is None:
+            out[pin] = {"error": f"not readable: src/llama-arch.cpp, {branches.MODEL} load_hparams or "
+                                 f"{rel or 'no source for ' + str(m.arch)} load_arch_hparams"}
+            continue
+        rows, seen = [], set()
+        for src, calls, generic in ((branches.MODEL, gen, True), (rel, arch, False)):
+            for kv, req, depth, line in calls:
+                if not req or (generic and depth > 1) or (kv, depth > 1) in seen:
+                    continue
+                seen.add((kv, depth > 1))
+                key = names.get(kv, "?").replace("%s", str(m.arch))
+                rows.append({"key": key, "kv": kv, "at": f"{src}:{line}", "conditional": depth > 1,
+                             "present": key in m.kv})
+        voc = locate(root, branches.VOCAB, "ml.get_key(LLM_KV_TOKENIZER_MODEL, tokenizer_model);")
+        if voc:
+            rows.append({"key": "tokenizer.ggml.model", "kv": "LLM_KV_TOKENIZER_MODEL", "at": cite(branches.VOCAB, voc),
+                         "conditional": False, "present": "tokenizer.ggml.model" in m.kv})
+        out[pin] = {"rows": rows, "missing": [r["key"] for r in rows if not r["present"] and not r["conditional"]],
+                    "conditional_missing": [r["key"] for r in rows if not r["present"] and r["conditional"]]}
+    return out
+
+
+_EXP = re.compile(r"^blk\.(\d+)\.(ffn_(?:gate_up|gate|up|down)_exps)\.weight$")
+
+
+def section_experts(m):
+    """ggml type of each routed-expert projection, counted over the layers"""
+    out = {}
+    for t in m.tensors:
+        mt = _EXP.match(t["name"])
+        if mt:
+            d = out.setdefault(mt.group(2), {})
+            d[t["type"]] = d.get(t["type"], 0) + 1
+    return {k: dict(sorted(v.items())) for k, v in sorted(out.items())}
+
+
+# ------------------------------------------------------------------------------------------------ N18: MTP files
+
+def _same_val(a, b):
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
+    if a is None or b is None:
+        return a is b
+    return _same(a, b)
+
+
+def _array_id(e):
+    """a summary array entry's identity: its sha256 (arrays over the inline limit) or its values"""
+    if not e:
+        return None
+    return ("sha256", e["sha256"]) if "sha256" in e else ("value", json.dumps(e.get("value")))
+
+
+def _request_model(root, name):
+    d = os.path.join(root, name)
+    if not os.path.exists(os.path.join(d, "PIN.json")):
+        return None, f"request {name} has no result yet"
+    r = load_request(d)
+    if r["pin"]["status"] != "ok":
+        return None, f"request {name}: status {r['pin']['status']}"
+    if not all(ok for _, ok in r["integrity"]):
+        return None, f"request {name}: integrity failure"
+    return Model([f["summary"] for f in r["files"]]), None
+
+
+def mtp_reference(an, root, gguf_py, workdir):
+    """(tensor names of the reference NextN layer without "blk.<i>.", label) or (None, reason)"""
+    ref = an.get("mtp_reference") or {}
+    if "request" in ref:
+        rm, why = _request_model(root, ref["request"])
+        label = f"request {ref['request']}"
+    elif "tiny" in ref:
+        tm, why = build_tiny(ref["tiny"], gguf_py, workdir)
+        rm = (tm or {}).get(ref.get("variant"))
+        if rm is None and tm is not None:
+            why = f"tiny variant {ref.get('variant')!r} not built" + (f" ({why})" if why else "")
+        label = f"tiny {ref['tiny']} {ref.get('variant')}"
+    else:
+        return None, "no mtp_reference in the request"
+    if rm is None:
+        return None, why
+    layers = [i for i in branches._mtp_layers(rm) if branches._suffixes(rm, i)]
+    if not layers:
+        return None, f"{label} has no NextN layer"
+    return branches._suffixes(rm, layers[0]), f"{label}, blk.{layers[0]}"
+
+
+def mtp_verdict(m, root, ref):
+    """what the loader of the checkout at root asks of this file as a separate MTP model (by reading)"""
+    rules = branches.MTP_LOAD.get(m.arch)
+    if rules is None:
+        return {"verdict": f"UNKNOWN: no MTP_LOAD rules for {m.arch!r}", "hard": [], "check": [], "anchors": {}}
+
+    def hits(a):
+        return locate(root, a[0], a[1])
+
+    def found(group):
+        return [cite(a[0], hits(a)) for a in rules.get(group, []) if hits(a)]
+
+    anchors = {g: found(g) for g in ("detect", "no_detect", "no_graph", "graph")}
+    hard, check = [], []
+    layout = branches.file_layout(m, rules["trunk_probe"])
+    if layout == "MTP-only file":
+        if not anchors["detect"]:
+            hard.append(f"no MTP-only handling ({'; '.join(anchors['no_detect']) or 'detection anchor not found'}): "
+                        f"every trunk tensor is required, the file has none ({rules['trunk_probe']} absent)")
+    elif layout != "trunk + MTP in one file":
+        hard.append(f"file layout: {layout}")
+    if anchors["no_graph"]:
+        hard.append(f"the MTP graph is not implemented ({'; '.join(anchors['no_graph'])})")
+    elif not anchors["graph"]:
+        check.append("MTP graph anchor not found")
+    for name, a in rules["globals"]:
+        if hits(a) and name not in m.names:
+            hard.append(f"{name} absent, created with flags 0 ({cite(a[0], hits(a))})")
+        elif not hits(a):
+            check.append(f"anchor of {name} not found")
+    if "ple_table" in rules and m.has("ple.layers") and hits(rules["ple_table"]) and \
+            "per_layer_token_embd.weight" not in m.names:
+        hard.append(f"ple.layers is set, so per_layer_token_embd.weight is required "
+                    f"({cite(rules['ple_table'][0], hits(rules['ple_table']))}) and absent")
+    if "tokenizer.ggml.model" not in m.kv:
+        hard.append("tokenizer.ggml.model absent: the vocabulary loader requires it")
+    if ref is not None:
+        for i, r in ref.items():
+            if r["missing"]:
+                hard.append(f"blk.{i} lacks {r['missing']} (present in the reference NextN layer, not optional)")
+            if r["extra"]:
+                check.append(f"blk.{i} has {r['extra']}, which the reference NextN layer lacks: a tensor the loader "
+                             f"does not create fails the tensor count")
+    if hard:
+        verdict = "NOT loadable as a separate MTP model"
+    elif check:
+        verdict = "CHECK"
+    else:
+        verdict = "loadable as a separate MTP model (PROVISIONAL: by reading, nothing loaded)"
+    return {"verdict": verdict, "layout": layout, "hard": hard, "check": check, "anchors": anchors}
+
+
+def section_mtp_file(m, srcs, ref_names, trunk):
+    rules = branches.MTP_LOAD.get(m.arch) or {}
+    tok = m.kv.get("tokenizer.ggml.tokens", {})
+    res = {"arch": m.arch, "block_count": m.a("block_count"), "nextn_predict_layers": m.a("nextn_predict_layers"),
+           "n_layer": branches._layers(m),
+           "layout": branches.file_layout(m, rules.get("trunk_probe", "blk.0.attn_norm.weight")),
+           "tokenizer": {"model": m.v("tokenizer.ggml.model"), "pre": m.v("tokenizer.ggml.pre"),
+                         "tokens": tok.get("count", len(tok.get("value", [])) if tok else None)},
+           "chat_template": "tokenizer.chat_template" in m.kv,
+           "globals": {t["name"]: [t["type"], t["shape"]] for t in m.tensors if not t["name"].startswith("blk.")},
+           "layers_present": sorted({int(n.split(".")[1]) for n in m.names if n.startswith("blk.")}),
+           "mtp_layers": {i: sorted(branches._suffixes(m, i)) for i in branches._mtp_layers(m)}}
+    if ref_names is not None:
+        opt = rules.get("optional", set())
+        res["reference"] = {i: {"missing": sorted(ref_names - set(have) - opt),
+                                "missing_optional": sorted((ref_names - set(have)) & opt),
+                                "extra": sorted(set(have) - ref_names)}
+                            for i, have in res["mtp_layers"].items()}
+    if trunk is not None:
+        tk, mk = trunk.arch_keys(), m.arch_keys()
+        res["trunk"] = {"arch": trunk.arch, "keys_differ": [[k, tk.get(k, "(absent)"), mk.get(k, "(absent)")]
+                                                            for k in sorted(set(tk) | set(mk))
+                                                            if not _same_val(tk.get(k), mk.get(k))],
+                        "tokens_equal": _array_id(trunk.kv.get("tokenizer.ggml.tokens")) == _array_id(tok)
+                        if tok else None,
+                        "token_embd": [trunk.shapes.get("token_embd.weight"), m.shapes.get("token_embd.weight")]}
+    res["loader"] = {pin: mtp_verdict(m, root, res.get("reference")) for pin, root in srcs.items()}
+    return res
+
+
+def section_attach(srcs):
+    return {pin: [{"at": cite(rel, locate(root, rel, needle)), "what": what, "expected": pin in pins}
+                  for rel, needle, pins, what in branches.MTP_ATTACH] for pin, root in srcs.items()}
+
+
 # ------------------------------------------------------------------------------------------------ main
 
 def analyze_dir(d, srcs, gguf_py, workdir):
@@ -416,12 +695,29 @@ def analyze_dir(d, srcs, gguf_py, workdir):
         res["pin"] = {k: pin.get(k) for k in ("http_status", "http_body", "gguf_listing")}
         return res
     an = pin["request"].get("analysis", {})
-    m = Model([f["summary"] for f in req["files"]])
     res["files"] = [{**{k: f["rec"][k] for k in ("path", "size", "lfs_sha256", "header_bytes", "header_sha256",
                                                  "bytes_fetched", "header_gz_bytes", "size_check", "tensor_offsets")},
                      "size_check_recomputed": G.size_check(f["summary"], f["rec"]["size"]),
                      "n_tensors": f["summary"]["n_tensors"]}
                     for f in req["files"]]
+    if an.get("mode") == "mtp_files":
+        root = os.path.dirname(os.path.abspath(d))
+        ref, res["mtp_reference"] = mtp_reference(an, root, gguf_py, os.path.join(workdir, "ref"))
+        trunk, why = _request_model(root, an["trunk"]) if an.get("trunk") else (None, "no trunk request named")
+        res["trunk"] = an.get("trunk") if trunk is not None else why
+        res["mode"], res["mtp_files"] = "mtp_files", []
+        for k, f in enumerate(req["files"]):
+            m = Model([f["summary"]])
+            item = {"path": f["rec"]["path"], **section_mtp_file(m, srcs, ref, trunk)}
+            item["identity"] = section_identity(m, srcs)
+            item["config"] = section_config(m, an.get("hf_config"), an.get("graph"))
+            item["required_keys"] = section_required_keys(m, srcs)
+            item["experts"] = section_experts(m)
+            item["audit"] = section_audit([f], os.path.join(workdir, f"mtp{k}"))
+            res["mtp_files"].append(item)
+        res["attach"] = section_attach(srcs)
+        return res
+    m = Model([f["summary"] for f in req["files"]])
     res["identity"] = section_identity(m, srcs)
     res["groups"] = section_groups(m, srcs)
     res["chat_template"] = section_template(m, an.get("hf_chat_template"))
@@ -430,6 +726,8 @@ def analyze_dir(d, srcs, gguf_py, workdir):
     res["hparams"] = section_hparams(m, tiny)
     res["config"] = section_config(m, an.get("hf_config"), an.get("graph"))
     res["branches"] = section_branches(m, an.get("graph"), tiny, srcs)
+    res["required_keys"] = section_required_keys(m, srcs)
+    res["experts"] = section_experts(m)
     res["audit"] = section_audit(req["files"], workdir)
     return res
 
@@ -442,6 +740,14 @@ def render(results, srcs):
     for name, r in results.items():
         w(f"\n=== {name} ({r['dir']})")
         if "listing" in r:
+            for x in r["listing"].get("repos", []):
+                files = x.get("gguf_files") or []
+                w(f"named repo {x['repo']} @ {x.get('revision')} (requested {x['requested_revision']}): {x['status']}" +
+                  (f", arch={x.get('gguf_architecture')}, lastModified={x.get('lastModified')}, {len(files)} .gguf, "
+                   f"{sum(f['size'] or 0 for f in files) / 2**30:.1f} GiB" if x["status"] == "ok" else
+                   f", HTTP {x.get('http_status')}"))
+                for f in files:
+                    w(f"    {f['path']}  {f['size']} B = {(f['size'] or 0) / 2**30:.2f} GiB  lfs {str(f['lfs_sha256'])[:12]}")
             for s in r["listing"]["searches"]:
                 w(f"search {s['search']!r} (architectures {s['architectures']}): {s['n_results']} repos")
                 for it in s["results"]:
@@ -456,6 +762,9 @@ def render(results, srcs):
         if "integrity" in r:
             w("integrity: " + ", ".join(f"{os.path.basename(p)} {'OK' if ok else 'FAIL'}" for p, ok in r["integrity"]))
         if r.get("status") != "ok":
+            continue
+        if r.get("mode") == "mtp_files":
+            render_mtp(r, w)
             continue
         for f in r["files"]:
             w(f"  {f['path']}: {f['size']} B, LFS sha256 {f['lfs_sha256']}, header {f['header_bytes']} B "
@@ -506,6 +815,8 @@ def render(results, srcs):
                 w(f"       tiny: " + "; ".join(f"{k}: {v}" for k, v in b["tiny"].items()))
             for n, c in b["anchors"].items():
                 w(f"       [{n}] " + "; ".join(c))
+        render_keys(r["required_keys"], w)
+        w(f"  routed-expert types per projection (layers): {json.dumps(r['experts'])}")
         a = r["audit"]
         w(f"\n(a) tools/gguf_quant_audit.py on the header-only shards (files total {a['file_bytes']} B = "
           f"{a['file_bytes'] / 2**30:.3f} GiB)")
@@ -514,6 +825,70 @@ def render(results, srcs):
         w(f"(f) ADR-012 D5 floor (>= 4.0 bpw, routed experts and non-expert matrices): {a['verdict']}; lowest-bpw "
           "matrices: " + ", ".join(f"{x['tensor']} {x['type']} {x['bpw']:.3f}" for x in a["lowest_bpw_matrices"][:6]))
     return "\n".join(out)
+
+
+def render_keys(rk, w):
+    w("  keys read without a default (llama_model_base::load_hparams body, load_arch_hparams, the vocabulary):")
+    for pin, k in rk.items():
+        if "error" in k:
+            w(f"    [{pin}] {k['error']}")
+            continue
+        unc = [x for x in k["rows"] if not x["conditional"]]
+        con = [x for x in k["rows"] if x["conditional"]]
+        w(f"    [{pin}] {len(unc)} required, missing in the file: {k['missing']}; " +
+          (f"{len(con)} only inside a nested block (conditional), missing: {k['conditional_missing']} "
+           f"({', '.join(x['key'] + ' ' + x['at'] for x in con if not x['present'])})" if con else "none conditional"))
+
+
+def render_mtp(r, w):
+    w(f"mode mtp_files; NextN reference: {r['mtp_reference']}; trunk request: {r['trunk']}")
+    for f in r["files"]:
+        w(f"  {f['path']}: {f['size']} B, LFS sha256 {f['lfs_sha256']}, header {f['header_bytes']} B "
+          f"(sha256 {f['header_sha256']}), fetched {f['bytes_fetched']} B, committed {f['header_gz_bytes']} B gz, "
+          f"{f['n_tensors']} tensors, size check {f['size_check_recomputed']}, offsets {f['tensor_offsets']}")
+    w("\nhow llama.cpp attaches a separate MTP file:")
+    for pin, rows in r["attach"].items():
+        for x in rows:
+            w(f"  [{pin}] {x['at']}: {x['what']}")
+    for x in r["mtp_files"]:
+        w(f"\n--- {x['path']}: arch {x['arch']}, block_count {x['block_count']}, nextn_predict_layers "
+          f"{x['nextn_predict_layers']}, n_layer {x['n_layer']}; layout: {x['layout']}")
+        t = x["tokenizer"]
+        w(f"  tokenizer: model {t['model']}, pre {t['pre']}, {t['tokens']} tokens; embedded chat template: "
+          f"{x['chat_template']}")
+        w("  non-layer tensors: " + (", ".join(f"{n} {ty} {sh}" for n, (ty, sh) in sorted(x["globals"].items()))
+                                     or "none"))
+        w(f"  layers present: {x['layers_present']}")
+        for i, names in x["mtp_layers"].items():
+            w(f"  blk.{i}: {len(names)} tensors: {names}")
+        for i, d in (x.get("reference") or {}).items():
+            w(f"  vs the reference NextN layer: blk.{i} missing {d['missing']}, missing optional "
+              f"{d['missing_optional']}, extra {d['extra']}")
+        if x.get("trunk"):
+            tr = x["trunk"]
+            w(f"  vs the trunk ({tr['arch']}): arch keys that differ: " +
+              ("; ".join(f"{k}: trunk {fmt(a, 40)} / this {fmt(b, 40)}" for k, a, b in tr["keys_differ"]) or "none") +
+              f"; token list equal: {tr['tokens_equal']}; token_embd trunk {tr['token_embd'][0]} / this "
+              f"{tr['token_embd'][1]}")
+        if x.get("config"):
+            bad = [c for c in x["config"] if not c["match"]]
+            w(f"  config.json cross-check: {sum(1 for c in x['config'] if c['match'])} of {len(x['config'])} OK" +
+              ("".join(f"; {'ABSENT' if c['match'] is None else 'DIFF'} {c['config']} = {fmt(c['config_value'], 30)} -> "
+                       f"{c['gguf']} = {fmt(c['gguf_value'], 30)}" for c in bad)))
+        render_keys(x["required_keys"], w)
+        w(f"  routed-expert types per projection (layers): {json.dumps(x['experts'])}")
+        a = x["audit"]
+        w(f"  audit: {a['verdict']}, {a['total_gib']:.3f} GiB, {a['total_bpw']:.3f} bpw; " +
+          ", ".join(f"{k} {v['bpw']:.3f} bpw {v['types']}" for k, v in a["classes"].items()))
+        for pin, v in x["loader"].items():
+            w(f"  loader [{pin}]: {v['verdict']}")
+            for h in v["hard"]:
+                w(f"      - {h}")
+            for c in v["check"]:
+                w(f"      ? {c}")
+            for g, c in v["anchors"].items():
+                if c:
+                    w(f"      {g}: {'; '.join(c)}")
 
 
 def main(argv=None):
