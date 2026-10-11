@@ -170,6 +170,11 @@ class Check(unittest.TestCase):
         self.assertRejects(self.result(skips=[("t.M.setUpClass", "no MTP run under /w"), ("t.D.setUpClass", "no run ub16 under /w")]),
                            "skipped=2, expected skipped=1", "skip not allowed here: t.D.setUpClass")
 
+    def test_right_reason_on_another_test(self):
+        """The allowed reason does not license the skip of another class (both id and reason must match)."""
+        self.assertRejects(self.result(skips=[("t.D.setUpClass", "no MTP run under /tmp/w")]),
+                           "skip not allowed here: t.D.setUpClass", "expected skip did not happen: t.M.setUpClass")
+
     def test_wrong_reason(self):
         self.assertRejects(self.result(skips=[("t.M.setUpClass", "set GLM5NEXT_DECODE_DUMP")]),
                            "skip not allowed here", "expected skip did not happen")
