@@ -58,6 +58,11 @@ show $WT third_party/hf/mimo-v2.6-flash-chat/config.json 303 303
 show $WT scripts/r1/configs/llamacpp-server.json 10 10
 show $WT scripts/r1/configs/llamacpp-server.json 36 39
 show $WT scripts/r1/configs/llamacpp-server.json 42 42
+show $WT scripts/r1/configs/llamacpp-server.json 51 51
 show $WT scripts/r1/configs/llamacpp-server.json 66 66
+show $WT scripts/r1/configs/llamacpp-server-moecache.json 52 52
+show $WT scripts/r1/configs/llamacpp-server-moecache.json 64 64
+show $WT scripts/r1/configs/ik-llamacpp-server.json 50 50
+show $WT scripts/r1/configs/ik-llamacpp-server.json 62 62
 show $WT third_party/hf/mimo-v2.6-flash-chat/config.json 47 47
 show $WT docs/reassessment/ROADMAP.md 55 55
