@@ -61,6 +61,10 @@ the last layer although every product agrees from its own input to a scaled erro
 (measured; the probe and its output are in docs/evidence/2026-10-10-quant-fa-parity.md). A whole-model comparison of
 quantized weights needs a statistical metric; the per-product check is the exact one.
 
+The model-independent part (_QuantOpsBase: the evaluation of every product once per run, test_matmuls,
+test_activation_quantization_visible, the coverage helper, print_table) is shared with
+tests/test_glm5next_quant_parity.py.
+
 Env: QWEN4EXP_QUANT_DUMP (root: <type>/model.gguf, <type>/tokens.txt, <type>/<run>/), LLAMA_CPP_GGUF_PY,
 PARITY_LLAMA_COMMIT.
 """
@@ -85,14 +89,14 @@ COMMIT = os.environ.get("PARITY_LLAMA_COMMIT", "UNKNOWN")
 SKIP = "set QWEN4EXP_QUANT_DUMP, LLAMA_CPP_GGUF_PY: run tools/tinygen/run_parity_quant.sh"
 TOL_OP = 1e-5
 VISIBLE = 20 * TOL_OP
-CHAIN_AGREE = 0.5   # share of hc_gate rows (all layers and graphs of a run) within TOL_OP, see test_matmuls
+CHAIN_AGREE = 0.5   # per bounded product: share of its rows (all layers and graphs of a run) within TOL_OP
 TABLE = []          # (type, run, site, weight type, layer, graph, rel emulated, rel without activation quantization)
 _MODELS = {}
 # tensors that never enter a matrix product: gathered (get_rows) or cast to f32 (the PLE conv kernel)
 NOT_MATMUL = ("token_embd.weight", "per_layer_token_embd.weight", "ple_conv1d.weight")
 
 
-def model(path, act):
+def model(path, act, hparams=read_hparams):
     key = (str(path), act)
     if key not in _MODELS:
         sys.path.append(GGUF_PY)
@@ -102,7 +106,7 @@ def model(path, act):
         finally:
             sys.path.remove(GGUF_PY)
         r = GGUFReader(str(path))
-        _MODELS[key] = (QT.load(r, dequantize, act), read_hparams({f.name: f for f in r.fields.values()}),
+        _MODELS[key] = (QT.load(r, dequantize, act), hparams({f.name: f for f in r.fields.values()}),
                         {t.name: t.tensor_type.name for t in r.tensors},
                         {t.name: [int(x) for x in t.shape] for t in r.tensors})
     return _MODELS[key]
@@ -132,18 +136,23 @@ def rel(got, want):
     return float(np.abs(got - want).max() / (float(np.abs(want).max()) + 1e-30))
 
 
-class _QuantOps:
-    QTYPE = RUN = None
+class _QuantOpsBase:
+    """Model-independent part: setUpClass evaluates every product of every graph of one run (QTYPE / RUN under ROOT)
+    once; test_matmuls and test_activation_quantization_visible check them. A model's subclass gives _products,
+    HPARAMS (GGUF fields -> hyper-parameters), NOT_MATMUL, SKIP, its own TABLE and the model-specific tests."""
+    QTYPE = RUN = ROOT = SKIP = HPARAMS = None
+    TABLE = None
+    NOT_MATMUL = ()
 
     @classmethod
     def setUpClass(cls):
-        if not (DUMP and GGUF_PY):
-            raise unittest.SkipTest(SKIP)
-        cls.dir = pathlib.Path(DUMP, cls.QTYPE)
+        if not (cls.ROOT and GGUF_PY):
+            raise unittest.SkipTest(cls.SKIP)
+        cls.dir = pathlib.Path(cls.ROOT, cls.QTYPE)
         if not (cls.dir / cls.RUN / "manifest.json").exists():
-            raise unittest.SkipTest(f"no run {cls.QTYPE}/{cls.RUN} under {DUMP}")
-        cls.W, cls.hp, cls.types, cls.shapes = model(cls.dir / "model.gguf", True)
-        cls.W0 = model(cls.dir / "model.gguf", False)[0]
+            raise unittest.SkipTest(f"no run {cls.QTYPE}/{cls.RUN} under {cls.ROOT}")
+        cls.W, cls.hp, cls.types, cls.shapes = model(cls.dir / "model.gguf", True, cls.HPARAMS)
+        cls.W0 = model(cls.dir / "model.gguf", False, cls.HPARAMS)[0]
         cls.Wabs = absolute(cls.W)
         cls.R = Run(cls.RUN, cls.dir)
         # every product evaluated once: (site, weight names, layer, graph, got, want, without activation
@@ -158,6 +167,72 @@ class _QuantOps:
     def _dump(cls, gr, name, k=0, rows=True):
         a, _ = cls.R.dump(gr["g"], name, k)
         return a.reshape(gr["n"], -1) if rows else a
+
+    # ---- tests ----
+    def ty(self, wnames):
+        return "+".join(self.types[w] for w in wnames)
+
+    def test_matmuls(self):
+        agree = {}          # bounded site -> [rows within TOL_OP, rows]
+        for site, wnames, il, g, got, want, plain, sc, bound in self.results:
+            ty = self.ty(wnames)
+            e, p = rel(got, want), rel(got, plain)
+            if bound is not None:
+                lim = bound + TOL_OP * np.abs(want).max()
+                diff = np.abs(np.asarray(got).reshape(want.shape) - want)
+                self.TABLE.append((self.QTYPE, self.RUN, site, ty, il, g, float((diff / lim).max()), e, np.nan, p))
+                self.assertLessEqual(float((diff - lim).max()), 0.0,
+                                     f"{self.QTYPE}/{self.RUN} {site} L{il} g{g}: beyond the bound (rel {e:.2e})")
+                d2 = diff.reshape(diff.shape[0], -1)
+                a = agree.setdefault(site, [0, 0])
+                a[0] += int((d2.max(axis=1) <= TOL_OP * np.abs(want).max()).sum())
+                a[1] += d2.shape[0]
+                continue
+            es, ps = scaled(got, want, sc), scaled(got, plain, sc)
+            self.TABLE.append((self.QTYPE, self.RUN, site, ty, il, g, es, e, ps, p))
+            self.assertLess(es, TOL_OP, f"{self.QTYPE}/{self.RUN} {site} ({ty}) L{il} g{g}: scaled error {es:.2e} "
+                                        f"(normwise {e:.2e}; without activation quantization {ps:.2e})")
+            if ty == "F32":     # no conversion of the activations (vec_dot_type F32): both oracles agree
+                self.assertEqual(e, p)
+        # bounded sites: a row (token) whose inputs all round alike matches within TOL_OP; only rows with an input on
+        # a rounding boundary may differ (an oracle without the rounding there would miss nearly every row)
+        for site, (ok, rows) in agree.items():
+            self.TABLE.append((self.QTYPE, self.RUN, f"{site}: rows within TOL_OP {ok}/{rows}", "-", -1, -1,
+                               np.nan, np.nan, np.nan, np.nan))
+            self.assertGreaterEqual(ok / max(rows, 1), CHAIN_AGREE, f"{site}: rows within TOL_OP: {ok}/{rows}")
+
+    def test_activation_quantization_visible(self):
+        """Per product and weight type: without the activation quantization the scaled error exceeds TOL_OP in every
+        graph and reaches VISIBLE = 20 TOL_OP in some graph of the run (the check tells the emulation from its
+        absence)."""
+        low, high = {}, {}
+        for site, wnames, il, g, got, want, plain, sc, bound in self.results:
+            ty = self.ty(wnames)
+            if ty == "F32" or bound is not None:
+                continue
+            ps = scaled(got, plain, sc)
+            low[(site, ty)] = min(low.get((site, ty), np.inf), ps)
+            high[(site, ty)] = max(high.get((site, ty), 0.0), ps)
+        self.assertTrue(low)
+        for key in low:
+            self.assertGreater(low[key], TOL_OP, f"{self.QTYPE}/{self.RUN} {key}: without activation quantization "
+                                                 f"only {low[key]:.2e} in some graph")
+            self.assertGreater(high[key], VISIBLE, f"{self.QTYPE}/{self.RUN} {key}: without activation quantization "
+                                                   f"at most {high[key]:.2e}")
+
+    def checked_types(self):
+        """The weight types the products of this run used; every non-F32 type of a matrix-product weight of the model
+        must be among them."""
+        model_types = {ty for name, ty in self.types.items() if ty != "F32" and not name.endswith(self.NOT_MATMUL)}
+        checked = {self.types[w] for _, wnames, *_ in self.results for w in wnames}
+        self.assertTrue(model_types <= checked, f"weight types never checked: {sorted(model_types - checked)}")
+        return checked
+
+
+class _QuantOps(_QuantOpsBase):
+    ROOT, SKIP, TABLE = DUMP, SKIP, TABLE
+    HPARAMS = staticmethod(read_hparams)
+    NOT_MATMUL = NOT_MATMUL
 
     @classmethod
     def _products(cls, gr):
@@ -246,63 +321,8 @@ class _QuantOps:
         a16 = QT.act_quant(Q.silu((xn @ w_down.T) / cls.hp["hc"]), "F16")
         return F.ulp16(a16) @ np.abs(np.asarray(w_up)).T
 
-    # ---- tests ----
-    def ty(self, wnames):
-        return "+".join(self.types[w] for w in wnames)
-
-    def test_matmuls(self):
-        rows_ok = rows_all = 0
-        for site, wnames, il, g, got, want, plain, sc, bound in self.results:
-            ty = self.ty(wnames)
-            e, p = rel(got, want), rel(got, plain)
-            if bound is not None:
-                lim = bound + TOL_OP * np.abs(want).max()
-                diff = np.abs(np.asarray(got).reshape(want.shape) - want)
-                TABLE.append((self.QTYPE, self.RUN, site, ty, il, g, float((diff / lim).max()), e, np.nan, p))
-                self.assertLessEqual(float((diff - lim).max()), 0.0,
-                                     f"{self.QTYPE}/{self.RUN} {site} L{il} g{g}: beyond one f16 spacing per input "
-                                     f"(rel {e:.2e})")
-                rows_ok += int((diff.max(axis=1) <= TOL_OP * np.abs(want).max()).sum())
-                rows_all += diff.shape[0]
-                continue
-            es, ps = scaled(got, want, sc), scaled(got, plain, sc)
-            TABLE.append((self.QTYPE, self.RUN, site, ty, il, g, es, e, ps, p))
-            self.assertLess(es, TOL_OP, f"{self.QTYPE}/{self.RUN} {site} ({ty}) L{il} g{g}: scaled error {es:.2e} "
-                                        f"(normwise {e:.2e}; without activation quantization {ps:.2e})")
-            if ty == "F32":     # no conversion of the activations (vec_dot_type F32): both oracles agree
-                self.assertEqual(e, p)
-        # the f16 inputs of the up projections: a row (token) whose 8 inputs all round alike matches within TOL_OP;
-        # only rows with an input on a binary16 rounding boundary may differ (an oracle without the f16 rounding
-        # would miss nearly every row)
-        TABLE.append((self.QTYPE, self.RUN, f"hc_gate rows within TOL_OP: {rows_ok}/{rows_all}", "F16", -1, -1,
-                      np.nan, np.nan, np.nan, np.nan))
-        self.assertGreaterEqual(rows_ok / max(rows_all, 1), CHAIN_AGREE,
-                                f"hc_gate rows within TOL_OP: {rows_ok}/{rows_all}")
-
-    def test_activation_quantization_visible(self):
-        """Per product and weight type: without the activation quantization the scaled error exceeds TOL_OP in every
-        graph and reaches VISIBLE = 20 TOL_OP in some graph of the run (the check tells the emulation from its
-        absence)."""
-        low, high = {}, {}
-        for site, wnames, il, g, got, want, plain, sc, bound in self.results:
-            ty = self.ty(wnames)
-            if ty == "F32" or bound is not None:
-                continue
-            ps = scaled(got, plain, sc)
-            low[(site, ty)] = min(low.get((site, ty), np.inf), ps)
-            high[(site, ty)] = max(high.get((site, ty), 0.0), ps)
-        self.assertTrue(low)
-        for key in low:
-            self.assertGreater(low[key], TOL_OP, f"{self.QTYPE}/{self.RUN} {key}: without activation quantization "
-                                                 f"only {low[key]:.2e} in some graph")
-            self.assertGreater(high[key], VISIBLE, f"{self.QTYPE}/{self.RUN} {key}: without activation quantization "
-                                                   f"at most {high[key]:.2e}")
-
     def test_every_type_checked(self):
-        model_types = {ty for name, ty in self.types.items()
-                       if ty != "F32" and not name.endswith(NOT_MATMUL)}
-        checked = {self.types[w] for _, wnames, *_ in self.results for w in wnames}
-        self.assertTrue(model_types <= checked, f"weight types never checked: {sorted(model_types - checked)}")
+        checked = self.checked_types()
         if self.QTYPE == "Q4_K_M":
             self.assertTrue({"Q4_K", "Q5_K", "Q6_K", "Q8_0", "F16"} <= checked, sorted(checked))
         else:
@@ -339,7 +359,7 @@ class _QuantOps:
             self.assertTrue(np.array_equal(got, Q.hc_init(emb, hp["hc"])), f"hc_init g{gr['g']}")
             want = Q.ple_embed(self.W["per_layer_token_embd.weight"], rows_all[np.array(gr["pos"])])
             self.assertTrue(np.array_equal(self._dump(gr, "ple_embd"), want), f"ple_embd g{gr['g']}")
-            TABLE.append((self.QTYPE, self.RUN, "hc_init, ple_embd (gathers, exact)",
+            self.TABLE.append((self.QTYPE, self.RUN, "hc_init, ple_embd (gathers, exact)",
                           f"{self.types['token_embd.weight']},{self.types['per_layer_token_embd.weight']}", -1,
                           gr["g"], 0.0, 0.0, 0.0, 0.0))
 
@@ -363,7 +383,8 @@ class _QuantOps:
                 for name, key in (("ple_gate", "gate"), ("ple_gated_value", "gated"), ("ple_conv_out", "conv_out")):
                     got = self._dump(gr, f"{name}-{il}", rows=False)
                     e, p = rel(got, outs[True][key]), rel(got, outs[False][key])
-                    TABLE.append((self.QTYPE, self.RUN, f"{name} (ple_key, ple_value inside)", ty, il, gr["g"],
+                    self.TABLE.append((self.QTYPE, self.RUN, f"{name} (ple_key, ple_value inside)", ty, il,
+                                       gr["g"],
                                   np.nan, e, np.nan, p))
                     self.assertLess(e, TOL_OP, f"{name} L{il} g{gr['g']}: {e:.2e}")
 
@@ -383,11 +404,11 @@ Q4_K_M_pf64_nr = _cls("Q4_K_M", "pf64-nr")
 Q4_K_M_decode_nr = _cls("Q4_K_M", "decode-nr")
 
 
-def tearDownModule():
-    if not TABLE:
+def print_table(table, model_name):
+    if not table:
         return
     worst = {}
-    for qt, run, site, ty, il, g, es, e, ps, p in TABLE:
+    for qt, run, site, ty, il, g, es, e, ps, p in table:
         w = worst.setdefault((qt, run, site, ty), dict(es=np.nan, e=0.0, il=-1, g=-1, ps=[], p=[], k=-1.0))
         key = es if not np.isnan(es) else e
         if key >= w["k"]:
@@ -395,10 +416,10 @@ def tearDownModule():
         w["e"] = max(w["e"], e)
         w["ps"].append(ps)
         w["p"].append(p)
-    print(f"\nquantized products from llama.cpp's own inputs ({COMMIT}), worst over layers and graphs. scaled = "
-          f"max|got-want| / max(|W| |x_q|) (asserted < TOL_OP = {TOL_OP:g}; for hc_gate: the largest share of the "
-          f"one-spacing bound, asserted <= 1); rel = max|got-want| / max|want|; no-act = the same without the "
-          f"activation quantization (min .. max over graphs):", file=sys.stderr)
+    print(f"\n{model_name}: quantized products from llama.cpp's own inputs ({COMMIT}), worst over layers and graphs. "
+          f"scaled = max|got-want| / max(|W| |x_q|) (asserted < TOL_OP = {TOL_OP:g}; for a bounded product: the "
+          f"largest share of its bound, asserted <= 1); rel = max|got-want| / max|want|; no-act = the same without "
+          f"the activation quantization (min .. max over graphs):", file=sys.stderr)
     print(f"{'type':7s} {'run':9s} {'product':44s} {'weight':9s} {'scaled':>9s} {'rel':>9s} {'layer':>5s} {'graph':>5s}"
           f" {'no-act scaled':>21s} {'no-act rel':>21s}", file=sys.stderr)
 
@@ -409,6 +430,10 @@ def tearDownModule():
         es = f"{w['es']:9.2e}" if not np.isnan(w["es"]) else f"{'-':>9s}"
         print(f"{qt:7s} {run:9s} {site:44s} {ty:9s} {es} {w['e']:9.2e} {w['il']:5d} {w['g']:5d} {rng(w['ps'])} "
               f"{rng(w['p'])}", file=sys.stderr)
+
+
+def tearDownModule():
+    print_table(TABLE, "qwen4exp")
 
 
 if __name__ == "__main__":
