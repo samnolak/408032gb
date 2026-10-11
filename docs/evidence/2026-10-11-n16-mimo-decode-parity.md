@@ -26,7 +26,7 @@ was printed from the pinned checkout (section "Source lines").
 | property tests | tests/test_mimo2_chunked_ref.py (7, numpy only), tests/test_mxfp4_ref.py (4; one compares with the pinned gguf-py and skips without it); both run in the CI `unit tests` step as well |
 | CI | step `n16-mimo2-decode` in `.github/workflows/ci.yml` job `cpu-parity` (ec7630a) and in `.github/workflows/parity-r1-pin.yml` job `parity` (R1 pin), both through `tools/ci/check_unittest.py`; `tools/ci/parity_expectations.json`: Ran 92, no skips, at both commits |
 | mutation check, probes, run scripts | docs/evidence/mutation-scripts/2026-10-11-n16-mimo2-mutations.py (19 mutants), -bites.sh, -genhash.sh, -evict-probe.py, -pindiff.py, -repack-diff.py, -build.sh, -final-runs.sh, -unit.sh |
-| real config | third_party/hf/mimo-v2.6-flash-chat/REQUEST.json (vendored by `vendor-hf-branch` when the branch is pushed; not used here) |
+| real config | data/hf-requests/mimo-v2.6-flash-chat/REQUEST.json (vendored into third_party/hf/mimo-v2.6-flash-chat/ by `vendor-hf-branch` when the branch is pushed; not used here) |
 
 ## What the pins have (CONFIRMED from the source unless labelled)
 
@@ -179,7 +179,8 @@ quantization emulated; without it every product must be off by more than TOL_OP 
 * MXFP4 for anything but the routed experts, NVFP4, Q4_0/IQ4_NL (they share the Q8_0 activation path), MXFP4 in the
   MTP block; MXFP4 GPU kernels.
 * the real MiMo-V2.6-Flash hyper-parameters (window, sinks on global layers, value scale, fused qkv, MTP layer count):
-  UNKNOWN until `third_party/hf/mimo-v2.6-flash-chat` is vendored (the request is committed; the repo id is the one
+  UNKNOWN until `third_party/hf/mimo-v2.6-flash-chat` is vendored (the request is committed as
+  `data/hf-requests/mimo-v2.6-flash-chat/REQUEST.json`; the repo id is the one
   docs/reassessment/research/R1-models.md:41 and :267 recommend, `XiaomiMiMo/MiMo-V2.6-Flash-MOPD`;
   `models/mimo-v2.6-flash.json:3` names `...-Flash-RL`, marked outdated at R1-models.md:267); the remote-code file
   names in the request are a guess (PROVISIONAL), a wrong name is recorded as absent upstream.
