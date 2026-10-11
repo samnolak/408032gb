@@ -692,3 +692,232 @@ $ python3 -c "import yaml; ..."      # yaml.safe_load of both workflow files, jo
 .github/workflows/ci.yml parsed; jobs: ['cpu-parity', 'ref-torch-cpu', 'cuda-compile', 'strata-glm-sm89', 'lt-strata-sm89']
 .github/workflows/parity-r1-pin.yml parsed; jobs: ['parity', 'ik-glm5next']
 ```
+
+## Merge with N17 (`claude/n17-mimo-mtp-heads-fa` at `3ce2293`, merge commit `c621dc6`)
+
+N17 and N19 both changed `tools/dump/dump_tensors.cpp` from `0b0eace`. N17 merged into this branch with
+`git merge --no-ff` (merge commit, no rebase). Conflicts and how they were resolved (CONFIRMED by the merge commit):
+- `tools/dump/dump_tensors.cpp`: `CallRec` keeps N17's `head`, `out0` and `outputs` and N19's several-sequence fields.
+  The manifest writes N19's `multi` block, then N17's MTP fields. The comment on `kind` lists both.
+- `.github/workflows/ci.yml`, `.github/workflows/parity-r1-pin.yml`: the N17 step, then the N19 step, both through
+  `tools/ci/check_unittest.py`; both header comments in `parity-r1-pin.yml`.
+- `tools/ci/parity_expectations.json`: `n17-mimo2-mtp-heads-fa` (Ran 70) and `n19-qwen4exp-multiseq` (Ran 72), no skips, at
+  both pins.
+- `docs/evidence/mutation-scripts/README.md`: both rows and both probe paragraphs.
+
+`docs/reassessment/CORRECTNESS.md` merged without a conflict: only N17's block in the gap 12 paragraph is new here.
+The rest of `dump_tensors.cpp` merged on its own. N19's several-sequence steps run in a branch of their own, which refuses
+`DUMP_MTP`. N17's `r<n>` / `d<n>` steps are in the single-sequence branch. A plan counts as several-sequence only if a
+step has `@` or starts with `c` / `x`, so N17's plans stay single-sequence.
+
+Checks on the merged tree (`merge-runs.sh` ran on the staged merge, `MERGE_HEAD` `3ce2293`, before the commit; nothing was
+edited between the runs and the commit, and `merge-confirm.sh` shows on `c621dc6` that both builds were up to date and
+re-runs the N17 and N19 steps):
+- fresh `tools/g0` builds of the merged dump tool at both pins;
+- every dump-based CI step through the checker at both pins, with the expected counts;
+- N19's byte-identity script against `0b0eace`'s dump tool at ec7630a. The only file that differs is the MTP manifest of
+  the `mtp` mode, and only by the call fields N17 adds (`head`, `out0`, `outputs`; equal without them, below). This is
+  N17's documented manifest change, not a change in any dump;
+- N17's one-head compatibility check (`n16compat`) with that same `0b0eace` binary: 11 534 files, 0 differ;
+- the unit discovery, the checker and hook tests, and the YAML parse.
+
+The N19 byte-identity line "vs 699fd33" names `HEAD` at the time of the run: the merge was staged, not yet committed.
+
+```
+$ git log --oneline --graph -n 4
+*   c621dc6 [parity-qa] merge claude/n17-mimo-mtp-heads-fa into claude/n19-qwen4exp-multiseq: both dump-tool features, both CI steps and expectations
+|\  
+| * 3ce2293 [parity-qa] evidence, docs: N17 audit MINORs M1, M3, M4, M5 (chain_heads true for mimo2, pins of O / vec lines, section labels, call order) and section 8
+| * 4b627c4 [parity-qa] ref, tests, dump: pin both llama.cpp commits on every new citation (N17 audit M2); AVX2 dot lines, foreign positions asserted (nits)
+| * 0352df4 [parity-qa] docs: CORRECTNESS gap 12 - what N17 closed (three MiMo MTP heads, R1 default precision with sinks on CPU)
+$ cat <S>/n17/merge-runs.sh
+#!/usr/bin/env bash
+# N17 into N19 merge (worktree /home/user/wt-n19, merge staged, not yet committed or committed): fresh dump-tool builds at
+# both pins, every dump-based CI step through tools/ci/check_unittest.py at both pins, N19's byte-identity script and
+# N17's n16compat against 0b0eace's dump tool at ec7630a. Work directories under <S>/n17 (deleted after each step).
+set -uo pipefail
+S=<S>
+WT=/home/user/wt-n19
+M=$WT/docs/evidence/mutation-scripts
+cd $S/n17/cwd
+echo "wt-n19 HEAD $(git -C $WT rev-parse --short HEAD); MERGE_HEAD $(git -C $WT rev-parse --short MERGE_HEAD 2>/dev/null || echo none); changed vs HEAD: $(git -C $WT status --short | wc -l)"
+pin() { if [ "$1" = ec ]; then echo $S/llama-ec7630a; else echo $S/llama.cpp; fi; }
+for p in ec r1; do
+  L=$(pin $p); B=$S/n17/merge-build-$p
+  rm -rf $B; t0=$(date +%s)
+  cmake -S $WT/tools/g0 -B $B -DLLAMA_CPP_DIR=$L -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF -DG0_QUANTIZE=ON > $S/n17/merge-cmake-$p.log 2>&1 \
+    && cmake --build $B -j4 --target dump-tensors > $S/n17/merge-build-$p.log 2>&1
+  echo "build $p rc=$? $(( $(date +%s) - t0 )) s"
+done
+for p in ec r1; do
+  L=$(pin $p); B=$S/n17/merge-build-$p
+  for st in n17-mimo2-mtp-heads-fa:run_parity_mimo2_n17.sh n19-qwen4exp-multiseq:run_parity_qwen4exp_multiseq.sh \
+            g1-glm:run_parity.sh g1-mimo:run_parity_mimo.sh n2-qwen4exp:run_parity_qwen4exp.sh \
+            n6-qwen4exp-decode:run_parity_qwen4exp_decode.sh n9-glm5next-decode:run_parity_glm5next_decode.sh \
+            n10-f16fa:run_parity_f16fa.sh n10-quant:run_parity_quant.sh n16-mimo2-decode:run_parity_mimo2_decode.sh; do
+    step=${st%%:*}; drv=${st##*:}
+    rm -rf $S/n17/tmp; mkdir -p $S/n17/tmp; W=$S/n17/tmp/w
+    t0=$(date +%s)
+    # PYTHONPATH: run_parity.sh (g1-glm) imports tests.* from the current directory, which is a scratch directory here
+    TMPDIR=$S/n17/tmp PYTHONPATH=$WT MIMO2_N17_WORK=$W QWEN4EXP_MULTISEQ_WORK=$W GLM5NEXT_DECODE_WORK=$W F16FA_WORK=$W \
+      QUANT_WORK=$W MIMO2_DECODE_WORK=$W \
+      python3 $WT/tools/ci/check_unittest.py --step $step --checkout $L -- $WT/tools/tinygen/$drv $L $B \
+      > $S/n17/merge-$step-$p.log 2>&1
+    echo "$step $p wrapper_rc=$? wall_s=$(( $(date +%s) - t0 ))"
+    tail -n 1 $S/n17/merge-$step-$p.log
+  done
+done
+rm -rf $S/n17/tmp
+echo "== N19 byte identity against 0b0eace's dump tool (ec7630a)"
+rm -rf $S/n17/merge-byteid
+bash $M/2026-10-11-n19-byteid.sh $WT 0b0eace $S/n17/merge-build-ec $S/llama-ec7630a $S/n17/merge-byteid
+echo "== N17 one-head compatibility (n16compat) against 0b0eace's dump tool (ec7630a)"
+bash $M/2026-10-11-n17-n16compat.sh $S/n17/merge-byteid/dump-tensors-base $S/n17/merge-build-ec/dump-tensors $S/llama-ec7630a $WT $S/n17/merge-n16compat
+rm -rf $S/n17/merge-n16compat
+echo MERGE-RUNS-DONE
+$ cd <S>/n17/cwd && bash <S>/n17/merge-runs.sh > <S>/n17/merge-runs.out 2>&1; cat <S>/n17/merge-runs.out
+wt-n19 HEAD 699fd33; MERGE_HEAD 3ce2293; changed vs HEAD: 25
+build ec rc=0 171 s
+build r1 rc=0 212 s
+n17-mimo2-mtp-heads-fa ec wrapper_rc=0 wall_s=47
+::notice::n17-mimo2-mtp-heads-fa @ llama.cpp ec7630a: Ran 70, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+n19-qwen4exp-multiseq ec wrapper_rc=0 wall_s=22
+::notice::n19-qwen4exp-multiseq @ llama.cpp ec7630a: Ran 72, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+g1-glm ec wrapper_rc=0 wall_s=3
+::notice::g1-glm @ llama.cpp ec7630a: Ran 9, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+g1-mimo ec wrapper_rc=0 wall_s=1
+::notice::g1-mimo @ llama.cpp ec7630a: Ran 5, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+n2-qwen4exp ec wrapper_rc=0 wall_s=3
+::notice::n2-qwen4exp @ llama.cpp ec7630a: Ran 17, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+n6-qwen4exp-decode ec wrapper_rc=0 wall_s=24
+::notice::n6-qwen4exp-decode @ llama.cpp ec7630a: Ran 54, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+n9-glm5next-decode ec wrapper_rc=0 wall_s=29
+::notice::n9-glm5next-decode @ llama.cpp ec7630a: Ran 52, skipped 1 as expected (tests.test_glm5next_mtp_parity.Mtp.setUpClass); the driver's checkout <S>/llama-ec7630a is at ec7630a
+n10-f16fa ec wrapper_rc=0 wall_s=53
+::notice::n10-f16fa @ llama.cpp ec7630a: Ran 170, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+n10-quant ec wrapper_rc=0 wall_s=97
+::notice::n10-quant @ llama.cpp ec7630a: Ran 99, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+n16-mimo2-decode ec wrapper_rc=0 wall_s=51
+::notice::n16-mimo2-decode @ llama.cpp ec7630a: Ran 92, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+n17-mimo2-mtp-heads-fa r1 wrapper_rc=0 wall_s=63
+::notice::n17-mimo2-mtp-heads-fa @ llama.cpp 79e2e74: Ran 70, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+n19-qwen4exp-multiseq r1 wrapper_rc=0 wall_s=14
+::notice::n19-qwen4exp-multiseq @ llama.cpp 79e2e74: Ran 72, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+g1-glm r1 wrapper_rc=0 wall_s=2
+::notice::g1-glm @ llama.cpp 79e2e74: Ran 9, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+g1-mimo r1 wrapper_rc=0 wall_s=1
+::notice::g1-mimo @ llama.cpp 79e2e74: Ran 5, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+n2-qwen4exp r1 wrapper_rc=0 wall_s=2
+::notice::n2-qwen4exp @ llama.cpp 79e2e74: Ran 17, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+n6-qwen4exp-decode r1 wrapper_rc=0 wall_s=19
+::notice::n6-qwen4exp-decode @ llama.cpp 79e2e74: Ran 54, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+n9-glm5next-decode r1 wrapper_rc=0 wall_s=31
+::notice::n9-glm5next-decode @ llama.cpp 79e2e74: Ran 58, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+n10-f16fa r1 wrapper_rc=0 wall_s=59
+::notice::n10-f16fa @ llama.cpp 79e2e74: Ran 170, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+n10-quant r1 wrapper_rc=0 wall_s=101
+::notice::n10-quant @ llama.cpp 79e2e74: Ran 99, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+n16-mimo2-decode r1 wrapper_rc=0 wall_s=50
+::notice::n16-mimo2-decode @ llama.cpp 79e2e74: Ran 92, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+== N19 byte identity against 0b0eace's dump tool (ec7630a)
+llama.cpp ec7630a; base dump_tensors.cpp @0b0eace vs 699fd33
+default: 900 files; diff -r: identical
+ub10: 6289 files; diff -r: identical
+rollback: 12407 files; diff -r: identical
+mtp: 12428 files; diff -r: DIFFERENT
+== N17 one-head compatibility (n16compat) against 0b0eace's dump tool (ec7630a)
+files: old 11534, new 11534, same names True, differing 0 []
+manifest.json: equal without the N17 fields []: True
+mtp/manifest.json: equal without the N17 fields ['head', 'out0', 'outputs']: True
+MERGE-RUNS-DONE
+$ cd <S>/n17/merge-byteid && diff -rq mtp-base mtp-new
+Files mtp-base/mtp/manifest.json and mtp-new/mtp/manifest.json differ
+$ python3 - (mtp/manifest.json and manifest.json of both, compared without the call fields the new tool adds)
+mtp/manifest.json: added call fields ['head', 'out0', 'outputs'] ; equal without them: True
+manifest.json equal: True
+$ cat <S>/n17/merge-confirm.sh
+#!/usr/bin/env bash
+# N17 into N19 merge: on the committed merge, the dump-tool builds are up to date (nothing recompiled) and the N17 and N19
+# steps pass again at both pins.
+set -uo pipefail
+S=<S>
+WT=/home/user/wt-n19
+cd $S/n17/cwd
+echo "wt-n19 HEAD $(git -C $WT rev-parse --short HEAD); status: $(git -C $WT status --short | wc -l) changed or untracked files"
+for p in ec r1; do
+  if [ $p = ec ]; then L=$S/llama-ec7630a; else L=$S/llama.cpp; fi
+  B=$S/n17/merge-build-$p
+  echo "rebuild $p: $(cmake --build $B -j4 --target dump-tensors 2>&1 | grep -c 'Building CXX') objects compiled"
+  for st in n17-mimo2-mtp-heads-fa:run_parity_mimo2_n17.sh n19-qwen4exp-multiseq:run_parity_qwen4exp_multiseq.sh; do
+    step=${st%%:*}; drv=${st##*:}
+    rm -rf $S/n17/tmp; mkdir -p $S/n17/tmp; W=$S/n17/tmp/w
+    TMPDIR=$S/n17/tmp MIMO2_N17_WORK=$W QWEN4EXP_MULTISEQ_WORK=$W \
+      python3 $WT/tools/ci/check_unittest.py --step $step --checkout $L -- $WT/tools/tinygen/$drv $L $B \
+      > $S/n17/merge-confirm-$step-$p.log 2>&1
+    echo "$step $p wrapper_rc=$?"
+    tail -n 1 $S/n17/merge-confirm-$step-$p.log
+  done
+done
+rm -rf $S/n17/tmp
+$ bash <S>/n17/merge-confirm.sh > <S>/n17/merge-confirm.out 2>&1; cat <S>/n17/merge-confirm.out
+wt-n19 HEAD c621dc6; status: 0 changed or untracked files
+rebuild ec: 0 objects compiled
+n17-mimo2-mtp-heads-fa ec wrapper_rc=0
+::notice::n17-mimo2-mtp-heads-fa @ llama.cpp ec7630a: Ran 70, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+n19-qwen4exp-multiseq ec wrapper_rc=0
+::notice::n19-qwen4exp-multiseq @ llama.cpp ec7630a: Ran 72, skipped 0 as expected; the driver's checkout <S>/llama-ec7630a is at ec7630a
+rebuild r1: 0 objects compiled
+n17-mimo2-mtp-heads-fa r1 wrapper_rc=0
+::notice::n17-mimo2-mtp-heads-fa @ llama.cpp 79e2e74: Ran 70, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+n19-qwen4exp-multiseq r1 wrapper_rc=0
+::notice::n19-qwen4exp-multiseq @ llama.cpp 79e2e74: Ran 72, skipped 0 as expected; the driver's checkout <S>/llama.cpp is at 79e2e74
+$ cat <S>/n17/merge-unit.sh
+#!/usr/bin/env bash
+# N17 into N19 merge: unit discovery, checker and hook tests, YAML parse of both workflows, on wt-n19 HEAD.
+set -uo pipefail
+S=<S>
+WT=/home/user/wt-n19
+cd $WT
+echo "HEAD $(git rev-parse --short HEAD) (parents $(git rev-parse --short HEAD^1) $(git rev-parse --short HEAD^2))"
+echo '$ LLAMA_CPP_GGUF_PY=$S/llama-ec7630a/gguf-py python3 -m unittest discover -s tests'
+LLAMA_CPP_GGUF_PY=$S/llama-ec7630a/gguf-py python3 -m unittest discover -s tests > $S/n17/merge-discover.log 2>&1
+echo "rc=$?"; tail -n 3 $S/n17/merge-discover.log
+echo '$ python3 -m unittest tests.test_check_unittest tests.test_hooks'
+python3 -m unittest tests.test_check_unittest tests.test_hooks > $S/n17/merge-check.log 2>&1
+echo "rc=$?"; tail -n 3 $S/n17/merge-check.log
+echo '$ python3 - (yaml.safe_load of both workflows; N17 / N19 steps and their commands)'
+python3 - <<'PY'
+import json, yaml
+for wf in (".github/workflows/ci.yml", ".github/workflows/parity-r1-pin.yml"):
+    d = yaml.safe_load(open(wf))
+    for j, job in d["jobs"].items():
+        for s in job["steps"]:
+            if any(k in str(s.get("name", "")) for k in ("N17", "N19")):
+                print(f"{wf} [{j}] {s['name'][:60]} -> {s['run'].split(' -- ')[0].split('check_unittest.py ')[1]}")
+e = json.load(open("tools/ci/parity_expectations.json"))
+for k in ("n17-mimo2-mtp-heads-fa", "n19-qwen4exp-multiseq"):
+    print(k, {c[:7]: (v["ran"], v["skipped"]) for c, v in e["steps"][k]["expect"].items()} if "steps" in e
+          else {c[:7]: (v["ran"], v["skipped"]) for c, v in e[k]["expect"].items()})
+PY
+echo "status: $(git status --short | wc -l) changed or untracked files"
+$ bash <S>/n17/merge-unit.sh > <S>/n17/merge-unit.out 2>&1; cat <S>/n17/merge-unit.out
+HEAD c621dc6 (parents 699fd33 3ce2293)
+$ LLAMA_CPP_GGUF_PY=$S/llama-ec7630a/gguf-py python3 -m unittest discover -s tests
+rc=0
+Ran 1098 tests in 137.626s
+
+OK (skipped=554)
+$ python3 -m unittest tests.test_check_unittest tests.test_hooks
+rc=0
+Ran 54 tests in 16.778s
+
+OK
+$ python3 - (yaml.safe_load of both workflows; N17 / N19 steps and their commands)
+.github/workflows/ci.yml [cpu-parity] N17 mimo2 three MTP heads (nextn_layer_offset 0-2, drafts, r -> --step n17-mimo2-mtp-heads-fa --checkout ../llama.cpp
+.github/workflows/ci.yml [cpu-parity] N19 qwen4exp several sequences in one context, seq_cp, seq_r -> --step n19-qwen4exp-multiseq --checkout ../llama.cpp
+.github/workflows/parity-r1-pin.yml [parity] N17 mimo2 three MTP heads and the R1 default precision (-ctk -> --step n17-mimo2-mtp-heads-fa --checkout ../llama.cpp
+.github/workflows/parity-r1-pin.yml [parity] N19 qwen4exp several sequences, seq_cp, seq_rm and rollback  -> --step n19-qwen4exp-multiseq --checkout ../llama.cpp
+n17-mimo2-mtp-heads-fa {'ec7630a': (70, []), '79e2e74': (70, [])}
+n19-qwen4exp-multiseq {'ec7630a': (72, []), '79e2e74': (72, [])}
+status: 0 changed or untracked files
+```
