@@ -1,0 +1,49 @@
+N24 experiment patch, NOT for production: llama.cpp computes the GLM-5.3-Flash clamped SwiGLU as
+silu(min(g, L)) * clamp(u, -L, L) (ggml/src/ggml-cpu/ops.cpp:3614-3616 and 3673-3675, ggml/src/ggml-cuda/unary.cuh:118-123
+@79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6), as HF transformers 5.17-5.19 and vLLM @bc21cba do; ik_llama.cpp computes
+min(silu(g), L) * clamp(u, -L, L). This patch switches llama.cpp to the ik semantics (CPU f32 and f16 loops; the CUDA
+single-element function used by unary.cu, mmvq.cu and mmvf.cu) so that the two semantics can be compared on one engine
+with everything else equal (tools/quality/swiglu_clamp_experiment.sh). Applies with `patch -p1` / `git apply` at
+79e2e74 and at ec7630a (checked with git apply --check, docs/evidence/2026-10-11-n24-owner-decisions.md).
+
+diff -ru a/ggml/src/ggml-cpu/ops.cpp b/ggml/src/ggml-cpu/ops.cpp
+--- a/ggml/src/ggml-cpu/ops.cpp
++++ b/ggml/src/ggml-cpu/ops.cpp
+@@ -3611,9 +3611,9 @@
+         }
+ 
+         for (int k = 0; k < nc; k++) {
+-            const float gate = std::min(src0_p[k], limit);
++            const float gate = std::min(src0_p[k] / (1.f + expf(-src0_p[k])), limit); // N24 experiment: clamp AFTER silu (ik semantics)
+             const float up   = std::clamp(src1_p[k], -limit, limit);
+-            dst_p[k]         = gate / (1.f + expf(-gate)) * up;
++            dst_p[k]         = gate * up;
+         }
+ 
+ #ifndef NDEBUG
+@@ -3670,9 +3670,10 @@
+         }
+ 
+         for (int k = 0; k < nc; k++) {
+-            const float gate = std::min(GGML_FP16_TO_FP32(src0_p[k]), limit);
++            const float g    = GGML_FP16_TO_FP32(src0_p[k]);
++            const float gate = std::min(g / (1.f + expf(-g)), limit); // N24 experiment: clamp AFTER silu (ik semantics)
+             const float up   = std::clamp(GGML_FP16_TO_FP32(src1_p[k]), -limit, limit);
+-            dst_p[k]         = GGML_FP32_TO_FP16(gate / (1.f + expf(-gate)) * up);
++            dst_p[k]         = GGML_FP32_TO_FP16(gate * up);
+         }
+ 
+ #ifndef NDEBUG
+diff -ru a/ggml/src/ggml-cuda/unary.cuh b/ggml/src/ggml-cuda/unary.cuh
+--- a/ggml/src/ggml-cuda/unary.cuh
++++ b/ggml/src/ggml-cuda/unary.cuh
+@@ -116,8 +116,7 @@
+ }
+ 
+ __device__ __forceinline__ float ggml_cuda_op_swiglu_clamp_single(float gate, float up, float limit) {
+-    gate = fminf(gate, limit);
+     up = fmaxf(fminf(up, limit), -limit);
+ 
+-    return ggml_cuda_op_silu_single(gate) * up;
++    return fminf(ggml_cuda_op_silu_single(gate), limit) * up; // N24 experiment: clamp AFTER silu (ik semantics)
+ }
