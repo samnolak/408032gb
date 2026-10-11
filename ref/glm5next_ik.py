@@ -12,9 +12,11 @@ What differs from llama.cpp's glm5-next (each one measured on the tiny model, te
 1. SwiGLU clamp after the SiLU. ik: min(silu(gate), L) * clamp(up, -L, L) (ggml/src/ggml.c:17374-17377 fused
    mul-unary of the dense and shared FFN; ggml/src/iqk/iqk_mul_mat.cpp:155-157, 169-170 fused MoE up/gate; the limit
    is hparams.swiglu_limits[_shared], H:2506-2509, model.swiglu_limit src/llama-model.h:686-691). llama.cpp:
-   silu(min(gate, L)) * clamp(up, -L, L) (ggml_swiglu_clamp, ML ggml/src/ggml-cpu/ops.cpp:3614-3615), as the
-   DeepSeek-V4.1 reference does (third_party/deepseek-v41-flash/inference/model.py:845-848). The two agree while
-   gate <= L and differ by at most L * sigmoid(-L) per element otherwise (silu(L) vs a value in (silu(L), L]).
+   silu(min(gate, L)) * clamp(up, -L, L) (ggml_swiglu_clamp, ML ggml/src/ggml-cpu/ops.cpp:3614-3616), as the
+   DeepSeek-V4.1 reference does (third_party/deepseek-v41-flash/inference/model.py:845-848). ik's own comment at
+   H:2505 says "gate clamped before the SiLU, deepseek4 semantics", which its kernels do not do. The two agree while
+   gate <= L; otherwise the gate factor differs by at most L * sigmoid(-L) (silu(L) vs a value in (silu(L), L]) and
+   the SwiGLU output, the factor times the clamped up (|up| <= L), by at most L^2 * sigmoid(-L).
 2. Indexer key LayerNorm eps: attention.layer_norm_epsilon if present, else the RMS eps (H:2461-2468); llama.cpp
    uses the key and 0 when it is absent (ref/glm5next.py hparams "norm_eps"). ik_hparams() applies the rule.
 3. KDA q/k L2 norm: x / max(|x|, rms_eps) (ggml/src/ggml.c:19218, eps = f_norm_rms_eps passed at
@@ -24,25 +26,34 @@ What differs from llama.cpp's glm5-next (each one measured on the tiny model, te
    (L:5934 std::fill(dst_tail, ..., 0)), and the sparse mask unmasks every listed cell (ggml_indexer_mask ->
    iqk_mask_topk, ggml/src/iqk/iqk_cpu_ops.cpp:1106-1108): cell 0 is attended whenever the tail has fewer than
    kpool-1 cells, i.e. (t+1) % kpool != kpool-1. llama.cpp fills unused tail slots with the out-of-range sentinel n_kv,
-   which selects no cell (ML src/llama-memory-hybrid-idx.cpp:814, 949-975). For one sequence from an empty cache cell = position.
-   ik pools each complete pool afresh in every graph from the cached key | gate rows (B:109-137) instead of caching
-   the pooled key (same values in f32).
-5. Cache precision. The MLA latent cache takes the -ctv type when flash attention is off and -mla is not 1 (L:1496-1497;
-   -mla defaults to 3, C:446), and -ctv f32 is rejected without flash attention (L:9257-9259): the latent is always
-   rounded to f16 (or bf16) with -fa off. The log line still prints the -ctk type as "c^KV" (L:9808-9811). The
-   indexer key | gate cache has its own type, -ictk, default f16 (C:495), not the -ctk type. With -fa off the
-   attention itself is f32: kq = latent(f16) x q(f32) (B:345-348) and the probabilities stay f32 (measured, N12).
+   which selects no cell (ML src/llama-memory-hybrid-idx.cpp:814, 949-975). For one sequence from an empty cache
+   cell = position.
+5. Cache precision. With -fa off and -mla 2 or 3 (default 3, C:446) the MLA latent cache takes the -ctv type
+   (L:1496-1497), and -ctv f32 is rejected without flash attention (L:9257-9259): the latent is rounded to f16 (or
+   bf16). With -mla 1 -fa off the latent K cache takes the -ctk type and can be f32, but V is read from a transposed
+   copy in the -ctv type (L:1513-1516, B:331-338), f16 or bf16; so no configuration keeps both in f32 (the numerics of
+   -mla 1 are not modelled here and were not run). The log line prints the -ctk type as "c^KV" (L:9808-9811) also
+   when the cache holds the -ctv type. The indexer key | gate cache has its own type, -ictk, default f16 (C:495);
+   llama.cpp gives it the -ctk type (ML src/llama-memory-hybrid-idx.cpp:70-71). With -fa off and fewer than 256 cache
+   cells the attention itself is f32: kq = latent(f16) x q(f32) with GGML_PREC_F32 set (B:345-348) and the
+   probabilities stay f32 (measured, N12: every run had at most 64 cells); with 256 cells or more the precision
+   flag is not set and the numerics are UNKNOWN.
 6. Flash attention (-fa on, ik's default, C:445) on the CPU runs the iqk kernels (ggml/src/iqk/iqk_flash_attn.cpp);
    an f32 K/V cache aborts there (iqk_flash_attn.cpp:280-298), so the latent is f16. Their result over an f16 latent
    matches ref/fattn.py's "fa_chunk" (q rounded to f16, online softmax, f16 V accumulator) for every ubatch size,
-   where llama.cpp would switch to its f32 tiled kernel at 64 query rows: measured 1.6e-7 on a 64-row ubatch and
+   where llama.cpp would switch to its f32 tiled kernel at 64 query rows
+   (docs/evidence/2026-10-10-quant-fa-parity.md:34): measured 1.6e-7 on a 64-row ubatch and
    1.0e-5 on single-token graphs (tests/test_ik_glm5next_parity.py, N12); the kernel itself is not transcribed here
    (PROVISIONAL mechanism, CONFIRMED agreement on these runs). config(fa=True) uses that mode.
+7. Two more behaviours of ik that the oracle follows: (i) ik pools each complete pool afresh in every graph from the
+   cached key | gate rows (B:109-137) and never rounds the pooled key to a cache type; llama.cpp stores the pooled key
+   in the indexer cache (ref/glm5next.py store(pooled)), so under an f16 indexer cache the two differ; (ii) ik always
+   appends the tail (B:210-214) and does not read attention.indexer.kpool_select_tail.
 Not modelled (not exercised by the tests): MTP (B:381-499: the token embedding at position 0 is zeroed,
-B:396-404), multiple sequences.
+B:396-404), multiple sequences, -mla 1.
 
-cfg = config(dsa=..., latent="f16"|"f32", index="f16"|"f32", fa=...); latent "f32" is not reachable in ik on the CPU
-(item 5 with -fa off, item 6 with -fa on).
+cfg = config(dsa=..., latent="f16"|"f32", index="f16"|"f32", fa=...); latent "f32" for both K and V is not reachable
+in ik on the CPU (item 5 with -fa off, item 6 with -fa on).
 """
 import contextlib
 

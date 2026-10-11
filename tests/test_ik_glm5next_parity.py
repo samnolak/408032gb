@@ -11,9 +11,11 @@ dumped graph by graph by tools/dump/ik_dump_tensors.cpp (tools/tinygen/run_parit
   fa16     -fa on -ctk f16 -ctv f16 --dsa, the precision of scripts/r1/configs/ik-llamacpp-server.json
   fa16dec  the same as prefill 48 + 16 single-token calls
   alias    the same weights under llama.cpp's name "glm5-next" (logits only)
-The oracle is ref/glm5next.py with ik's deviations (ref/glm5next_ik.py docstring, items 1-5): post-SiLU SwiGLU clamp,
+The oracle is ref/glm5next.py with ik's deviations (ref/glm5next_ik.py docstring, items 1-7): post-SiLU SwiGLU clamp,
 indexer LayerNorm eps = RMS eps, ik's L2 eps, cell 0 attended where ik pads the DSA tail with it, the MLA latent
-stored in the -ctv type with -fa off (the -ctk type with -fa on) and the indexer cache in the -ictk type.
+stored in the -ctv type with -fa off and -mla 3 (the -ctk type with -fa on), the indexer cache in the -ictk type, ik's
+CPU flash attention as ref/fattn.py fa_chunk, pooled keys recomputed per graph and never rounded, the tail always
+selected. No run uses -mla 1.
 Checks, per graph and layer:
   * local, from ik's own dumped inputs, at TOL_OP = 1e-5 (the N10 operation tolerance): the latent written to the cache
     (exact: the cache type's rounding of ik's kv_compressed), the DSA projections from ik's attn_norm (absorbed q,
