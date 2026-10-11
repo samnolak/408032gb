@@ -12,7 +12,7 @@ substitution (and long tables shortened where marked).
 |---|---|---|---|
 | 11 (b) | `cuda-compile` globbed `kernels/*.cu`, printed "no kernels yet" and ran `exit 0` (`.github/workflows/ci.yml:93-94@e71b241`); there is no `kernels/` directory, so the job was green by construction | the job installs nvcc 13.0 + cuobjdump and runs `tests.test_diag_kit.CudaCompile` (every `scripts/diag/*.cu` built with `-arch=sm_89`, `cuobjdump --list-elf` must show an `sm_89` cubin) and `CudaSourcesInCi`; a skip, an empty run or a failure fails the step (`ci.yml:91-116@8242eec`) | closed in the repo; the job on GitHub Actions NOT RUN |
 | 11 (c) | `CudaCompile` skipped silently in `cpu-parity` (no nvcc), so `scripts/diag/*.cu` was compiled by no job (`tests/test_diag_kit.py:557@e71b241`) | the build moved to `cuda-compile` (above); in `cpu-parity` the skip stays (no nvcc there), its reason names the job that builds it, and the `unit tests` step turns it into a `::warning::` annotation plus a `::notice::` with the unittest summary (`ci.yml:25-35@8242eec`, `tests/test_diag_kit.py:561@8242eec`) | closed in the repo; annotations on GitHub NOT RUN |
-| 11 (d) | docstring of `tests/test_srvcheck.py:5` names a non-existent `tests/test_srvcheck_llama.py` | **not fixable on this branch**: the file does not exist here (section 6). Patch for the three branches that carry it: `<S>/n22/srvcheck-docstring.patch` | OPEN (patch ready, not applied) |
+| 11 (d) | docstring of `tests/test_srvcheck.py:5` names a non-existent `tests/test_srvcheck_llama.py` | **not fixable on this branch**: the file does not exist here (section 6). Patch for the three branches that carry it: `<S>/n22/srvcheck-docstring.patch` | CLOSED by the lead after this report: `4f7be84` on `claude/n7-server-hybrid-cpu`, merged into N8 (`09eb438`) and N11 (`b74efde`) |
 | 14 | `tests/test_glm_tiny_parity.py` (G1 + N9 whole model) and `tests/test_mimo_tiny_parity.py` (MiMo G1) only asserted tolerances | both print a per-component, per-layer table (max abs, rel, tolerance, fraction of tolerance used) and the worst entry per layer; tolerances unchanged (`03decf4`) | closed; output in section 4 |
 
 Other CUDA jobs, CONFIRMED by reading the workflows at `e71b241`: `strata-glm-sm89` (base A, sm_89 and sm_86),
@@ -252,5 +252,13 @@ scratch: `<S>/n22/srvcheck-docstring.patch`; `patch -p1 --dry-run` applies clean
   check-run annotations API.
 - The apt CUDA 13.0 packages (`cuda-nvcc-13-0 cuda-cudart-dev-13-0 cuda-cuobjdump-13-0`) on the runner; the same
   `nvcc`/`cuobjdump` packages are installed by `strata-glm-sm89` and `lt-strata-sm89` at `e71b241`.
-- Gap 11 (d) on the N7 / N8 / N11 branches (patch not applied, section 6).
+- Gap 11 (d): applied after this report by the lead (`4f7be84` on N7, merged into N8 `09eb438` and N11 `b74efde`); GitHub CI on those heads: see the PRs.
 - Running the diagnostics binaries: no GPU.
+
+## 9. After the audit (lead, 2026-10-11)
+
+evidence-auditor: no FAIL. MINOR 1 (11 (d) status) fixed above. MINOR 3: the 555 skips of section 2 are not only the
+dump-parity tests and the two CudaCompile tests; by skip reason (auditor's `-v` rerun) they also include shellcheck (1),
+torch/vLLM (2), GGML_GDN_HARNESS (3), CHATTMPL_* (3) and LLAMA_CPP_FULL_CLONE (1) (CONFIRMED by the auditor's count; the
+sentence in section 2 is to be read with this correction). MINOR 2 (CORRECTNESS statuses for gaps 11 and 14) is done by
+the lead in the integration branch.
