@@ -14,10 +14,13 @@ What was checked:
   (PROVISIONAL; the plan does not use it for planning).
 * The draft's second command was a placeholder (`python3 -c '<placement ...>'`), not a reproducible command. Its body was
   restored from `scratchpad/archalt/placement.py` as printed in `docs/reassessment/ARCHITECTURE-ALTERNATIVES.md`
-  (research-landscape `2c64027`, lines 1500-1517), Qwen rows only, and committed as
+  (research-landscape `2c64027`, lines 1500-1517): its two Qwen rows (5.1/10/2.0 and 4.25/10/1.0, AA:1502-1505) plus a
+  third Qwen row 5.1/10/1.0 that AA does not have, and committed as
   `docs/evidence/mutation-scripts/2026-10-11-n25-qwen-placement.py`. Its three lines equal the draft's three lines
   (CONFIRMED by comparison). The working tree was not yet committed when it ran (status lines below: the plan, this
   script and two doc edits; none of them is read by the tools).
+* After the N25 audit (MINOR 6) the header comment of the script was corrected ("Qwen rows only" -> the rows above);
+  its code is unchanged, so the literal `cat` below shows the comment as it was when the outputs were taken.
 
 ```
 $ git rev-parse --short HEAD
