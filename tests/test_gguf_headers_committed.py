@@ -1,4 +1,5 @@
-"""Facts of the real GGUF headers committed by the gguf-headers workflow (bot commit 6cce416, run 38136140582), offline.
+"""Facts of the real GGUF headers committed by the gguf-headers workflow (bot commit 6cce416, run 38136140582; N18: bot
+commit df9bea1, run 38145613553, class CommittedN18), offline.
 
 third_party/gguf-headers/: GLM-5.3-Flash UD-Q4_K_XL (unsloth/GLM-5.3-Flash-GGUF @a38483c, 6 shards), Qwen3.8-Flash-Next
 UD-Q4_K_XL (unsloth/Qwen3.8-Flash-Next-GGUF @38bb39e, 4 shards), the discovery listing. Checked here, deterministically
@@ -8,9 +9,12 @@ chat templates, the quant audit against ADR-012 D5, and the discovery listing. W
 the graph branches only the real geometry exercises; with the llama.cpp checkouts (LLAMA_CPP_GGUF_PY's at ec7630a,
 LLAMA_CPP_SRC_79E2E74) also architecture / pre-tokenizer support at both pins.
 """
+import fnmatch
+import gzip
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import sys
@@ -189,6 +193,143 @@ class Committed(unittest.TestCase):
                 out[n] = sorted(b["id"] for b in br if not b["exercised_by_tiny"])
         self.assertEqual(out[GLM], ["glm.layer_norm_eps", "glm.mtp_heads", "glm.shexp_clamp"])
         self.assertEqual(out[QWEN], ["qwen.ple_image_token", "qwen.recurrent_source"])
+
+
+# ------------------------------------------------------------------------------------------------ N18 (bot commit df9bea1)
+
+QMTP, GQ4K, GMTP, MIMO = ("qwen3.8-flash-next-mtp", "glm-5.3-flash-ggml-org-q4_k", "glm-5.3-flash-ggml-org-mtp",
+                          "discover-mimo")
+
+
+def _sha(text):
+    return hashlib.sha256(text.encode("utf-8", "surrogateescape")).hexdigest()
+
+
+class CommittedN18(unittest.TestCase):
+    """the headers of workflow run 38145613553 (N18): Qwen MTP files, ggml-org GLM Q4_K and its MTP files, MiMo listing"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.req = {n: A.load_request(os.path.join(HDR, n)) for n in (QMTP, GQ4K, GMTP, GLM)}
+        cls.files = {n: {os.path.basename(f["rec"]["path"]): A.Model([f["summary"]]) for f in r["files"]}
+                     for n, r in cls.req.items() if n in (QMTP, GMTP)}
+        cls.trunk = A.Model([f["summary"] for f in cls.req[GQ4K]["files"]])
+        cls.uns = A.Model([f["summary"] for f in cls.req[GLM]["files"]])
+
+    def test_integrity_and_pins(self):
+        for n, (repo, rev, nfiles) in {
+                QMTP: ("unsloth/Qwen3.8-Flash-Next-GGUF", "38bb39ee97821de2c9009abb7e93950eec396e66", 6),
+                GQ4K: ("ggml-org/GLM-5.3-Flash-GGUF", "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa", 2),
+                GMTP: ("ggml-org/GLM-5.3-Flash-GGUF", "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa", 2)}.items():
+            pin = self.req[n]["pin"]
+            self.assertEqual((pin["status"], pin["repo"], pin["revision"]), ("ok", repo, rev))
+            self.assertEqual([ok for _, ok in self.req[n]["integrity"]], [True] * nfiles)
+            for f in self.req[n]["files"]:
+                self.assertTrue(A.G.size_check(f["summary"], f["rec"]["size"]).startswith("exact"), f["rec"]["path"])
+                self.assertTrue(f["rec"]["etag_matches_lfs_sha256"] and f["rec"]["repo_commit_matches"])
+                self.assertLessEqual(f["rec"]["bytes_fetched"], pin["max_header_bytes"])
+        # the metadata-only first shard of the ggml-org Q4_K was read whole: header + 1 byte of writer padding = file
+        first = self.req[GQ4K]["files"][0]
+        with open(os.path.join(HDR, GQ4K, first["rec"]["header_gz"]), "rb") as f:
+            hdr = gzip.decompress(f.read())
+        pad = first["rec"]["size"] - len(hdr)
+        self.assertEqual((first["summary"]["n_tensors"], pad), (0, 1))
+        self.assertEqual(hashlib.sha256(hdr + b"\0" * pad).hexdigest(), first["rec"]["lfs_sha256"])
+
+    def test_qwen_mtp_files(self):
+        with open(os.path.join(ROOT, "third_party", "hf", "qwen3.8-flash-next-chat", "chat_template.jinja"), "rb") as f:
+            vendored = hashlib.sha256(f.read()).hexdigest()
+        fs = self.files[QMTP]
+        self.assertEqual(len(fs), 6)
+        for n, m in fs.items():
+            shared = "-shared-" in n
+            self.assertEqual((m.arch, m.a("block_count"), m.a("nextn_predict_layers")), ("qwen4exp", 49, 1), n)
+            self.assertEqual({int(x.split(".")[1]) for x in m.names if x.startswith("blk.")}, {48}, n)
+            self.assertEqual(sorted(x for x in m.names if not x.startswith("blk.")),
+                             [] if shared else ["output.weight", "token_embd.weight"], n)
+            self.assertEqual(m.a("nextn_shared_target_tensors"), True if shared else None, n)
+            self.assertEqual(m.a("attention.compress_ratios")[48], 0, n)     # the converter writes the QSA ratio
+            self.assertEqual([k for k in m.kv if ".ple." in k], [], n)        # an MTP-only file carries no PLE keys
+            self.assertEqual(m.kv["tokenizer.ggml.tokens"]["count"], 248320)
+            self.assertEqual(_sha(m.v("tokenizer.chat_template")), vendored, n)  # the HF template, not Unsloth's
+        for q in ("BF16", "Q4_K_M", "Q8_0"):
+            a, b = fs[f"mtp-Qwen3.8-Flash-Next-{q}.gguf"], fs[f"mtp-Qwen3.8-Flash-Next-shared-{q}.gguf"]
+            self.assertEqual(a.names - b.names, {"token_embd.weight", "output.weight"})
+            self.assertEqual(b.names - a.names, set())
+            self.assertEqual(set(b.kv) - set(a.kv), {"qwen4exp.nextn_shared_target_tensors"})
+
+    def test_ggml_org_glm_trunk_and_mtp_files(self):
+        t = self.trunk
+        self.assertEqual((t.arch, t.a("block_count"), t.a("nextn_predict_layers")), ("glm5-next", 45, None))
+        self.assertEqual(([n for n in t.names if ".nextn." in n], len(t.tensors)), ([], 1383))
+        with open(os.path.join(ROOT, "third_party", "hf", "glm-5.3-flash-chat", "chat_template.jinja"), "rb") as f:
+            self.assertEqual(t.v("tokenizer.chat_template").encode("utf-8", "surrogateescape"), f.read())  # byte-equal
+        with tempfile.TemporaryDirectory() as d:
+            a = A.section_audit(self.req[GQ4K]["files"], d)
+        self.assertEqual((a["verdict"], a["findings"]), ("PASS", []))
+        self.assertEqual(a["classes"]["routed_experts"]["types"].keys(), {"Q4_K"})
+        self.assertAlmostEqual(a["classes"]["routed_experts"]["bpw"], 4.5, places=6)
+        params = lambda ts: sum(math.prod(x["shape"]) for x in ts)  # noqa: E731
+        ref = {x["name"][len("blk.45."):]: x["shape"] for x in self.uns.tensors if x["name"].startswith("blk.45.")}
+        self.assertEqual(params(self.uns.tensors) - params(t.tensors), 7432592416)
+        for n, m in self.files[GMTP].items():
+            self.assertEqual((m.arch, m.a("block_count"), m.a("nextn_predict_layers")), ("glm5-next", 46, 1), n)
+            mine = {x["name"][len("blk.45."):]: x["shape"] for x in m.tensors if x["name"].startswith("blk.45.")}
+            self.assertEqual(mine, ref, n)                                   # names and shapes of unsloth's blk.45
+            self.assertEqual(params(x for x in m.tensors if x["name"].startswith("blk.45.")), 7432592416)
+            self.assertEqual(sorted(x for x in m.names if not x.startswith("blk.")),
+                             ["output.weight", "output_norm.weight", "token_embd.weight"])
+
+    def test_mimo_listing(self):
+        with open(os.path.join(HDR, MIMO, "LISTING.json")) as f:
+            lst = json.load(f)
+        r = {x["repo"]: x for x in lst["repos"]}
+        for repo, rev, path in (
+                ("ggml-org/MiMo-V2.6-Flash-MOPD-GGUF", "e6d4bced739310a721eefad4c247ec7e0247c89d",
+                 "mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf"),
+                ("ggml-org/MiMo-V2.6-Flash-RL-GGUF", "b0b2d0fb0b56611c761e075425c88989faf1ed1f",
+                 "mtp-MiMo-V2.6-Flash-RL-Q8_0.gguf"),
+                ("QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF", "ac33b3743d70ed57a8cc6b847698d2ebbddb7784",
+                 "MiMo-V2.6-Flash-MOPD-MXFP4.gguf"),
+                ("kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF", "44d9191bb7a95125c8b971ce0593bd802ae6dd48",
+                 "MiMo-V2.6-Flash-MOPD-MXFP4.gguf")):
+            self.assertEqual((r[repo]["status"], r[repo]["revision"], r[repo]["gguf_architecture"]), ("ok", rev, "mimo2"))
+            self.assertIn(path, [g["path"] for g in r[repo]["gguf_files"]])
+            self.assertEqual(r[repo]["gguf_chat_template_sha256"],
+                             "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059")
+        self.assertEqual([r[x]["http_status"] for x in ("unsloth/MiMo-V2.6-Flash-MOPD-GGUF", "unsloth/MiMo-V2.6-Flash-GGUF")],
+                         [401, 401])
+        self.assertEqual([x["id"] for x in lst["searches"][0]["results"] if x["id"].startswith("unsloth/")], [])
+        # every MiMo header request of N18 names files and a revision that this listing holds
+        for d in sorted(os.listdir(os.path.join(ROOT, "data", "gguf-headers"))):
+            p = os.path.join(ROOT, "data", "gguf-headers", d, "REQUEST.json")
+            if not d.startswith("mimo-") or not os.path.exists(p):
+                continue
+            with open(p) as f:
+                q = json.load(f)
+            files = [g["path"] for g in r[q["repo"]]["gguf_files"]]
+            self.assertEqual(q["revision"], r[q["repo"]]["revision"], d)
+            self.assertEqual(sum(1 for g in files if any(fnmatch.fnmatchcase(g, x) for x in q["files"])),
+                             q["expect_count"], d)
+
+    @unittest.skipUnless(_src_pins(), "llama.cpp sources at the pins: LLAMA_CPP_GGUF_PY's checkout at ec7630a and/or "
+                                      "LLAMA_CPP_SRC_79E2E74")
+    def test_mtp_loader_verdicts_at_the_pins(self):
+        ok = "loadable as a separate MTP model (PROVISIONAL: by reading, nothing loaded)"
+        ref = {x["name"][len("blk.45."):] for x in self.uns.tensors if x["name"].startswith("blk.45.")}
+        for pin, root in _src_pins().items():
+            for n, m in self.files[QMTP].items():
+                v = A.mtp_verdict(m, root, None)
+                if "-shared-" in n:
+                    self.assertEqual(v["verdict"], "NOT loadable as a separate MTP model", (pin, n))
+                    self.assertTrue(v["hard"][0].startswith("token_embd.weight absent"), (pin, n, v["hard"]))
+                else:
+                    self.assertEqual(v["verdict"], ok, (pin, n, v))
+            for n, m in self.files[GMTP].items():
+                d = {"45": A.ref_diff(ref, A.branches._suffixes(m, 45), A.branches.MTP_LOAD["glm5-next"]["optional"])}
+                v = A.mtp_verdict(m, root, d)
+                self.assertEqual(v["verdict"], ok if pin == "79e2e74" else "NOT loadable as a separate MTP model",
+                                 (pin, n, v))
 
 
 if __name__ == "__main__":
