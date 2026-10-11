@@ -1,0 +1,797 @@
+$ bash docs/evidence/mutation-scripts/2026-10-11-n20-source-lines.sh <S>/llama.cpp <S>/llama-ec7630a
+llama.cpp: 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6, 0 changed files
+llama-ec7630a: ec7630a640789c393694fb194f1bbbf0369fc62d, 0 changed files
+== default draft length: common/common.h:329-329@79e2e74
+329	    int32_t n_max = 3; // maximum number of tokens to draft during speculative decoding
+== n_rs_seq = draft.n_max for MTP / EAGLE3 / DFlash / DSpark, else 0: common/common.h:399-405@79e2e74
+399	    uint32_t need_n_rs_seq() const {
+400	        bool needs_rs_seq = std::any_of(types.begin(), types.end(), [&](auto t) {
+401	            return t == COMMON_SPECULATIVE_TYPE_DRAFT_MTP || t == COMMON_SPECULATIVE_TYPE_DRAFT_EAGLE3 || t == COMMON_SPECULATIVE_TYPE_DRAFT_DFLASH || t == COMMON_SPECULATIVE_TYPE_DRAFT_DSPARK;
+402	        });
+403	
+404	        return needs_rs_seq ? draft.n_max : 0u;
+405	    }
+== the target context takes it: common/common.cpp:1700-1700@79e2e74
+1700	    cparams.n_rs_seq          = params.speculative.need_n_rs_seq();
+== draft contexts: n_rs_seq 0: common/speculative.cpp:2618-2618@79e2e74
+2618	    cparams.n_rs_seq  = 0;
+== n_rs_seq > 0: bounded partial removal (RS): common/common.cpp:1562-1565@79e2e74
+1562	    if (llama_n_rs_seq(ctx) > 0) {
+1563	        COM_TRC("%s", "the context supports bounded partial sequence removal\n");
+1564	        return COMMON_CONTEXT_SEQ_RM_TYPE_RS;
+1565	    }
+== n_rs_seq 0 on a recurrent memory: the probe rollback is refused, FULL (checkpoints): common/common.cpp:1587-1592@79e2e74
+1587	    // try to remove the last tokens
+1588	    if (!llama_memory_seq_rm(mem, 0, 1, -1)) {
+1589	        COM_TRC("%s", "the context does not support partial sequence removal\n");
+1590	        res = COMMON_CONTEXT_SEQ_RM_TYPE_FULL;
+1591	        goto done;
+1592	    }
+== common_memory's seq_rm aborts on a refusal: common/common.cpp:1601-1606@79e2e74
+1601	static void common_context_seq_rm(llama_context * ctx, llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
+1602	    auto * mem = llama_get_memory(ctx);
+1603	    if (!llama_memory_seq_rm(mem, seq_id, p0, p1)) {
+1604	        GGML_ABORT("%s", string_format("failed to remove sequence %d with p0=%d, p1=%d\n", seq_id, p0, p1).c_str());
+1605	    }
+1606	}
+== common_memory::seq_rm / seq_cp (target and draft): common/common.cpp:1623-1635@79e2e74
+1623	void common_memory::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) const {
+1624	    common_context_seq_rm(ctx_tgt, seq_id, p0, p1);
+1625	    if (ctx_dft) {
+1626	        common_context_seq_rm(ctx_dft, seq_id, p0, p1);
+1627	    }
+1628	}
+1629	
+1630	void common_memory::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id_dst, llama_pos p0, llama_pos p1) const {
+1631	    common_context_seq_cp(ctx_tgt, seq_id_src, seq_id_dst, p0, p1);
+1632	    if (ctx_dft) {
+1633	        common_context_seq_cp(ctx_dft, seq_id_src, seq_id_dst, p0, p1);
+1634	    }
+1635	}
+== archs with recurrent rollback: src/llama-arch.cpp:1171-1186@79e2e74
+1171	bool llm_arch_supports_rs_rollback(const llm_arch & arch) {
+1172	    switch (arch) {
+1173	        case LLM_ARCH_KIMI_K3:
+1174	        case LLM_ARCH_QWEN35:
+1175	        case LLM_ARCH_QWEN35MOE:
+1176	        case LLM_ARCH_QWEN4EXP:
+1177	        case LLM_ARCH_DEEPSEEK4:
+1178	        case LLM_ARCH_GLM5_NEXT:
+1179	        case LLM_ARCH_NEMOTRON_H:
+1180	        case LLM_ARCH_NEMOTRON_H_MOE:
+1181	        case LLM_ARCH_LFM2:
+1182	        case LLM_ARCH_LFM2MOE:
+1183	        case LLM_ARCH_BAILINGMOE3:
+1184	            return true;
+1185	        default:
+1186	            return false;
+== qwen4exp rope type: src/llama-model.cpp:3245-3247@79e2e74
+3245	        case LLM_ARCH_QWEN4EXP:
+3246	        case LLM_ARCH_QWEN3TTS:
+3247	            return LLAMA_ROPE_TYPE_IMROPE;
+== n_pos_per_embd: src/llama-hparams.cpp:285-288@79e2e74
+285	uint32_t llama_hparams::n_pos_per_embd() const {
+286	    return (rope_type == LLAMA_ROPE_TYPE_MROPE || rope_type == LLAMA_ROPE_TYPE_IMROPE)
+287	            ? GGML_MROPE_SECTIONS : 1;
+288	}
+== get_can_shift: src/llama-kv-cache.cpp:1208-1217@79e2e74
+1208	bool llama_kv_cache::get_can_shift() const {
+1209	    // Step35 uses per-layer RoPE dims; K-shift assumes a single global n_rot.
+1210	    if (model.arch == LLM_ARCH_STEP35) {
+1211	        return false;
+1212	    }
+1213	    if (hparams.n_pos_per_embd() > 1) {
+1214	        return false;
+1215	    }
+1216	    return true;
+1217	}
+== hybrid can_shift = attention cache's: src/llama-memory-hybrid.cpp:133-135@79e2e74
+133	bool llama_memory_hybrid::get_can_shift() const {
+134	    // Shifting is trivially supported for recurrent
+135	    return mem_attn->get_can_shift();
+== hybrid seq_pos_min / max: src/llama-memory-hybrid.cpp:172-180@79e2e74
+172	llama_pos llama_memory_hybrid::seq_pos_min(llama_seq_id seq_id) const {
+173	    // the min of the total cache is the max of the two caches' min values
+174	    return std::max(mem_attn->seq_pos_min(seq_id), mem_recr->seq_pos_min(seq_id));
+175	}
+176	
+177	llama_pos llama_memory_hybrid::seq_pos_max(llama_seq_id seq_id) const {
+178	    // the max of the total cache is the min of the two caches' max values
+179	    return std::min(mem_attn->seq_pos_max(seq_id), mem_recr->seq_pos_max(seq_id));
+180	}
+== qwen4exp MTP context: no recurrent layer: src/llama-model.cpp:2752-2759@79e2e74
+2752	                        // the MTP draft context holds the MTP block alone: its attention and indexer, no recurrent layer
+2753	                        if (arch == LLM_ARCH_QWEN4EXP && params.ctx_type == LLAMA_CONTEXT_TYPE_MTP) {
+2754	                            filter_attn = [&](uint32_t il) { return il >= hparams.n_layer(); };
+2755	                            filter_recr = [&](uint32_t)    { return false; };
+2756	                            if (filter_idx) {
+2757	                                filter_idx = [&](uint32_t il) { return il >= hparams.n_layer(); };
+2758	                            }
+2759	                        }
+== seq_rm rollback rule: src/llama-memory-recurrent.cpp:200-219@79e2e74
+200	            // partial rollback via per-token snapshot index (bounded by n_rs_seq)
+201	            if (0 < p0 && p0 <= cell.pos && p1 > cell.pos) {
+202	                // a cell shared by several sequences cannot move back for only one of them
+203	                if (cell.seq_id.size() > 1) {
+204	                    return false;
+205	                }
+206	                // the filter kept no layer (e.g. an MTP draft context), so only the position moves back
+207	                if (is_empty()) {
+208	                    cell.pos = p0 - 1;
+209	                    return true;
+210	                }
+211	                const llama_pos rollback = cell.pos - (p0 - 1);
+212	                // pending rollback is single-use
+213	                const bool pending = rs_idx[seq_id] != 0;
+214	                if (!pending && rollback >= 1 && rollback <= (llama_pos) n_rs_seq) {
+215	                    set_rs_idx(seq_id, (uint32_t) rollback);
+216	                    cell.pos = p0 - 1;
+217	                    return true;
+218	                }
+219	                return false;
+== seq_cp: the destination shares the source's cell, rs_idx untouched: src/llama-memory-recurrent.cpp:293-299@79e2e74
+293	        if (tail_src.tail >= 0) {
+294	            auto & cell_src = cells[tail_src.tail];
+295	
+296	            cell_src.seq_id.insert(seq_id_dst);
+297	            tail_dst.tail = tail_src.tail;
+298	        }
+299	    }
+== state_write: the logical state of a pending rollback: src/llama-memory-recurrent.cpp:803-825@79e2e74
+803	            uint32_t rs_idx_cur = 0;
+804	
+805	            if (n_rs_seq != 0) {
+806	                if (seq_id != -1) {
+807	                    GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < rs_idx.size());
+808	                    rs_idx_cur = rs_idx[seq_id];
+809	                } else {
+810	                    bool has_rs_idx = false;
+811	                    for (const llama_seq_id cell_seq_id : cell.seq_id) {
+812	                        GGML_ASSERT(cell_seq_id >= 0 && (size_t) cell_seq_id < rs_idx.size());
+813	
+814	                        const uint32_t seq_rs_idx = rs_idx[cell_seq_id];
+815	                        if (!has_rs_idx) {
+816	                            rs_idx_cur = seq_rs_idx;
+817	                            has_rs_idx = true;
+818	                        } else if (rs_idx_cur != seq_rs_idx) {
+819	                            GGML_ABORT("cannot write shared recurrent state with different rollback indices");
+820	                        }
+821	                    }
+822	                }
+823	            }
+824	
+825	            const uint32_t cell_id = rs_idx_cur * size + (cell.src >= 0 ? cell.src : (int32_t) i);
+== state_read resets the pending rollback: src/llama-memory-recurrent.cpp:895-897@79e2e74
+895	    if (n_rs_seq != 0) {
+896	        set_rs_idx(seq_id, 0);
+897	    }
+== state_read_data writes plane 0 rows: src/llama-memory-recurrent.cpp:1157-1160@79e2e74
+1157	        if (cell_count) {
+1158	            // Read and set the keys for the whole cell range
+1159	            io.read_tensor(r_l[il], head * r_size_row, cell_count * r_size_row);
+1160	        }
+== s_copy: src/llama-memory-recurrent.cpp:1368-1386@79e2e74
+1368	int32_t llama_memory_recurrent_context::s_copy(int i) const {
+1369	    const uint32_t cell_idx = i + mem->head;
+1370	    const int32_t  src0     = mem->cells[cell_idx].src0;
+1371	
+1372	    if (mem->n_rs_seq == 0) {
+1373	        return src0;
+1374	    }
+1375	
+1376	    uint32_t idx = 0;
+1377	    if (!mem->cells[cell_idx].seq_id.empty()) {
+1378	        const llama_seq_id seq = *mem->cells[cell_idx].seq_id.begin();
+1379	        if (seq >= 0 && (size_t) seq < mem->rs_idx.size()) {
+1380	            idx = mem->rs_idx[seq];
+1381	            // reset rollback idx
+1382	            mem->rs_idx[seq] = 0;
+1383	        }
+1384	    }
+1385	    return (int32_t)(idx * mem->size) + src0;
+1386	}
+== split: trailing n_rs_seq + 1 tokens in one ubatch: src/llama-memory-hybrid-idx.cpp:94-99@79e2e74
+94	                // [TAG_RECURRENT_ROLLBACK_SPLITS]
+95	                // the trailing (1 + n_rs_seq) tokens of each seq must stay in the same ubatch
+96	                //   so that the rollback snapshots remain valid
+97	                const uint32_t n_rs_seq = get_mem_recr()->n_rs_seq;
+98	
+99	                ubatch = balloc.split_equal(n_ubatch, !unified, n_rs_seq > 0 ? n_rs_seq + 1 : 0);
+== split_equal keep-tail rule: src/llama-batch.cpp:698-751@79e2e74
+698	    // if n_keep_tail > 0, keep only the seqs that either finish in this ubatch or have at least
+699	    //   n_keep_tail tokens remaining for a future ubatch, so that the trailing n_keep_tail tokens
+700	    //   of each seq are never split across ubatches
+701	    if (n_keep_tail > 0) {
+702	        GGML_ASSERT(n_ubatch > n_keep_tail);
+703	
+704	        auto n_remaining = [&](uint32_t s) {
+705	            return (uint32_t) (seq_set_map[cur_seq_set[s]].size() - cur_idx[s]);
+706	        };
+707	
+708	        // keep the longest prefix of seqs that satisfy the constraint, to preserve sequential seq ids
+709	        uint32_t n_keep = 0;
+710	        while (n_keep < n_seqs) {
+711	            const uint32_t remaining = n_remaining(n_keep);
+712	
+713	            if (remaining != 0 && remaining < n_keep_tail) {
+714	                break;
+715	            }
+716	
+717	            n_keep++;
+718	        }
+719	
+720	        // all seqs violate the constraint - resolve the first one directly and emit it alone
+721	        if (n_keep == 0) {
+722	            auto & idxs = idxs_per_seq[0];
+723	
+724	            const auto & seq_idxs = seq_set_map[cur_seq_set[0]];
+725	
+726	            if (idxs.size() + n_remaining(0) <= n_ubatch) {
+727	                // extend the seq to completion
+728	                while (n_remaining(0) > 0) {
+729	                    const int32_t idx = seq_idxs[cur_idx[0]];
+730	
+731	                    idxs.push_back(idx);
+732	
+733	                    used[idx] = true;
+734	                    ++n_used;
+735	
+736	                    ++cur_idx[0];
+737	                }
+738	            } else {
+739	                // truncate the seq so that at least n_keep_tail tokens remain
+740	                while (n_remaining(0) < n_keep_tail) {
+741	                    used[idxs.back()] = false;
+742	                    --n_used;
+743	
+744	                    idxs.pop_back();
+745	
+746	                    --cur_idx[0];
+747	                }
+748	            }
+749	
+750	            n_keep = 1;
+751	        }
+== output_all only with embeddings: src/llama-context.cpp:1751-1751@79e2e74
+1751	    const bool output_all   = cparams.embeddings;
+== init_batch(output_all): src/llama-context.cpp:1830-1830@79e2e74
+1830	        mctx = memory->init_batch(*balloc, cparams.n_ubatch, output_all);
+== process_ubatch: apply (find_slot) first: src/llama-context.cpp:1415-1415@79e2e74
+1415	    if (mctx && !mctx->apply()) {
+== then set_inputs (s_copy): src/llama-context.cpp:1472-1472@79e2e74
+1472	        res->set_inputs(&ubatch);
+== next ubatch: src/llama-context.cpp:2070-2070@79e2e74
+2070	    } while (mctx->next());
+== build_rs: extra states copied into plane 0 rows: src/llama-graph.cpp:3706-3711@79e2e74
+3706	    // copy extra states which won't be changed further (between n_seqs and n_rs)
+3707	    ggml_tensor * states_extra = ggml_view_2d(ctx0, states_all, state_size, n_rs - n_seqs, states_all->nb[1], (n_seqs - i0)*states_all->nb[1]);
+3708	    ggml_build_forward_expand(gf,
+3709	        ggml_cpy(ctx0,
+3710	            states_extra,
+3711	            ggml_view_2d(ctx0, s, state_size, (n_rs - n_seqs), s->nb[1], (rs_head + n_seqs)*s->nb[1])));
+== delta-net snapshot slots: ggml/src/ggml-cpu/ops.cpp:11183-11184@79e2e74
+11183	    // snapshot slot mapping: slot 0 = most recent state, slot s = s tokens back.
+11184	    // When n_tokens < K only slots 0..n_tokens-1 are written; older slots are caller-owned.
+== conv / PLE snapshot slots: src/models/qwen4exp.cpp:1322-1343@79e2e74
+1322	    // [TAG_RECURRENT_ROLLBACK_SPLITS] keep the last state_cols columns once per rollback slot,
+1323	    // slot s ending s tokens earlier so a rollback of s tokens reads a history that never saw them
+1324	    const size_t row_size = ggml_row_size(conv_states_all->type, row_total);
+1325	    const uint32_t mem_size = mctx_cur->get_size();
+1326	
+1327	    const int64_t n_slots = (int64_t) cparams.n_rs_seq + 1;
+1328	
+1329	    for (int64_t slot = 0; slot < n_slots; ++slot) {
+1330	        const int64_t s_idx = std::max<int64_t>(0, conv_input->ne[0] - state_cols - slot);
+1331	
+1332	        ggml_tensor * tail = ggml_view_3d(ctx0, conv_input,
+1333	                state_cols, channels, n_seqs,
+1334	                conv_input->nb[1], conv_input->nb[2],
+1335	                ggml_row_size(conv_input->type, s_idx));
+1336	
+1337	        ggml_tensor * dst = ggml_view_2d(ctx0, conv_states_all,
+1338	                state_cols * channels, n_seqs,
+1339	                conv_states_all->nb[1],
+1340	                (slot * mem_size + kv_head) * row_size);
+1341	
+1342	        ggml_build_forward_expand(gf, ggml_cpy(ctx0, ggml_cont(ctx0, tail), dst));
+1343	    }
+== a slot's memory is a common_memory (target and draft): tools/server/server-context.cpp:251-251@79e2e74
+251	    common_memory mem;
+== slot.mem.init: tools/server/server-context.cpp:1426-1426@79e2e74
+1426	            slot.mem.init(ctx_tgt, ctx_dft);
+== prompt_clear: tools/server/server-context.cpp:343-347@79e2e74
+343	    void prompt_clear() {
+344	        SLT_TRC(*this, "clearing prompt with %zu tokens\n", prompt.tokens.size());
+345	
+346	        mem.seq_rm(id, -1, -1);
+347	
+== handle_last_sampled_token: [sampled, draft...] for one slot: tools/server/server-context.cpp:539-580@79e2e74
+539	    void handle_last_sampled_token(server_batch & batch) {
+540	        bool add_ok = true;
+541	        if (spec_draft.empty()) {
+542	            // no speculative decoding
+543	            i_batch = batch.size();
+544	
+545	            if (!inp_embd.empty()) {
+546	                // text embeddings broadcast the same position across the M-RoPE sections
+547	                const llama_pos p = prompt.tokens.pos_next();
+548	                const llama_pos pos[GGML_MROPE_SECTIONS] = { p, p, p, 0 };
+549	                GGML_ASSERT((int32_t) inp_embd.size() == batch.n_embd);
+550	                add_ok &= batch.add_embd(id, inp_embd.data(), pos, true, false);
+551	            } else {
+552	                add_ok &= batch.add(id, sampled, prompt.tokens.pos_next(), true, false);
+553	            }
+554	
+555	            SLT_DBG(*this, "slot decode token, id=%d, n_ctx = %d, n_tokens = %d, truncated = %d\n",
+556	                    sampled, n_ctx, prompt.n_tokens(), truncated);
+557	        } else {
+558	            SLT_DBG(*this, "generate_draft: id=%d, #tokens=%zu, #draft=%zu, pos_next=%d\n",
+559	                    sampled, prompt.tokens.size(), spec_draft.size(), prompt.tokens.pos_next());
+560	
+561	            GGML_ASSERT(spec_i_batch.empty());
+562	
+563	            spec_i_batch.push_back(batch.size());
+564	            for (size_t i = 0; i < spec_draft.size(); i++) {
+565	                spec_i_batch.push_back(batch.size() + i + 1);
+566	            }
+567	
+568	            auto pos0 = prompt.tokens.pos_next();
+569	
+570	            add_ok &= batch.add(id, sampled, pos0++, true, false);
+571	            for (auto token : spec_draft) {
+572	                add_ok &= batch.add(this->id, token, pos0++, true, false);
+573	            }
+574	        }
+575	
+576	        GGML_ASSERT(add_ok && "batch must be large enough to hold the sampled and draft tokens");
+577	
+578	        prompt.tokens.push_back(sampled);
+579	        prompt.tokens.insert(spec_draft);
+580	    }
+== copy_prompt_to / copy_state_to: tools/server/server-context.cpp:760-780@79e2e74
+760	    // the other slot continues from the tokens processed so far
+761	    void copy_prompt_to(server_slot & other) const {
+762	        mem.seq_rm(other.id,     -1, -1);
+763	        mem.seq_cp(id, other.id, -1, -1);
+764	
+765	        other.prompt = prompt.clone();
+766	    }
+767	
+768	    void copy_state_to(server_slot & other) const {
+769	        GGML_ASSERT(state == SLOT_STATE_DONE_PROMPT);
+770	
+771	        mem.seq_rm(other.id,     -1, -1);
+772	        mem.seq_cp(id, other.id, -1, -1);
+773	
+774	        other.i_batch = i_batch;
+775	
+776	        other.stats = stats;
+777	
+778	        other.prompt = prompt.clone();
+779	        other.init_sampler();
+780	    }
+== cache_reuse and ctx_shift disabled without can_shift: tools/server/server-context.cpp:1318-1328@79e2e74
+1318	        if (!llama_memory_can_shift(llama_get_memory(ctx_tgt))) {
+1319	            if (params_base.ctx_shift) {
+1320	                params_base.ctx_shift = false;
+1321	                SRV_WRN("%s\n", "ctx_shift is not supported by this context, it will be disabled");
+1322	            }
+1323	
+1324	            if (params_base.n_cache_reuse) {
+1325	                params_base.n_cache_reuse = 0;
+1326	                SRV_WRN("%s\n", "cache_reuse is not supported by this context, it will be disabled");
+1327	            }
+1328	        }
+== seq_rm type of the target: tools/server/server-context.cpp:1373-1380@79e2e74
+1373	        ctx_tgt_seq_rm_type = common_context_can_seq_rm(ctx_tgt);
+1374	        if (ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_NO) {
+1375	            SRV_WRN("%s", "speculative decoding not supported by this context\n");
+1376	        }
+1377	
+1378	        if (ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL) {
+1379	            SRV_TRC("%s", "speculative decoding will use checkpoints\n");
+1380	        }
+== speculative decoding only if the target can seq_rm: tools/server/server-context.cpp:1391-1401@79e2e74
+1391	        // try speculative decoding
+1392	        if (ctx_tgt_seq_rm_type != COMMON_CONTEXT_SEQ_RM_TYPE_NO) {
+1393	            try {
+1394	                spec.reset(common_speculative_init(params_base.speculative, params_base.n_parallel));
+1395	            } catch (const std::exception & e) {
+1396	                SRV_ERR("failed to initialize speculative decoding context: %s\n", e.what());
+1397	                if (params_base.speculative.has_synth()) {
+1398	                    return false;
+1399	                }
+1400	            }
+1401	        }
+== checkpoint use (FULL): tools/server/server-context.cpp:3351-3352@79e2e74
+3351	                const bool use_ckpt_tgt = ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL;
+3352	                const bool use_ckpt_dft = ctx_dft_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL;
+== draft longer than n_rs_seq: checkpoint before the verify: tools/server/server-context.cpp:3428-3448@79e2e74
+3428	            if (!draft.empty()) {
+3429	                const bool use_ckpt_tgt =
+3430	                    ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL ||
+3431	                   (ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_RS && draft.size() > llama_n_rs_seq(ctx_tgt));
+3432	
+3433	                const bool use_ckpt_dft =
+3434	                   (ctx_dft_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_RS && draft.size() > llama_n_rs_seq(ctx_dft));
+3435	
+3436	                if (use_ckpt_tgt) {
+3437	                    //const int64_t t_start = ggml_time_us();
+3438	
+3439	                    ckpt.update_tgt(ctx_tgt, slot.id, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY);
+3440	
+3441	                    //const int64_t t_total = ggml_time_us() - t_start;
+3442	                    //printf("checkpoint total: %f ms\n", t_total / 1000.0);
+3443	
+3444	                    SLT_DBG(slot, "created speculative checkpoint (pos_min = %d, pos_max = %d, n_tokens = %d, size = %.3f MiB, draft = %.3f MiB)\n",
+3445	                            ckpt.pos_min, ckpt.pos_max, slot.prompt.n_tokens(),
+3446	                            (float) ckpt.size() / 1024 / 1024,
+3447	                            (float) ckpt.data_dft.size() / 1024 / 1024);
+3448	                }
+== prompt cache: common prefix, can_cache_reuse: tools/server/server-context.cpp:3591-3608@79e2e74
+3591	                                n_past = slot.prompt.tokens.get_common_prefix(input_tokens);
+3592	
+3593	                                // the children start from the shared prefix, do not go past it
+3594	                                if (slot.task->n_tokens_shared > 0) {
+3595	                                    n_past = std::min(n_past, slot.task->n_tokens_shared);
+3596	                                }
+3597	
+3598	                                // if there is an alora invoked, don't cache after the invocation start
+3599	                                if (slot.alora_invocation_start > 0) {
+3600	                                    SLT_DBG(slot, "only caching to alora invocation start (n_past = %d, alora_invocation_start = %d)\n", n_past, slot.alora_invocation_start);
+3601	                                    n_past = std::min(n_past, slot.alora_invocation_start - 1);
+3602	                                }
+3603	
+3604	                                const auto n_cache_reuse = slot.task->params.n_cache_reuse;
+3605	
+3606	                                const bool can_cache_reuse =
+3607	                                    llama_memory_can_shift(llama_get_memory(ctx_tgt)) &&
+3608	                                    !slot.prompt.tokens.has_mtmd;
+== pos_min threshold: tools/server/server-context.cpp:3668-3678@79e2e74
+3668	                            llama_pos pos_next = slot.prompt.tokens.pos_next(n_past);
+3669	
+3670	                            // ref: https://github.com/ggml-org/llama.cpp/pull/24110
+3671	                            const bool has_new_tokens = (n_past < slot.task->n_tokens());
+3672	
+3673	                            // the largest pos_min required for a checkpoint to be useful
+3674	                            const auto pos_min_thold = std::max(0, pos_next - n_swa - (has_new_tokens ? 0 : 1));
+3675	
+3676	                            if (n_past > 0 && n_past <= slot.prompt.n_tokens()) {
+3677	                                const auto pos_min = llama_memory_seq_pos_min(llama_get_memory(ctx_tgt), slot.id);
+3678	                                if (pos_min == -1) {
+== context checkpoint restore or full re-processing: tools/server/server-context.cpp:3726-3771@79e2e74
+3726	                                if (pos_min >= pos_min_thold) {
+3727	                                    // search for a context checkpoint
+3728	                                    const auto it = std::find_if(
+3729	                                        slot.prompt.checkpoints.rbegin(),
+3730	                                        slot.prompt.checkpoints.rend(),
+3731	                                        [&](const auto & cur) {
+3732	                                            // guarantee that a checkpoint will result in at least one token being processed [TAG_PROMPT_LOGITS]
+3733	                                            SLT_TRC(slot, "checking checkpoint with [%d, %d] against %d...\n", cur.pos_min, cur.pos_max, pos_min_thold);
+3734	                                            // workaround for [TAG_CHECKPOINTS_FIX_POS_MIN]
+3735	                                            if (cur.pos_max > pos_next) {
+3736	                                                return false;
+3737	                                            }
+3738	                                            return cur.pos_min < pos_min_thold || cur.pos_min == 0;
+3739	                                        }
+3740	                                    );
+3741	
+3742	                                    bool do_reset = it == slot.prompt.checkpoints.rend();
+3743	
+3744	                                    if (!do_reset) {
+3745	                                        // restore the context checkpoint
+3746	                                        if (!it->load_tgt(ctx_tgt, slot.id, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) ||
+3747	                                            !it->load_dft(ctx_dft, slot.id, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY)) {
+3748	                                            if (it->id_task != -1) {
+3749	                                                GGML_ABORT("failed to restore context checkpoint\n");
+3750	                                            }
+3751	                                            // restored from a slot file, not guaranteed to load - fall back to full prompt re-processing
+3752	                                            SLT_WRN(slot, "%s", "failed to load context checkpoint restored from a slot file\n");
+3753	                                            do_reset = true;
+3754	                                        }
+3755	                                    }
+3756	
+3757	                                    if (!do_reset) {
+3758	                                        // restore the draft's speculative state
+3759	                                        common_speculative_set_state(spec.get(), slot.id, it->data_spec);
+3760	
+3761	                                        pos_next = std::min(pos_next, std::max(it->pos_min + 1, it->pos_max));
+3762	                                        n_past   = std::min(slot.prompt.tokens.size_up_to_pos(pos_next), (size_t) it->n_tokens);
+3763	                                        SLT_TRC(slot, "restored context checkpoint (pos_min = %d, pos_max = %d, n_tokens = %" PRId64 ", n_past = %d, size = %.3f MiB)\n", it->pos_min, it->pos_max, it->n_tokens, n_past, (float) it->size() / 1024 / 1024);
+3764	                                    }
+3765	
+3766	                                    if (do_reset) {
+3767	                                        SLT_TRC(slot, "forcing full prompt re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory, see %s)\n",
+3768	                                                "https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055");
+3769	                                        pos_next = 0;
+3770	                                        n_past = 0;
+3771	                                    }
+== prompt seq_rm and the shared-prefix copy: tools/server/server-context.cpp:3826-3849@79e2e74
+3826	                    // truncate any tokens that are beyond n_past for this slot
+3827	                    const llama_pos p0 = slot.prompt.tokens.pos_next();
+3828	
+3829	                    SLT_TRC(slot, "cached n_tokens = %d, memory_seq_rm [%d, end)\n", slot.prompt.n_tokens(), p0);
+3830	
+3831	                    slot.mem.seq_rm(slot.id, p0, -1);
+3832	
+3833	                    // shared prompt prefix: once it is processed, the children continue from it with their own prompt
+3834	                    bool wait_shared = false;
+3835	                    if (slot.task->n_tokens_shared > 0) {
+3836	                        const bool is_shared_done = slot.prompt.n_tokens() == slot.task->n_tokens_shared;
+3837	                        for (auto & other : slots) {
+3838	                            if (other.state != SLOT_STATE_WAIT_OTHER || other.task->id_parent != slot.task->id) {
+3839	                                continue;
+3840	                            }
+3841	                            if (is_shared_done) {
+3842	                                SLT_TRC(slot, " - copying shared prompt (%d tokens) to child %d\n", slot.prompt.n_tokens(), other.id);
+3843	                                slot.copy_prompt_to(other);
+3844	                                other.state = SLOT_STATE_STARTED;
+3845	                            } else {
+3846	                                wait_shared = true;
+3847	                            }
+3848	                        }
+3849	                    }
+== children of n_cmpl > 1: copy after the parent's prompt: tools/server/server-context.cpp:4243-4266@79e2e74
+4243	        // handle `n_cmpl > 1` tasks - when the main prompt is processed, activate all child tasks too
+4244	        for (auto & slot : slots) {
+4245	            if (slot.state == SLOT_STATE_DONE_PROMPT && slot.task->is_parent()) {
+4246	                std::vector<server_slot *> children;
+4247	                for (auto & other : slots) {
+4248	                    if (other.state == SLOT_STATE_WAIT_OTHER && slot.task->id == other.task->id_parent) {
+4249	                        children.push_back(&other);
+4250	                    }
+4251	                }
+4252	
+4253	                // all children slots should already launched by launch_slots_with_parent_task()
+4254	                // copy state to the child slots
+4255	                for (auto & child : children) {
+4256	                    SLT_TRC(slot, " - copying state to child %d\n", child->id);
+4257	
+4258	                    GGML_ASSERT(child->state == SLOT_STATE_WAIT_OTHER);
+4259	                    // children with their own prompt are started at the end of the shared prefix
+4260	                    GGML_ASSERT(slot.task->n_tokens_shared == 0);
+4261	
+4262	                    slot.copy_state_to(*child);
+4263	                    child->state = SLOT_STATE_DONE_PROMPT;
+4264	                }
+4265	            }
+4266	        }
+== verify tokens must be in one sub-batch: tools/server/server-context.cpp:4277-4285@79e2e74
+4277	        // TODO @ngxson : it's tricky to make sub-batch compatible with common_sampler_sample_and_accept_n,
+4278	        // so for now we will throw an error in this case: https://github.com/ggml-org/llama.cpp/issues/24840
+4279	        iterate(slots, [&](server_slot & slot) {
+4280	            for (auto & i : slot.spec_i_batch) {
+4281	                if (!is_inside_view(i)) {
+4282	                    throw std::runtime_error(string_format("speculative batch index %d is not inside the current sub-batch [%d, %d)", i, off, off + n_batch_tokens));
+4283	                }
+4284	            }
+4285	        });
+== verify: rollback length, checkpoint restore when > n_rs_seq: tools/server/server-context.cpp:4429-4464@79e2e74
+4429	                GGML_ASSERT(accepted.size() >= 1);
+4430	
+4431	                const uint32_t n_rollback = slot.spec_draft.size() + 1 - accepted.size();
+4432	
+4433	                const bool use_ckpt_tgt =
+4434	                    ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL ||
+4435	                    (ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_RS && n_rollback > llama_n_rs_seq(ctx_tgt));
+4436	
+4437	                // check for partial draft acceptance
+4438	                if (n_rollback > 0) {
+4439	                    if (use_ckpt_tgt) {
+4440	                        if (trace > 0) {
+4441	                            SLT_INF(slot, "accepted %2zu/%2zu draft tokens (restore checkpoint)\n", accepted.size() - 1, slot.spec_draft.size());
+4442	                        }
+4443	
+4444	                        // partial acceptance is not supported by the context -> truncate the draft and restore the state
+4445	                        slot.spec_is_replay = true;
+4446	                        slot.spec_draft = std::move(accepted);
+4447	
+4448	                        const auto & ckpt = slot.spec_ckpt;
+4449	
+4450	                        SLT_DBG(slot, "restoring speculative checkpoint (pos_min = %d, pos_max = %d, size = %zu)\n", ckpt.pos_min, ckpt.pos_max, ckpt.size());
+4451	
+4452	                        GGML_ASSERT(ckpt.load_tgt(slot.ctx_tgt, slot.id, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY));
+4453	
+4454	                        if (slot.ctx_dft) {
+4455	                            GGML_ASSERT(ckpt.load_dft(slot.ctx_dft, slot.id, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY));
+4456	                        }
+4457	
+4458	                        slot.mem.seq_rm(slot.id, ckpt.pos_max + 1, -1);
+4459	
+4460	                        slot.prompt.tokens.keep_first(ckpt.n_tokens);
+4461	                        common_sampler_copy(smpl_save.get(), slot.smpl.get());
+4462	
+4463	                        return;
+4464	                    }
+== verify: the partial rollback: tools/server/server-context.cpp:4498-4505@79e2e74
+4498	            // add accepted tokens to the prompt
+4499	            slot.prompt.tokens.keep_first(slot.prompt.n_tokens() - n_draft);
+4500	            slot.prompt.tokens.insert({ids.begin(), ids.end() - 1});
+4501	
+4502	            slot.sampled = ids.back(); // last accepted token
+4503	            SLT_DBG(slot, "add accepted tokens: sampled=%d, ids.size=%zu, n_draft=%zu\n", slot.sampled, ids.size(), n_draft);
+4504	
+4505	            slot.mem.seq_rm(slot.id, slot.prompt.tokens.pos_next(), -1);
+== decision tasks share a prompt prefix: tools/server/server-decision.cpp:1139-1161@79e2e74
+1139	std::vector<server_task> server_decision_group_tasks(std::vector<server_task> && tasks, size_t n_slots) {
+1140	    n_slots = std::max(n_slots, (size_t) 1);
+1141	
+1142	    std::vector<server_task> groups;
+1143	    for (size_t i = 0; i < tasks.size(); i += n_slots) {
+1144	        const size_t end = std::min(tasks.size(), i + n_slots);
+1145	        server_task & parent = tasks[i];
+1146	
+1147	        // every task must have at least one token of its own to evaluate
+1148	        size_t n_shared = parent.tokens.size() - 1;
+1149	        for (size_t j = i + 1; j < end; j++) {
+1150	            n_shared = std::min(n_shared, parent.tokens.get_common_prefix(tasks[j].tokens));
+1151	            n_shared = std::min(n_shared, tasks[j].tokens.size() - 1);
+1152	        }
+1153	
+1154	        if (end - i < 2 || n_shared == 0) {
+1155	            for (size_t j = i; j < end; j++) {
+1156	                groups.push_back(std::move(tasks[j]));
+1157	            }
+1158	            continue;
+1159	        }
+1160	
+1161	        parent.n_tokens_shared = n_shared;
+== decision grouping: tools/server/server-context.cpp:5792-5794@79e2e74
+5792	            if (decision.can_share_prompt()) {
+5793	                tasks = server_decision_group_tasks(std::move(tasks), params.n_parallel);
+5794	            }
+== n_tokens_shared: tools/server/server-task.h:152-153@79e2e74
+152	    // if set on a parent, the children have their own prompt and only share its first n_tokens_shared tokens
+153	    int32_t n_tokens_shared = 0;
+== seq_rm resets rs_idx only for a whole-sequence cut: src/llama-memory-recurrent.cpp:184-187@79e2e74
+184	    const bool rm_all = p0 == 0 && p1 == std::numeric_limits<llama_pos>::max();
+185	    if (rm_all) {
+186	        set_rs_idx(seq_id, 0);
+187	    }
+== seq_keep (rs_idx untouched): src/llama-memory-recurrent.cpp:302-332@79e2e74
+302	void llama_memory_recurrent::seq_keep(llama_seq_id seq_id) {
+303	    uint32_t new_head = size;
+304	
+305	    for (uint32_t i = 0; i < size; ++i) {
+306	        if ((llama_seq_id) i != seq_id) {
+307	            cells[i].tail = -1;
+308	        }
+309	
+310	        if (!cells[i].has_seq_id(seq_id)) {
+311	            if (cells[i].pos >= 0) {
+312	                used--;
+313	            }
+314	
+315	            cells[i].pos = -1;
+316	            cells[i].src = -1;
+317	            cells[i].seq_id.clear();
+318	
+319	            if (new_head == size){
+320	                new_head = i;
+321	            }
+322	        } else {
+323	            cells[i].seq_id.clear();
+324	            cells[i].seq_id.insert(seq_id);
+325	        }
+326	    }
+327	
+328	    // If we freed up a slot, set head to it so searching can start there.
+329	    if (new_head != size && new_head < head) {
+330	        head = new_head;
+331	    }
+332	}
+== find_slot: copy on write of a shared cell: src/llama-memory-recurrent.cpp:605-638@79e2e74
+605	    for (uint32_t s = 0; s < n_seqs; ++s) {
+606	        const uint32_t i = s*n_seq_tokens;
+607	        const llama_seq_id seq_id = ubatch.seq_id[i][0];
+608	        auto & seq_meta = cells[seq_id];
+609	        bool has_cell = false;
+610	        if (seq_meta.tail >= 0) {
+611	            auto & cell = cells[seq_meta.tail];
+612	            GGML_ASSERT(cell.has_seq_id(seq_id));
+613	            // does this seq_id "own" the cell?
+614	            if (cell.seq_id.size() == 1) { has_cell = true; }
+615	        }
+616	        if (!has_cell) {
+617	            auto & empty_cell = cells[next_empty_cell];
+618	            GGML_ASSERT(empty_cell.is_empty());
+619	            // copy old tail into the empty cell
+620	            if (seq_meta.tail >= 0) {
+621	                auto & orig_cell = cells[seq_meta.tail];
+622	                empty_cell.pos = orig_cell.pos;
+623	                empty_cell.src = orig_cell.src;
+624	                orig_cell.seq_id.erase(seq_id);
+625	                empty_cell.seq_id.insert(seq_id); // will be overwritten
+626	                GGML_ASSERT(!orig_cell.is_empty()); // has at least one remaining seq_id
+627	            }
+628	            seq_meta.tail = next_empty_cell;
+629	            // find next empty cell
+630	            if (s + 1 < n_seqs) {
+631	                for (uint32_t j = 0; j < size; ++j) {
+632	                    next_empty_cell += 1;
+633	                    if (next_empty_cell >= size) { next_empty_cell -= size; }
+634	                    auto & cell = cells[next_empty_cell];
+635	                    if (cell.is_empty()) { break; }
+636	                }
+637	            }
+638	        }
+== llama_memory_seq_cp returns void: include/llama.h:773-778@79e2e74
+773	    LLAMA_API void llama_memory_seq_cp(
+774	            llama_memory_t mem,
+775	              llama_seq_id seq_id_src,
+776	              llama_seq_id seq_id_dst,
+777	                 llama_pos p0,
+778	                 llama_pos p1);
+== context shift cut: tools/server/server-context.cpp:3301-3302@79e2e74
+3301	                slot.mem.seq_rm (slot.id, n_keep            , n_keep + n_discard);
+3302	                slot.mem.seq_add(slot.id, n_keep + n_discard, slot.prompt.tokens.pos_next(), -n_discard);
+== slots batched together: tools/server/server-context.cpp:3340-3344@79e2e74
+3340	            if (!slot_batched) {
+3341	                slot_batched = &slot;
+3342	            } else if (!slot_batched->can_batch_with(slot)) {
+3343	                return;
+3344	            }
+== cache-reuse cut: tools/server/server-context.cpp:3646-3647@79e2e74
+3646	                                            slot.mem.seq_rm (slot.id, head_p, head_c);
+3647	                                            slot.mem.seq_add(slot.id, head_c, head_c + n_match, kv_shift);
+== at least one prompt token evaluated: tools/server/server-context.cpp:3789-3794@79e2e74
+3789	                        // [TAG_PROMPT_LOGITS]
+3790	                        if (n_past == slot.task->n_tokens() && n_past > 0) {
+3791	                            SLT_WRN(slot, "need to evaluate at least 1 token for each active slot (n_past = %d, task.n_tokens() = %d)\n", n_past, slot.task->n_tokens());
+3792	                            n_past--;
+3793	                            SLT_WRN(slot, "n_past was set to %d\n", n_past);
+3794	                        }
+== speculative-simple ignores its partial seq_rm result: examples/speculative-simple/speculative-simple.cpp:331-331@79e2e74
+331	            llama_memory_seq_rm(llama_get_memory(ctx_tgt), seq_id, n_past, -1);
+== ec7630a seq_rm rollback rule (no shared-cell refusal): src/llama-memory-recurrent.cpp:200-215@ec7630a
+200	            // partial rollback via per-token snapshot index (bounded by n_rs_seq)
+201	            if (0 < p0 && p0 <= cell.pos && p1 > cell.pos) {
+202	                // the filter kept no layer (e.g. an MTP draft context), so only the position moves back
+203	                if (is_empty()) {
+204	                    cell.pos = p0 - 1;
+205	                    return true;
+206	                }
+207	                const llama_pos rollback = cell.pos - (p0 - 1);
+208	                // pending rollback is single-use
+209	                const bool pending = rs_idx[seq_id] != 0;
+210	                if (!pending && rollback >= 1 && rollback <= (llama_pos) n_rs_seq) {
+211	                    set_rs_idx(seq_id, (uint32_t) rollback);
+212	                    cell.pos = p0 - 1;
+213	                    return true;
+214	                }
+215	                return false;
+== ec7630a copy_state_to: tools/server/server-context.cpp:692-703@ec7630a
+692	    void copy_state_to(server_slot & other) const {
+693	        GGML_ASSERT(state == SLOT_STATE_DONE_PROMPT);
+694	
+695	        mem.seq_rm(other.id,     -1, -1);
+696	        mem.seq_cp(id, other.id, -1, -1);
+697	
+698	        other.i_batch = i_batch;
+699	
+700	        other.stats = stats;
+701	
+702	        other.prompt = prompt.clone();
+703	        other.init_sampler();
+== ec7630a verify: checkpoint when the rollback > n_rs_seq: tools/server/server-context.cpp:3926-3928@ec7630a
+3926	                const bool use_ckpt_tgt =
+3927	                    ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL ||
+3928	                    (ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_RS && n_rollback > llama_n_rs_seq(ctx_tgt));
+== ec7630a verify: the partial rollback: tools/server/server-context.cpp:3998-3998@ec7630a
+3998	            slot.mem.seq_rm(slot.id, slot.prompt.tokens.pos_next(), -1);
+== grep: ec7630a server has no shared-prefix copy (n_tokens_shared / copy_prompt_to)
+0
+== grep: every memory call of common/speculative.cpp (all on the draft context)
+644:        const llama_pos pos_max = llama_memory_seq_pos_max(llama_get_memory(ctx_dft), seq_id);
+711:            llama_pos pos = llama_memory_seq_pos_max(llama_get_memory(ctx_dft), 0) + 1;
+763:                const llama_pos dft_pos_max = llama_memory_seq_pos_max(llama_get_memory(ctx_dft), seq_id);
+824:            llama_memory_seq_rm(llama_get_memory(ctx_dft), seq_id, pending_pos_last[seq_id], -1);
+1149:        const llama_pos pos_max = llama_memory_seq_pos_max(llama_get_memory(params.ctx_dft), seq_id);
+1528:        const llama_pos pos_max = llama_memory_seq_pos_max(llama_get_memory(ctx_dft), seq_id);
+1595:            auto * mem_dft = llama_get_memory(ctx_dft);
+1605:                        llama_memory_seq_rm(mem_dft, seq_id, batch_in.tokens[i_batch_beg[seq_id]].pos[0], -1);
+1701:                auto * mem_dft = llama_get_memory(ctx_dft);
+1704:                        llama_memory_seq_rm(mem_dft, seq_id, dparams[seq_id].pos0, -1);
+== grep: seq_keep / seq_cp callers in the server
+763:        mem.seq_cp(id, other.id, -1, -1);
+772:        mem.seq_cp(id, other.id, -1, -1);
