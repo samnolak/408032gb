@@ -1,0 +1,645 @@
+{
+ "request_path": "data/gguf-headers/discover-mimo/REQUEST.json",
+ "request_sha256": "f0bf3de0d878f039234240a52ab931e2eea6c151245c896eaceff5b5b2ee0fe4",
+ "request": {
+  "_doc": "N18 (b): file lists of MiMo-V2.6-Flash GGUFs (mimo2). The N15 discovery found them (third_party/gguf-headers/discover-glm-mimo/LISTING.json:3549, 3729, 3765, 3777) but listed no MiMo files (its 25-repo cap went to GLM). Named repos, each pinned through the revision API and its .gguf paths listed with size and LFS sha256: the ggml-org MOPD and RL files for llama.cpp mainline, the two most-downloaded MOPD MXFP4 files, and two unsloth names (not in the N15 listing; 404 is recorded, not an error). The vendored config is of the MOPD model (XiaomiMiMo/MiMo-V2.6-Flash-MOPD @b12f557, bot commit 1ce4d32 on claude/n16-mimo-decode-parity). The search (no architecture filter, so it lists no files) refreshes the repo list. Reads no file; header requests for one quant per repo follow from this listing. docs/reassessment/CORRECTNESS.md gap 9.",
+  "kind": "discover",
+  "limit": 100,
+  "list_files": true,
+  "repos": [
+   {
+    "repo": "ggml-org/MiMo-V2.6-Flash-MOPD-GGUF",
+    "revision": "main"
+   },
+   {
+    "repo": "ggml-org/MiMo-V2.6-Flash-RL-GGUF",
+    "revision": "main"
+   },
+   {
+    "repo": "QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+    "revision": "main"
+   },
+   {
+    "repo": "kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+    "revision": "main"
+   },
+   {
+    "repo": "unsloth/MiMo-V2.6-Flash-MOPD-GGUF",
+    "revision": "main"
+   },
+   {
+    "repo": "unsloth/MiMo-V2.6-Flash-GGUF",
+    "revision": "main"
+   }
+  ],
+  "searches": [
+   {
+    "search": "MiMo-V2.6-Flash"
+   }
+  ]
+ },
+ "endpoint": "https://huggingface.co",
+ "tool": "scripts/gguf_headers_fetch.py",
+ "fetched_utc": "2026-10-11T14:03:30Z",
+ "searches": [
+  {
+   "search": "MiMo-V2.6-Flash",
+   "architectures": [],
+   "url": "https://huggingface.co/api/models?search=MiMo-V2.6-Flash&filter=gguf&limit=100&expand=gguf&expand=sha&expand=lastModified&expand=downloads&expand=gated&expand=tags",
+   "expanded": true,
+   "n_results": 30,
+   "results": [
+    {
+     "id": "ProCreations/MiMo-V2.6-Flash-RL-NVFP4",
+     "sha": "34cebc5d75743a93ab76145ec609cfef9da8c417",
+     "lastModified": "2026-09-22T15:47:33.000Z",
+     "downloads": 11177,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766637184,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "ggml-org/MiMo-V2.6-Flash-RL-GGUF",
+     "sha": "b0b2d0fb0b56611c761e075425c88989faf1ed1f",
+     "lastModified": "2026-10-11T08:23:14.000Z",
+     "downloads": 15855,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 308778780864,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "MorinoNushi/MiMo-V2.6-Flash-RL-Uncensored-Heretic-GGUF",
+     "sha": "fbbb29584eb9378500c22276c61ae26cc19c5e0f",
+     "lastModified": "2026-09-24T00:43:27.000Z",
+     "downloads": 344,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 308778780864,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "MorinoNushi/MiMo-V2.6-Flash-RL-Uncensored-Heretic-LoRA-GGUF",
+     "sha": "0ecc6864d187d4117d3348c85379bfe9298f49e3",
+     "lastModified": "2026-09-23T23:36:23.000Z",
+     "downloads": 587,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 35045376,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": null
+    },
+    {
+     "id": "pfeifferj/MiMo-V2.6-Flash-RL-GSQ-RCO-GGUF",
+     "sha": "a37b69042dbe3e375790d10ffefda6333365c718",
+     "lastModified": "2026-09-25T09:41:55.000Z",
+     "downloads": 2853,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 308778780864,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "patrickbdevaney/MiMo-V2.6-Flash-REAP50-GGUF",
+     "sha": "8d0abe0abfbeab31329e853fd8379e0f50cfb107",
+     "lastModified": "2026-09-25T20:48:02.000Z",
+     "downloads": 6615,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 157356536128,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "AesSedai/MiMo-V2.6-Flash-MOPD-GGUF",
+     "sha": "b6e95d58c343b59b48a1dcbe98815d19abcae001",
+     "lastModified": "2026-09-29T18:22:15.000Z",
+     "downloads": 1669,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "ProCreations/MiMo-V2.6-Flash-RL-IQ3_XXS-GGUF",
+     "sha": "9b2bf573c44ed6ddc93db767e7541209617af795",
+     "lastModified": "2026-09-22T06:25:13.000Z",
+     "downloads": 712,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "TrevorJS/MiMo-V2.6-Flash-RL-GGUF",
+     "sha": "dce9d8c8e576159b1e21c849b494fd1e4e550da2",
+     "lastModified": "2026-09-23T07:45:41.000Z",
+     "downloads": 1442,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "Baekpica/MiMo-V2.6-Flash-RL-Mixed-Quant-GGUF",
+     "sha": "7cbefe60ca47818074fbfa0e09f04105ee8fc673",
+     "lastModified": "2026-09-26T09:35:52.000Z",
+     "downloads": 3673,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "Baekpica/MiMo-V2.6-Flash-RL-GGUF",
+     "sha": "a485ac9ebf5190639e3b3b4459024bd654a9864b",
+     "lastModified": "2026-09-22T04:01:21.000Z",
+     "downloads": 840,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "kernelpool/MiMo-V2.6-Flash-MXFP4-GGUF",
+     "sha": "f4a1c0708d4acebad1de35630519b1eddca55aec",
+     "lastModified": "2026-09-22T08:24:02.000Z",
+     "downloads": 571,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "853650bee57bf95020373e4c928bd5a4b41b9915adf964a77711d2b49a291887",
+     "arch_match": null
+    },
+    {
+     "id": "jedisct1/MiMo-V2.6-Flash-RL-GGUF-100K",
+     "sha": "a207209263a08c51f615d1ee333c72e7bd909797",
+     "lastModified": "2026-09-22T20:06:49.000Z",
+     "downloads": 240,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "8d671a825e7aec303ed02e60bb8817c91a54c9486b0e26155075911d70d70344",
+     "arch_match": null
+    },
+    {
+     "id": "YanissAmz/MiMo-V2.6-Flash-RL-GGUF",
+     "sha": "e7a3bd785397699f2ce01e6459641010b7720277",
+     "lastModified": "2026-09-23T13:46:05.000Z",
+     "downloads": 1277,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "AliceThirty/MiMo-V2.6-Flash-RL-UNCENSORED-gguf",
+     "sha": "5cc3ec2959c03f37fa163579e0dafc3267262dfa",
+     "lastModified": "2026-09-23T22:09:32.000Z",
+     "downloads": 2028,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "0xSojalSec/MiMo-V2.6-Flash-RL-Uncensored-Heretic-LoRA-GGUF",
+     "sha": "c47289f56ace2b55e02d538b5eb5b1aad3053664",
+     "lastModified": "2026-09-25T00:08:30.000Z",
+     "downloads": 153,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 35045376,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": null
+    },
+    {
+     "id": "QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+     "sha": "ac33b3743d70ed57a8cc6b847698d2ebbddb7784",
+     "lastModified": "2026-09-27T20:57:35.000Z",
+     "downloads": 48815,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "ProCreations/MiMo-V2.6-Flash-MOPD-NVFP4",
+     "sha": "da654d8ed8d0d2acbf0fc5b63df72a7b75a6bb2a",
+     "lastModified": "2026-09-27T23:15:05.000Z",
+     "downloads": 1204,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766637184,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "ddh0/MiMo-V2.6-Flash-MOPD-GGUF",
+     "sha": "b9e3e8a3370aae1e66298f974d4547c75ecf4286",
+     "lastModified": "2026-10-11T04:48:51.000Z",
+     "downloads": 1200,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+     "sha": "44d9191bb7a95125c8b971ce0593bd802ae6dd48",
+     "lastModified": "2026-10-04T03:08:13.000Z",
+     "downloads": 602,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "ggml-org/MiMo-V2.6-Flash-MOPD-GGUF",
+     "sha": "e6d4bced739310a721eefad4c247ec7e0247c89d",
+     "lastModified": "2026-10-11T07:58:04.000Z",
+     "downloads": 5621,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 308778780864,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "webmp3/Sakura-MiMo-V2.6-Flash-MOPD-P160-GGUF",
+     "sha": "a0d8ac0255752ca55c14e2951fd965be92abffeb",
+     "lastModified": "2026-10-08T12:25:18.000Z",
+     "downloads": 691,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 195212097312,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "fresherbz/MiMo-V2.6-Flash-MOPD-IQ2_XXS-GGUF",
+     "sha": "b393fdeb4476168115bcddd61219e71a6b80697b",
+     "lastModified": "2026-09-29T12:18:06.000Z",
+     "downloads": 204,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 308778780864,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "Baekpica/MiMo-V2.6-Flash-MOPD-Mixed-Quant-GGUF",
+     "sha": "c2de39b1ac00f2567a2ff00ef38f52a05c92029b",
+     "lastModified": "2026-09-30T04:30:27.000Z",
+     "downloads": 554,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "AMAImedia/MiMo-V2.6-Flash-MOPD-BPW2.5-GGUF",
+     "sha": "a98d84c2f7111d6485fe3d389ab72c0cef28ea1b",
+     "lastModified": "2026-10-09T08:27:20.000Z",
+     "downloads": 335,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "CarnaK/MiMo-V2.6-Flash-RL-Heretic-MTP-Q3_K-GGUF",
+     "sha": "4d21819d3ede85034176246c590f1892d6c177fe",
+     "lastModified": "2026-10-01T18:02:22.000Z",
+     "downloads": 0,
+     "gated": false,
+     "gguf_architecture": null,
+     "gguf_total_params": null,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": null
+    },
+    {
+     "id": "cafonez/MiMo-V2.6-Flash-RL-UNCENSORED-Gorgon-GGUF",
+     "sha": "998bdd418f7a4f62bef68bd607eb1014a188f5af",
+     "lastModified": "2026-10-02T12:40:03.000Z",
+     "downloads": 224,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "kernelpool/MiMo-V2.6-Flash-MOPD-GGUF",
+     "sha": "3ce46a094a33818968ab7999e7916b45331d775f",
+     "lastModified": "2026-10-04T01:49:33.000Z",
+     "downloads": 286,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "spiritfather/MiMo-V2.6-Flash-MOPD-Yamz-Uncensored-GGUF",
+     "sha": "f1adc2e15d07b84bc35b7e0ba6e2b7df5094ff3f",
+     "lastModified": "2026-10-06T02:46:41.000Z",
+     "downloads": 1180,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": null
+    },
+    {
+     "id": "petr567/MiMo-V2.6-Flash-MOPD-Strix-Halo-Recipe",
+     "sha": "29500f0a89103e846a93886ac65217a48d6883d8",
+     "lastModified": "2026-10-06T01:01:22.000Z",
+     "downloads": 0,
+     "gated": false,
+     "gguf_architecture": null,
+     "gguf_total_params": null,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": null
+    }
+   ]
+  }
+ ],
+ "repos": [
+  {
+   "repo": "ggml-org/MiMo-V2.6-Flash-MOPD-GGUF",
+   "requested_revision": "main",
+   "status": "ok",
+   "revision": "e6d4bced739310a721eefad4c247ec7e0247c89d",
+   "lastModified": "2026-10-11T07:58:04.000Z",
+   "gated": false,
+   "gguf_architecture": "mimo2",
+   "gguf_total_params": 308778780864,
+   "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+   "gguf_files": [
+    {
+     "path": "MiMo-V2.6-Flash-MOPD-MXFP4-00001-of-00002.gguf",
+     "size": 5948640,
+     "lfs_sha256": "a353e75ccd30f347dfd68a8cf1be8be0fb989fcca94b8e72fd7d1e35241b5f51"
+    },
+    {
+     "path": "MiMo-V2.6-Flash-MOPD-MXFP4-00002-of-00002.gguf",
+     "size": 167363516512,
+     "lfs_sha256": "3adf8ea80157dd066945a954428ba0e507c15c0e5a8b6b276ac92df0948698bc"
+    },
+    {
+     "path": "MiMo-V2.6-Flash-MOPD-Q2_K-00001-of-00002.gguf",
+     "size": 5948928,
+     "lfs_sha256": "612ae7fd2064a2ba296b72cc9a0765e5ebd91541996e54718b6f06b883140cfe"
+    },
+    {
+     "path": "MiMo-V2.6-Flash-MOPD-Q2_K-00002-of-00002.gguf",
+     "size": 126360000608,
+     "lfs_sha256": "637921c1b5b556f422c548c2b2ff96384baaeb86a86c2081a5c925bfaedf5f70"
+    },
+    {
+     "path": "MiMo-V2.6-Flash-MOPD-Q2_K_S-00001-of-00002.gguf",
+     "size": 5948928,
+     "lfs_sha256": "ad88631792326298ea2b4d828eafa11daa21d0c754e73f7cb1f854413371cf3b"
+    },
+    {
+     "path": "MiMo-V2.6-Flash-MOPD-Q2_K_S-00002-of-00002.gguf",
+     "size": 105858242656,
+     "lfs_sha256": "4f21f6083146630b2b633a8a68193c97817e2d102c30e7d92c8a7c8a6fd6949a"
+    },
+    {
+     "path": "dflash-MiMo-V2.6-Flash-MOPD-BF16.gguf",
+     "size": 5441972448,
+     "lfs_sha256": "c909b7c0d0f10061a212fba30f9c0d7fb6261ea293a5ebd3558f4badacb56b5d"
+    },
+    {
+     "path": "dflash-MiMo-V2.6-Flash-MOPD-Q8_0.gguf",
+     "size": 2893932768,
+     "lfs_sha256": "cfd70fef40bc4ef2f6c186516bdfa8c861ebd7b8e5f44ed4703a41dde1492a67"
+    },
+    {
+     "path": "mmproj-MiMo-V2.6-Flash-MOPD-BF16.gguf",
+     "size": 2748509792,
+     "lfs_sha256": "9b7d98d8afe2a6ae25635ecc490fb37883f912bf1d5648d1334fdc703e4a565e"
+    },
+    {
+     "path": "mmproj-MiMo-V2.6-Flash-MOPD-Q8_0.gguf",
+     "size": 1564438112,
+     "lfs_sha256": "7fa58c0f20342fad37ef1962e8a9fd37ef834038b377e4f7e93f905e013e55db"
+    },
+    {
+     "path": "mtp-MiMo-V2.6-Flash-MOPD-BF16.gguf",
+     "size": 4481536224,
+     "lfs_sha256": "d4292135824f47b8f8e1219780ed53a50ad9c3fb520d5670db7a9c6760c32e20"
+    },
+    {
+     "path": "mtp-MiMo-V2.6-Flash-MOPD-Q4_0.gguf",
+     "size": 1264898272,
+     "lfs_sha256": "bc9914785441a04596e84d919b59aed352336eda7fe323f1ce1eecf15422ba71"
+    },
+    {
+     "path": "mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf",
+     "size": 2383728864,
+     "lfs_sha256": "4589839383ca7524fa1bdf635b8cef0da59b7e909d84a433f6006f7b64fc17ec"
+    }
+   ]
+  },
+  {
+   "repo": "ggml-org/MiMo-V2.6-Flash-RL-GGUF",
+   "requested_revision": "main",
+   "status": "ok",
+   "revision": "b0b2d0fb0b56611c761e075425c88989faf1ed1f",
+   "lastModified": "2026-10-11T08:23:14.000Z",
+   "gated": false,
+   "gguf_architecture": "mimo2",
+   "gguf_total_params": 308778780864,
+   "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+   "gguf_files": [
+    {
+     "path": "MiMo-V2.6-Flash-RL-MXFP4-00001-of-00002.gguf",
+     "size": 5948640,
+     "lfs_sha256": "a34f63df32086bba7a14aa8a2f6c2f111f6e626ad7b10be18957e42d14d84738"
+    },
+    {
+     "path": "MiMo-V2.6-Flash-RL-MXFP4-00002-of-00002.gguf",
+     "size": 167363516512,
+     "lfs_sha256": "10b74ff85577de18b336718c19905a50bcbccfee9cae7b9edd446667084f623c"
+    },
+    {
+     "path": "MiMo-V2.6-Flash-RL-Q2_K-00001-of-00002.gguf",
+     "size": 5948640,
+     "lfs_sha256": "a34f63df32086bba7a14aa8a2f6c2f111f6e626ad7b10be18957e42d14d84738"
+    },
+    {
+     "path": "MiMo-V2.6-Flash-RL-Q2_K-00002-of-00002.gguf",
+     "size": 126360000608,
+     "lfs_sha256": "d037fe34f375e55945dbb981ae6bf4bd357cb19ee8c04f56fbd7c4dde4cdbd63"
+    },
+    {
+     "path": "dflash-MiMo-V2.6-Flash-RL-BF16.gguf",
+     "size": 5441972448,
+     "lfs_sha256": "02bac7c24be20ee5ca82a3cd368a1d10aa23706ebf6374e572725e79191ffa2e"
+    },
+    {
+     "path": "dflash-MiMo-V2.6-Flash-RL-Q8_0.gguf",
+     "size": 2893932768,
+     "lfs_sha256": "54e787fb5c89be3d94c7e7a838e40bf46400db42b99c977f8321e5df954115de"
+    },
+    {
+     "path": "mmproj-MiMo-V2.6-Flash-RL-BF16.gguf",
+     "size": 2748509792,
+     "lfs_sha256": "1561e6127de6c1aa0d11b50c95205b65dbc6e4a4b8a6bf899cac1f7471fa0414"
+    },
+    {
+     "path": "mmproj-MiMo-V2.6-Flash-RL-Q8_0.gguf",
+     "size": 1564438112,
+     "lfs_sha256": "9f3aeb85745e89d3f57af792f3d90704bdf8b4a2340ac5c2abb74ba6498490f4"
+    },
+    {
+     "path": "mtp-MiMo-V2.6-Flash-RL-BF16.gguf",
+     "size": 4481536224,
+     "lfs_sha256": "4719f59c59079fe458da67640719b6a463731c6facb620d7f06e7feb9a7f1441"
+    },
+    {
+     "path": "mtp-MiMo-V2.6-Flash-RL-Q4_0.gguf",
+     "size": 1264898272,
+     "lfs_sha256": "5318c079bf646ed702271281609abc5b7cfc7fecdd354f42b4296b9aad4a83d7"
+    },
+    {
+     "path": "mtp-MiMo-V2.6-Flash-RL-Q8_0.gguf",
+     "size": 2383728864,
+     "lfs_sha256": "cbcd8a22e62754b4133dc6f9ba87356268aa2d6377ee3e78be5d61172643969e"
+    }
+   ]
+  },
+  {
+   "repo": "QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+   "requested_revision": "main",
+   "status": "ok",
+   "revision": "ac33b3743d70ed57a8cc6b847698d2ebbddb7784",
+   "lastModified": "2026-09-27T20:57:35.000Z",
+   "gated": false,
+   "gguf_architecture": "mimo2",
+   "gguf_total_params": 309766601088,
+   "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+   "gguf_files": [
+    {
+     "path": "MiMo-V2.6-Flash-MOPD-MXFP4.gguf",
+     "size": 174908254272,
+     "lfs_sha256": "fc1b8122d1a31db98b20ed5c9ddb3d4d7e28d37b47cb2f1e843354788fbfeaa6"
+    },
+    {
+     "path": "mmproj-MiMo-V2.6-Flash-MOPD-Q8_0.gguf",
+     "size": 1564438112,
+     "lfs_sha256": "156c3891b52d831ca9db2329cf5b2c8dd8ecdab8758354d42a912df79bb247ac"
+    },
+    {
+     "path": "mmproj-MiMo-V2.6-Flash-MOPD-bf16.gguf",
+     "size": 2748509792,
+     "lfs_sha256": "8524ec7a6ce44be56ee01921749161e5dbf1c5dd464e2d5c95da505e4b7287d4"
+    },
+    {
+     "path": "mmproj-MiMo-V2.6-Flash-MOPD-f16.gguf",
+     "size": 2744577632,
+     "lfs_sha256": "973931512a704ff99c4e7e7bdd2bf04f4540dce699cb8a51feb4c3683d8700dd"
+    }
+   ]
+  },
+  {
+   "repo": "kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+   "requested_revision": "main",
+   "status": "ok",
+   "revision": "44d9191bb7a95125c8b971ce0593bd802ae6dd48",
+   "lastModified": "2026-10-04T03:08:13.000Z",
+   "gated": false,
+   "gguf_architecture": "mimo2",
+   "gguf_total_params": 309766601088,
+   "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+   "gguf_files": [
+    {
+     "path": "MiMo-V2.6-Flash-MOPD-DFlash-Q8_0.gguf",
+     "size": 1559980992,
+     "lfs_sha256": "336b16e8f7ea6f6540fe9993d6ed053f47cca6220285f79f9a320a6a95dadd75"
+    },
+    {
+     "path": "MiMo-V2.6-Flash-MOPD-MXFP4.gguf",
+     "size": 169005098944,
+     "lfs_sha256": "5e5dfb6d96466f40e73a235467949aa836e14d4de2310cff220409923937c99b"
+    },
+    {
+     "path": "MiMo-V2.6-Flash-MOPD-Vision-F32.gguf",
+     "size": 2914399616,
+     "lfs_sha256": "5eaa8193dcfc090b8aa4571a7f4bb5b5a84b163c1380a78793461e84044804c2"
+    },
+    {
+     "path": "MiMo-V2.6-Flash-MOPD-Vision-Q8_0.gguf",
+     "size": 775591296,
+     "lfs_sha256": "4499a8191bf53d04abb30b13ee1301945863a6faee81a8cd45b687b54a255691"
+    }
+   ]
+  },
+  {
+   "repo": "unsloth/MiMo-V2.6-Flash-MOPD-GGUF",
+   "requested_revision": "main",
+   "status": "repo_unavailable",
+   "http_status": 401,
+   "http_body": "{\"error\":\"Invalid username or password.\"}",
+   "revision": null
+  },
+  {
+   "repo": "unsloth/MiMo-V2.6-Flash-GGUF",
+   "requested_revision": "main",
+   "status": "repo_unavailable",
+   "http_status": 401,
+   "http_body": "{\"error\":\"Invalid username or password.\"}",
+   "revision": null
+  }
+ ]
+}
