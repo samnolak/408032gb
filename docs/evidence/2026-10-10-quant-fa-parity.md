@@ -120,8 +120,8 @@ Tolerances (U16 = 2^-11, the unit roundoff of binary16):
    are larger (KDA, mHC). The plain f32 oracle is 3.1x to 25x further away (2-norm, both models, both pins; about
    1000x in the two runs where it flips an expert); the test requires 2x. The smallest ratio, 3.147 (glm5-next
    rollback at 79e2e74: 1.139e-3 plain / 3.619e-4 aware), is only 1.57 times that requirement.
-5. **N7 finding 7: a MoE near-tie flip; N7's 0.416 compared answers to two different prompts.** Three parts, labelled
-   separately.
+5. **N7 finding 7: probably a MoE near-tie flip (PROVISIONAL, (a) / (b)); N7's 0.416 compared answers to two
+   different prompts (CONFIRMED, (b)).** Three parts, labelled separately.
    (a) N10's own runs; as an explanation of N7: PROVISIONAL (a mechanism of the right size, shown at ec7630a on N10's
    64-token sequence). llama.cpp at f16 / FA against llama.cpp at f32 / no FA (same model, tokens, call plan;
    `2026-10-10-n10-logprob-probe.py`): qwen4exp max |d log-softmax| 2.8e-4, glm5-next 2.7e-3 (pf64) to 1.15e-2 with
@@ -138,9 +138,14 @@ Tolerances (U16 = 2^-11, the unit roundoff of binary16):
    CONFIRMED by that output unless labelled). dump-tensors with N7's model and result files, the server's flags and
    call plan (a prompt as n - 4 and 4 tokens, then one token per call) and the answers teacher-forced reproduces N7's
    server log-probs within 6.2e-7, with the same greedy tokens. N7's 0.416 (step 0) and 0.86 compare the cold answers
-   to two different 256-token prompts: each configuration's prompt holds its own first answer (`check_prefix_extend`),
-   the two first answers differ from token 13, so the prompts differ at 18 positions from position 213. From the dumps:
-   0.416 between the two prompts, 1.5e-3 between the precisions on the same prompt, with all 32 greedy tokens equal.
+   to two different 256-token prompts: each configuration's prompt holds its own first answer
+   (`tools/srvcheck/hybrid_server_checks.py:171@090ca71`, `nxt = prompt + first["tokens"] + tail`), and N7's report
+   compares each configuration's cold answer with the gate's (`tools/srvcheck/n7_report.py:73@090ca71`; both on branch
+   `claude/n7-server-hybrid-cpu`); the two first answers differ from token 13, so the prompts differ at 18 positions
+   from position 213. From the dumps, step 0 in N7's top-5 metric: 0.416 between the two configurations' own prompts
+   (f32 on the gate's prompt against the defaults on theirs: prompt and precision both differ), 0.415 with only the
+   prompt changed (both at the defaults), 1.5e-3 between the precisions on the same prompt (2.2e-3 over the full
+   log-softmax), with all 32 greedy tokens equal on that prompt.
    The precision does change the first answer (one 200-token prompt): the greedy token first differs at step 13,
    where |d log-softmax| jumps from 7.6e-3 (step 12) to 0.54. The only discrete choice that differs at or before that
    position, besides the last layer's DSA selection at prompt row 45 (whose effect stays in that row: 0.396 there,
@@ -186,7 +191,9 @@ Tolerances (U16 = 2^-11, the unit roundoff of binary16):
 * MTP contexts at f16 / FA: NOT RUN. Quantized KV types (`-ctk q8_0`, Hadamard rotation): NOT RUN.
 * f16 dot products with DK, DV >= 32 (SIMD f16 paths with f32 lane sums): NOT RUN, the tiny heads are 16 wide
   (qwen4exp head_dim 16, glm5-next kv_lora 16); the emulation follows the scalar leftovers.
-* the GPU (CUDA) flash attention, which R1 actually uses for the attention layers: NOT RUN (no GPU).
+* the GPU (CUDA) flash attention, which R1 would use for the attention layers (PROVISIONAL: the R1 llama-server
+  template, itself a NOT RUN template, puts every layer on the GPUs with flash attention on, `"-ngl", "all"` and
+  `"-fa", "on"` in scripts/r1/configs/llamacpp-server.json:37): NOT RUN (no GPU).
 
 ### Literal outputs (part A)
 
@@ -1164,16 +1171,16 @@ glm5next_tiny.py --seed 3: before bd479a47fb26f16c after bd479a47fb26f16c
 glm5next_tiny.py --arch glm5next: before 8a63da35ebde0f64 after 8a63da35ebde0f64
 ```
 
-The PLE gammas without an override (`docs/evidence/mutation-scripts/2026-10-10-n10-quant-abort-probe.sh`, both pins; the bash job-control line is the shell's own report of the abort):
+The PLE gammas without an override (`docs/evidence/mutation-scripts/2026-10-10-n10-quant-abort-probe.sh`, both pins; the bash job-control line is the shell's own report of the abort; rerun with the literal command for the audit of `7c6f372`, from the repository root: same output as the first run except the process ids):
 
 ```
-$ for pin: docs/evidence/mutation-scripts/2026-10-10-n10-quant-abort-probe.sh <llama.cpp> <g0 build> <scratch>/n10/abort-<pin>
+$ for p in ec r1; do L=<scratch>/$([ $p = ec ] && echo llama-ec7630a || echo llama.cpp); echo "== $p ($(git -C $L rev-parse HEAD))"; docs/evidence/mutation-scripts/2026-10-10-n10-quant-abort-probe.sh $L <scratch>/n10/build-$p <scratch>/n10/abort-$p; done
 == ec (ec7630a640789c393694fb194f1bbbf0369fc62d)
 llama-quantize rc=0; types of the PLE gammas:
   blk.1.ple_norm_conv.weight Q8_0 [256, 4]
   blk.1.ple_norm_key.weight Q8_0 [256, 4]
   blk.1.ple_norm_query.weight Q8_0 [256, 4]
-docs/evidence/mutation-scripts/2026-10-10-n10-quant-abort-probe.sh: line 17: 13012 Aborted                 env DUMP_DIR="$OUT/dump" DUMP_TOKENS="5,6,7,8,9,10,11,12" DUMP_PER_GRAPH=1 DUMP_PREFIXES="result_" "$BUILD/dump-tensors" -m "$OUT/q8_0.gguf" -c 512 -b 512 -ub 512 -t 1 -ctk f32 -ctv f32 -fa off > "$OUT/run.log" 2>&1
+docs/evidence/mutation-scripts/2026-10-10-n10-quant-abort-probe.sh: line 17:  4237 Aborted                 env DUMP_DIR="$OUT/dump" DUMP_TOKENS="5,6,7,8,9,10,11,12" DUMP_PER_GRAPH=1 DUMP_PREFIXES="result_" "$BUILD/dump-tensors" -m "$OUT/q8_0.gguf" -c 512 -b 512 -ub 512 -t 1 -ctk f32 -ctv f32 -fa off > "$OUT/run.log" 2>&1
 dump-tensors rc=134
 <scratch>/llama-ec7630a/ggml/src/ggml-cpu/binary-ops.cpp:135: binary_op: unsupported types: dst: f32, src0: f32, src1: q8_0
 == r1 (79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6)
@@ -1181,7 +1188,7 @@ llama-quantize rc=0; types of the PLE gammas:
   blk.1.ple_norm_conv.weight Q8_0 [256, 4]
   blk.1.ple_norm_key.weight Q8_0 [256, 4]
   blk.1.ple_norm_query.weight Q8_0 [256, 4]
-docs/evidence/mutation-scripts/2026-10-10-n10-quant-abort-probe.sh: line 17: 13043 Aborted                 env DUMP_DIR="$OUT/dump" DUMP_TOKENS="5,6,7,8,9,10,11,12" DUMP_PER_GRAPH=1 DUMP_PREFIXES="result_" "$BUILD/dump-tensors" -m "$OUT/q8_0.gguf" -c 512 -b 512 -ub 512 -t 1 -ctk f32 -ctv f32 -fa off > "$OUT/run.log" 2>&1
+docs/evidence/mutation-scripts/2026-10-10-n10-quant-abort-probe.sh: line 17:  4273 Aborted                 env DUMP_DIR="$OUT/dump" DUMP_TOKENS="5,6,7,8,9,10,11,12" DUMP_PER_GRAPH=1 DUMP_PREFIXES="result_" "$BUILD/dump-tensors" -m "$OUT/q8_0.gguf" -c 512 -b 512 -ub 512 -t 1 -ctk f32 -ctv f32 -fa off > "$OUT/run.log" 2>&1
 dump-tensors rc=134
 <scratch>/llama.cpp/ggml/src/ggml-cpu/binary-ops.cpp:135: binary_op: unsupported types: dst: f32, src0: f32, src1: q8_0
 ```
@@ -1408,19 +1415,20 @@ bc3f35128ba18221e84131ce8044f5448e09b7b58bdbcf44651fe5a4919deb73  <scratch>/n10/
 bc3f35128ba18221e84131ce8044f5448e09b7b58bdbcf44651fe5a4919deb73  <scratch>/n10/qw-r1/glm5next/glm5next-f32.gguf
 ```
 
-Repacking (`-lv 4` prints the buffer sizes; same model and flags as the runs):
+Repacking (`-lv 4` prints the buffer sizes; the flags of the pf64 run). Rerun with the literal command for the audit of `7c6f372` on the Q4_K_M models of the `6585325` runs (`qw2-<pin>`; the first runs' directories were deleted for disk space); same sizes as the first time:
 
 ```
-$ dump-tensors -m <work-ec>/Q4_K_M/model.gguf ... -lv 4  2>&1 | grep 'model buffer size'
-I load_tensors:   CPU_Mapped model buffer size =    10.72 MiB
-I load_tensors:   CPU_REPACK model buffer size =     7.12 MiB
-$ dump-tensors -m <work-ec>/Q4_K_M/model.gguf ... -lv 4 --no-repack 2>&1 | grep 'model buffer size'
-I load_tensors:   CPU_Mapped model buffer size =    10.72 MiB
-$ dump-tensors -m <work-r1>/Q4_K_M/model.gguf ... -lv 4  2>&1 | grep 'model buffer size'
-I load_tensors:   CPU_Mapped model buffer size =    10.72 MiB
-I load_tensors:   CPU_REPACK model buffer size =     7.12 MiB
-$ dump-tensors -m <work-r1>/Q4_K_M/model.gguf ... -lv 4 --no-repack 2>&1 | grep 'model buffer size'
-I load_tensors:   CPU_Mapped model buffer size =    10.72 MiB
+$ for p in ec r1; do for nr in "" --no-repack; do echo "== $p ${nr:-default}"; env DUMP_DIR=<scratch>/n10/rp DUMP_TOKENS=5,6,7,8,9,10,11,12 <scratch>/n10/build-$p/dump-tensors -m <scratch>/n10/qw2-$p/Q4_K_M/model.gguf -c 512 -b 512 -ub 512 -t 1 -ctk f32 -ctv f32 -fa off -lv 4 $nr 2>&1 | grep 'model buffer size'; done; done
+== ec default
+0.00.019.691 I load_tensors:   CPU_Mapped model buffer size =    10.72 MiB
+0.00.019.713 I load_tensors:   CPU_REPACK model buffer size =     7.12 MiB
+== ec --no-repack
+0.00.028.497 I load_tensors:   CPU_Mapped model buffer size =    10.72 MiB
+== r1 default
+0.00.019.383 I load_tensors:   CPU_Mapped model buffer size =    10.72 MiB
+0.00.019.384 I load_tensors:   CPU_REPACK model buffer size =     7.12 MiB
+== r1 --no-repack
+0.00.030.624 I load_tensors:   CPU_Mapped model buffer size =    10.72 MiB
 ```
 
 Pins: the source files of part B at ec7630a and 79e2e74 (in `<scratch>`; the loop rerun literally for the audit):
@@ -2213,11 +2221,12 @@ test_rmatmul_quantizes_the_activations (tests.test_quant_ref.Wrapper.test_rmatmu
 ----------------------------------------------------------------------
 ```
 
-The tables of the 79e2e74 run against those of ec7630a (header line of each model removed: it names the commit); every differing row is a glm5-next Q4_K_M row (the qwen4exp part, the first 322 lines, is identical):
+The tables of the 79e2e74 run against those of ec7630a (header line of each model removed: it names the commit); every differing row is a glm5-next Q4_K_M row (the qwen4exp part, the first 322 lines, is identical). Rerun in `<scratch>/n10` with the literal commands for the audit of `7c6f372`:
 
 ```
-$ diff <(sed 1d tables-ec.txt | grep -v '^glm5-next: quantized') <(sed 1d tables-r1.txt | grep -v '^glm5-next: quantized') | grep -E '^[0-9]'; ... | awk '{print $1, $2}' | sort | uniq -c
+$ diff <(sed 1d tables-ec.txt | grep -v '^glm5-next: quantized') <(sed 1d tables-r1.txt | grep -v '^glm5-next: quantized') | grep -E '^[0-9]' | tr '\n' ' '; echo
 324,325c324,325 327c327 331,333c331,333 335,336c335,336 339,343c339,343 351,354c351,354 358,363c358,363 365,370c365,370 432,435c432,435 439c439 441,443c441,443 445,451c445,451 
+$ diff <(sed 1d tables-ec.txt | grep -v '^glm5-next: quantized') <(sed 1d tables-r1.txt | grep -v '^glm5-next: quantized') | grep -E '^[<>]' | awk '{print $1, $2}' | sort | uniq -c
      44 < Q4_K_M
      44 > Q4_K_M
 ```
@@ -2548,10 +2557,10 @@ After these runs only the module docstring of ref/glm5next.py gained a paragraph
 glm5-next tests were rerun on it:
 
 ```
-$ GLM5NEXT_QUANT_DUMP=<scratch>/n10/qw-ec/glm5next ... python3 -m unittest tests.test_glm5next_quant_parity 2>&1 | grep -E "^(Ran|OK|FAILED)"
+$ GLM5NEXT_QUANT_DUMP=<scratch>/n10/qw-ec/glm5next ... python3 -m unittest tests.test_glm5next_quant_parity 2>&1 | grep -E "^(Ran|OK|FAILED)"   # abbreviated: "..." = LLAMA_CPP_GGUF_PY=<scratch>/llama-ec7630a/gguf-py PARITY_LLAMA_COMMIT=<ec7630a sha>, the variables tools/tinygen/run_parity_quant.sh exports; the full line was not kept
 Ran 40 tests in 24.418s
 OK
-$ tools/tinygen/run_parity_glm5next_decode.sh <llama-ec7630a> <scratch>/n10/build-ec 2>&1 | grep -E "^(Ran|OK|FAILED)"
+$ tools/tinygen/run_parity_glm5next_decode.sh <scratch>/llama-ec7630a <scratch>/n10/build-ec 2>&1 | grep -E "^(Ran|OK|FAILED)"
 Ran 52 tests in 5.630s
 OK (skipped=1)
 ```
@@ -2614,6 +2623,9 @@ Corrections to commit messages that cannot be amended (published history is not 
   on N10's own ec7630a ub16 / ub10 runs only, not N7's run: as an explanation of N7 it was PROVISIONAL. N7's run was
   traced later (below): N7's 0.416 / 0.86 compare answers to two different prompts; on one shared prompt the first
   changed token coincides with a MoE near-tie flip (margin 1.4e-5); causation PROVISIONAL.
+* `b9c17b6` (the commit of these fixes) quotes numbers without labels (6.2e-7; 0.416 and 1.5e-3, both in N7's top-5
+  metric; 1.4e-5; 7.720e-5 / 2.907e-6; 3.1x / 1.57x; >= 0.82; 1.3e-7 / 2.1e-7; 4.7e-4 to 9.2e-4; >= 8.5e-4; 0.3 s +
+  3.7 s; 170/170): each is CONFIRMED by an output pasted in this section or in the section the fix cites.
 * `27cbb25` says "measured >= 0.83 per quantity": the pasted minimum is 8730/10608 = 0.823, so ">= 0.82".
 * `af850ad` says "the driver took 46 s at ec7630a and 57 s at 79e2e74 (dumps + 169 tests)" with no label and no pasted
   output; those logs were not kept, so the two times are unsupported (PROVISIONAL at best). 169 was the test count at
@@ -2679,10 +2691,14 @@ qwen4exp decode MoE decisions, all: 512, margin < 1e-3 in 19 (density 3.711e+01 
 
 ### N7's glm5-next measurement, traced at 79e2e74 (FAIL 1)
 
-`<scratch>/n7/final` holds the artifacts of N7's own `tools/srvcheck/run_n7.sh` run in this session's scratch
-directory (the model and the result files of the gate and the defaults). N7's report script (branch
-`claude/n7-server-hybrid-cpu`) prints from them the same prefix_extend numbers as N7's attribution table (`isolation`
-depends on request timing, N7 finding 8):
+`<scratch>/n7/final` holds the artifacts of N7's first `tools/srvcheck/run_n7.sh` run in this session's scratch
+directory (harness before `0a20e20`: its gate isolation 4.53e-5 is the one N7's evidence lists as "first driver run in
+the session"), not of the run behind N7's attribution table, which is `<scratch>/n7/final2` (harness `0a20e20`, gate
+isolation 4.39e-5). The trace used `final`. For glm5-next the two are interchangeable: the prefix_extend first / warm
+/ cold tokens and top-5 log-probs of the gate and of the defaults are identical, and so is the model file (the
+auditor checked the same; output after the next block). N7's report script (branch `claude/n7-server-hybrid-cpu`)
+prints from `final` the same prefix_extend numbers as N7's table (`isolation` depends on request timing, N7 finding
+8):
 
 ```
 $ git -C /home/user/408032gb show claude/n7-server-hybrid-cpu:tools/srvcheck/n7_report.py > <scratch>/n10/n7_report.py; git -C /home/user/408032gb rev-parse --short claude/n7-server-hybrid-cpu
@@ -2693,6 +2709,24 @@ gate f32 fa-off        7.15e-06    4.53e-05    0           5.72e-06    | 32, 0, 
 defaults (f16 fa-on)   0.0267      0.00223     0           2.86e-06    | 3, 0.416, 0.86
 $ sha256sum <scratch>/n7/final/glm5next.gguf | cut -c1-16
 26c83267fe1a7588
+```
+
+`final` against `final2` (audit of `7c6f372`, from the repository root):
+
+```
+$ python3 -c 'import json,sys; a,b=sys.argv[1:3]; L=lambda d,c: json.load(open(d+"/glm5next-"+c+".json"))["prefix_extend"]; E=lambda c,k,f: L(a,c)[k][f]==L(b,c)[k][f]; print("\n".join(f"{c:8s} {k:5s}: tokens equal {E(c,k,"tokens")}, top-5 log-probs equal {E(c,k,"top")}" for c in ("gate","defaults") for k in ("first","warm","cold")))' <scratch>/n7/final <scratch>/n7/final2
+gate     first: tokens equal True, top-5 log-probs equal True
+gate     warm : tokens equal True, top-5 log-probs equal True
+gate     cold : tokens equal True, top-5 log-probs equal True
+defaults first: tokens equal True, top-5 log-probs equal True
+defaults warm : tokens equal True, top-5 log-probs equal True
+defaults cold : tokens equal True, top-5 log-probs equal True
+$ cmp <scratch>/n7/final/glm5next.gguf <scratch>/n7/final2/glm5next.gguf && echo "glm5next.gguf identical"
+glm5next.gguf identical
+$ python3 <scratch>/n10/n7_report.py attr "gate f32 fa-off=<scratch>/n7/final2/glm5next-gate.json" "defaults (f16 fa-on)=<scratch>/n7/final2/glm5next-defaults.json"
+config                 extend      isolation   determin.   mtp         | cold 256-token prompt vs the first run: first differing token, |d| at step 0, max |d| up to it
+gate f32 fa-off        7.15e-06    4.39e-05    0           5.72e-06    | 32, 0, 0
+defaults (f16 fa-on)   0.0267      0.00223     0           2.86e-06    | 3, 0.416, 0.86
 ```
 
 The trace (`2026-10-10-n10-n7-trace.py` at `ea9bb9e`; dump-tensors of `<scratch>/n10/build-r1`, i.e. tools/dump at
@@ -2753,15 +2787,28 @@ C: defaults vs f32 on the same tokens: max |d log-softmax| over the prompt rows 
 N7's step-0 number from the dumps (top-5 metric): C-f32 vs D-defaults (each configuration's own prompt) 4.160e-01; C-defaults vs C-f32 (the same prompt) 1.536e-03
 ```
 
-Reading (CONFIRMED by the output unless labelled): the dumps reproduce the server (max |d log-prob| <= 6.2e-7 on
-every step with a shared history, same greedy tokens), so the reconstruction of prompt, tail, flags and call plan
-holds. The two 256-token prompts differ at 18 positions; N7's step-0 number is 0.416 between them and 1.5e-3 on one
-prompt. Run F (the first answer, one prompt): the first greedy difference is step 13 (position 212), where the only
-discrete difference at or before it apart from the last layer's DSA row 45 is the MoE set of layer 8 at position 212,
-margin 1.419e-5 at f32; |d log-softmax| 7.561e-3 at step 12, 0.539 at step 13. Run C (the gate's 256-token prompt):
-the defaults flip layer 6's MoE set at prompt position 236 (margin 4.303e-5 at f32, 3.690e-5 the other way at the
-defaults), with later layers and positions following; by step 0 the difference has shrunk to 2.2e-3 and no greedy
-token changes in 32 steps. Causation of the token change by the flip: PROVISIONAL (no forced-expert replay).
+Reading (CONFIRMED by the output unless labelled): the dumps reproduce the server (max |d log-prob| <= 6.2e-7 on every
+step with a shared history, same greedy tokens), so the reconstruction of prompt, tail, flags and call plan holds. The
+two 256-token prompts differ at 18 positions; N7's step-0 number (its top-5 metric) is 0.416 between the two
+configurations' own prompts (prompt and precision both differ), 0.415 with only the prompt changed and 1.5e-3 on one
+prompt (output below). Run F (the first answer, one prompt): the first greedy difference is step 13 (position 212),
+where the only discrete difference at or before it apart from the last layer's DSA row 45 is the MoE set of layer 8 at
+position 212, margin 1.419e-5 at f32; |d log-softmax| 7.561e-3 at step 12, 0.539 at step 13. Run C (the gate's 256-token
+prompt): the defaults flip layer 6's MoE set at prompt position 236 (margin 4.303e-5 at f32, 3.690e-5 the other way at
+the defaults), with later layers and positions following; by step 0 the difference has shrunk to 2.2e-3 over the full
+log-softmax (1.5e-3 in the top-5 metric) and no greedy token changes in 32 steps. Causation of the token change by the
+flip: PROVISIONAL (no forced-expert replay).
+
+Step 0 of the three pairs from the trace's dumps, in N7's top-5 metric and over the full log-softmax (audit of
+`7c6f372`, from the repository root): f32 on the gate's prompt against the defaults on theirs (N7's comparison), the
+prompt alone (both at the defaults), the precision alone (the gate's prompt):
+
+```
+$ python3 -c 'import json,sys,numpy as np; T=sys.argv[1]; R=lambda n: (lambda x: x-x.max(1,keepdims=True)-np.log(np.exp(x-x.max(1,keepdims=True)).sum(1,keepdims=True)))(np.fromfile(T+"/"+n+"/logits.bin",dtype=np.float32).reshape(-1,json.load(open(T+"/"+n+"/logits.json"))["n_vocab"]).astype(np.float64))[255]; t5=lambda a,b: max(abs(a[i]-b[i]) for i in set(np.argsort(-a)[:5].tolist())&set(np.argsort(-b)[:5].tolist())); print("\n".join(f"step 0, {x} vs {y}: top-5 metric {t5(R(x),R(y)):.4e}, full log-softmax {np.abs(R(x)-R(y)).max():.4e}" for x,y in (("C-f32","D-defaults"),("C-defaults","D-defaults"),("C-defaults","C-f32"))))' <scratch>/n10/n7trace
+step 0, C-f32 vs D-defaults: top-5 metric 4.1599e-01, full log-softmax 1.1930e+00
+step 0, C-defaults vs D-defaults: top-5 metric 4.1542e-01, full log-softmax 1.1928e+00
+step 0, C-defaults vs C-f32: top-5 metric 1.5358e-03, full log-softmax 2.2081e-03
+```
 
 ### Part A tables of the reruns on `6585325` against the pasted ones (MINOR 8)
 
