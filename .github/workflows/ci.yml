@@ -17,6 +17,9 @@ jobs:
       # Every parity step below goes through tools/ci/check_unittest.py: green only if its unittest run is OK with exactly
       # the tests and skips tools/ci/parity_expectations.json lists for the checkout's commit (a missing dump or env
       # variable makes the tests skip, which unittest alone reports as OK; docs/reassessment/CORRECTNESS.md gap 11 (a)).
+      # The `unit tests` step right below is not wrapped: discover skips every dump test by design
+      # (docs/evidence/2026-10-11-n13-ci-no-silent-skips.md section 6); the other unwrapped steps of the parity jobs are
+      # listed with their reasons in ALLOWED_UNWRAPPED of tests/test_check_unittest.py.
       - name: unit tests
         run: python3 -m unittest discover -s tests -v
       - name: ggml delta-net parity (CPU)
