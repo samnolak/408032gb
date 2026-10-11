@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# N18 mutation check: does tests/test_gguf_headers.py fail when the new code paths are broken - named repos of a
+# N18 mutation check (M20-M40): does tests/test_gguf_headers.py fail when the new code paths are broken - named repos of a
 # discover request (scripts/gguf_headers_fetch.py), the separate-MTP-file analysis, the required-keys parser and the
 # mimo2 config map / probes (tools/gguf_headers/analyze.py, gguf_branches.py)? Same mechanism as
 # 2026-10-11-n15-mutations.sh: each mutation runs on a fresh `git archive HEAD` copy of the worktree; the whole test module
@@ -81,3 +81,5 @@ mutate M37-value-scale-inverted $B '_f(m.a("attention.value_scale")) != 1.0 else
 mutate M38-trunk-probe-ignored $B 'has_trunk = trunk_probe in m.names' 'has_trunk = True'
 mutate M39-tiny-workdir-not-created $A '    os.makedirs(workdir, exist_ok=True)
     out, skipped = {}, []' '    out, skipped = {}, []'
+mutate M40-mimo-probes-count-absent-layers $B 'return [i for i in range(_layers(m)) if _suffixes(m, i)]' \
+    'return list(range(_layers(m)))'
