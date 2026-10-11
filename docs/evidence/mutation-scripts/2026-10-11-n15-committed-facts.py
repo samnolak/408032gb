@@ -7,7 +7,7 @@
   listing    the discovery listing: counts, and the GLM / MiMo repos the evidence names
   keys       the keys load_arch_hparams reads without a default at each given llama.cpp checkout, looked up in the files
 
-Usage: python3 <this> pins|tensors|listing|experts ; python3 <this> keys NAME=<llama.cpp checkout> ...
+Usage: python3 <this> pins|tensors|listing|experts|matrices|metashard ; python3 <this> keys NAME=<llama.cpp checkout> ...
 """
 import collections
 import importlib.util
@@ -120,6 +120,43 @@ def experts():
         print(d, {k: dict(sorted(v.items())) for k, v in sorted(types.items())})
 
 
+def matrices():
+    """Non-expert tensors with 2+ dimensions whose type is not Q8_0, grouped by name without the block index."""
+    import glob
+    for d in (GLM, QWEN):
+        c, shapes = collections.Counter(), {}
+        for p in sorted(glob.glob(os.path.join(HDR, d, "*.summary.json"))):
+            with open(p) as f:
+                for t in json.load(f)["tensors"]:
+                    if "_exps" in t["name"] or len(t["shape"]) < 2 or t["type"] == "Q8_0":
+                        continue
+                    name = ".".join(t["name"].split(".")[2:]) if t["name"].startswith("blk.") else t["name"]
+                    c[(name, t["type"])] += 1
+                    shapes.setdefault((name, t["type"]), t["shape"])
+        print(d)
+        for (name, typ), n in sorted(c.items()):
+            print(f"   {n:3d} x {name} {typ} {shapes[(name, typ)]}")
+
+
+def metashard():
+    """sha256 of each committed metadata-only first shard header + its zero padding to 32, against PIN.json's LFS
+    sha256 of the whole file."""
+    import gzip
+    import hashlib
+    for d in (GLM, QWEN):
+        with open(os.path.join(HDR, d, "PIN.json")) as f:
+            rec = json.load(f)["files"][0]
+        with open(os.path.join(HDR, d, rec["header_gz"]), "rb") as f:
+            hdr = gzip.decompress(f.read())
+        whole = hdr + b"\0" * (-len(hdr) % 32)
+        got = hashlib.sha256(whole).hexdigest()
+        print(f"{os.path.basename(rec['path'])}: header {len(hdr)} + {len(whole) - len(hdr)} zero bytes = {len(whole)} "
+              f"(file {rec['size']})")
+        print(f"   sha256(header + zeros) {got}")
+        print(f"   PIN.json lfs_sha256    {rec['lfs_sha256']}")
+        print(f"   equal: {got == rec['lfs_sha256']}")
+
+
 def listing():
     with open(os.path.join(HDR, "discover-glm-mimo", "LISTING.json")) as f:
         lst = json.load(f)
@@ -151,4 +188,5 @@ if __name__ == "__main__":
     if sys.argv[1] == "keys":
         keys(sys.argv[2:])
     else:
-        {"pins": pins, "tensors": tensors, "listing": listing, "experts": experts}[sys.argv[1]]()
+        {"pins": pins, "tensors": tensors, "listing": listing, "experts": experts, "matrices": matrices,
+         "metashard": metashard}[sys.argv[1]]()
