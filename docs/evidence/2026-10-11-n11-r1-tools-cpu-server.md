@@ -1,7 +1,8 @@
 # N11: the measurement tools of R1 against a real llama-server on CPU - 2026-10-11 (sandbox CPU, no GPU)
 
 Task N11 of the hardware-free track: close gap 7 of `docs/reassessment/CORRECTNESS.md` section 3 ("the measurement tools
-were checked only against mocks or stubs"). The tools - `scripts/r1/run_r1.py` with `scripts/r1/configs/llamacpp-server.json`,
+were checked only against mocks or stubs"; the file is on `claude/n10-quant-fa-parity`, where the gap 7 status line is
+commit `0d4d582`; a byte-identical copy carried here in `5ea2ea7` was removed again in `7dcd9a3`). The tools - `scripts/r1/run_r1.py` with `scripts/r1/configs/llamacpp-server.json`,
 `tools/bench/` (`prompts.py`, `run_matrix.py`, `probes.py`, the `/tokenize` dialects of `oa_client.py`),
 `tools/quality/logprob_compare.py`, `tools/gateway/gateway.py`, and `tools/kv/slot_persist.py` as a step of `run_r1.py` -
 were run against the real `llama-server` that R1 will use (llama.cpp `79e2e74`, `tools/engines/pins.json`), built for CPU,
@@ -78,8 +79,30 @@ and read before citing. "Provided" = CONFIRMED by reading those lines and by the
 - **It cannot exercise:** quality (random weights: probe scores are 0, tools/json probes fail); speed; the real chat
   templates and their tool-call parsing (gap 6); real tokenizer properties (here `" the"` is 3 tokens; in the byte-level BPE
   vocabularies of the target models it is believed to be 1 - PROVISIONAL, the tokenizer files are not in the repository);
-  262K lengths in reasonable time on this CPU (a cold 32768-token prefill took 9.8 s of wall time, CPU tiny model); MTP;
-  GPU anything. These are NOT RUN, not inferred.
+  262K lengths in reasonable time on this CPU (a cold 32768-token prefill: 9.7 s in the server log below); MTP; GPU
+  anything. These are NOT RUN, not inferred.
+
+The two prefills behind that statement - the template's engine argv (`-c 262144 ... -fa on -ctk f16 -ctv f16`) on
+`qwen4exp_text.gguf`, `POST /completion` with random token-id prompts of 8192 and 32768 tokens, `n_predict 4`,
+`cache_prompt false` - CPU tiny model, wall time, not a measurement:
+```
+$ grep -E 'prompt eval time|total time' <scratch>/n11/run/tmpl/server.log
+0.09.947.212 I slot print_timing: id  0 | task 0 | prompt eval time =    1285.29 ms /  8192 tokens (...)
+0.09.947.219 I slot print_timing: id  0 | task 0 |       total time =    1294.48 ms /  8196 tokens
+0.19.898.270 I slot print_timing: id  0 | task 10 | prompt eval time =    9721.72 ms / 32768 tokens (...)
+0.19.898.331 I slot print_timing: id  0 | task 10 |       total time =    9747.28 ms / 32772 tokens
+```
+(cut, shown as `(...)`: the per-token and tokens-per-second figures llama-server appends to the two prompt-eval lines.)
+
+What the template would cost here, PROVISIONAL - extrapolated from these two prefills only, ignoring decode (up to 2048
+tokens per request), the `/tokenize` fitting of ~1 MB prompts, the re-processed warm tails, per-turn overhead of the agent
+loop and the pack: growth 9721.72 / 1285.29 = 7.56 for 4x the tokens, exponent ln 7.56 / ln 4 = 1.46. Full-length
+prefills in `llamacpp-server.json` (cold requests and warm primes; warm measurements re-process only a tail): ~32K -
+ctx-32k 3 outputs x (3 cold + 1 prime) = 12, probes 3: 15; ~128K - ctx-128k 12, probes 3, slot_persist 3 cold, the agent
+loop to 131072 counted as one full prefill, its cold control 1: 20; ~262K - filled-262k 2 outputs x (3 cold + 1 prime) =
+8, probes 3: 11. Exponent 1.46: 9.72 s x 4^1.46 = 73.5 s at 128K, 9.72 s x 8^1.46 = 202.2 s at 262K, total
+15 x 9.72 + 20 x 73.5 + 11 x 202.2 = 146 + 1471 + 2225 = 3841 s = 64 min. Quadratic: 155.5 s and 622.2 s, total
+146 + 3111 + 6844 = 10101 s = 2.8 h. About 1 to 3 hours of prefill alone.
 
 ## 3. Runs (CONFIRMED on CPU, tiny models; literal)
 
@@ -87,6 +110,7 @@ and read before citing. "Provided" = CONFIRMED by reading those lines and by the
 
 ```
 $ python3 docs/evidence/mutation-scripts/2026-10-11-n11-demos.py <scratch>/llama.cpp/build-cpu/bin/llama-server <scratch>/n11/demos <scratch>/n7/qwen4exp.gguf <scratch>/n11/models/qwen4exp_text.gguf
+
 == D1 id-only vocabulary (tinygen default): text is refused, the slot is capped at context_length 512
 POST /tokenize {"content": "The quick brown fox.", "add_special": false} -> 500 {"error":{"code":500,"message":"unordered_map::at","type":"server_error"}}
 POST /tokenize {"prompt": "The quick", "add_special_tokens": false} -> 200 {"tokens":[]}
@@ -96,9 +120,9 @@ d_model: the slot context (1024) exceeds the training context of the model (512)
 POST /tokenize 'The quick brown fox.' -> 200 {"tokens":[87,107,104,275,120,108,102,110,260,117,114,122,113,264,114,123,49]}
 POST /tokenize ' the' -> 200 {"tokens":[278,107,104]}
 POST /v1/completions logprobs=2 -> 200; choices[0] keys ['finish_reason', 'index', 'logprobs', 'text']; logprobs keys ['content']
-  choices[0].logprobs.content[0] = {"id": 252, "token": "�", "bytes": [249], "logprob": -4.418757915496826, "top_logprobs": [{"id": 252, "token": "�", "bytes": [249], "logprob": -4.418757915496826}, {"id": 50, "token": "/", "bytes": [47], "logprob": -4.443063259124756}]}
-POST /detokenize {"tokens": [200]} -> 200 '{"content":"�"}' (content '�')
-POST /detokenize {"tokens": [201]} -> 200 '{"content":"�"}' (content '�')
+  choices[0].logprobs.content[0] = {"id": 252, "token": "\ufffd", "bytes": [249], "logprob": -4.418757915496826, "top_logprobs": [{"id": 252, "token": "\ufffd", "bytes": [249], "logprob": -4.418757915496826}, {"id": 50, "token": "/", "bytes": [47], "logprob": -4.443063259124756}]}
+POST /detokenize {"tokens": [200]} -> 200 '{"content":"\ufffd"}' (content '\ufffd')
+POST /detokenize {"tokens": [201]} -> 200 '{"content":"\ufffd"}' (content '\ufffd')
 
 == D3 logprob_compare before (c2f6c91) and after, ref -fa off vs cand -fa on, 10 prefixes
 before: exit 1: no successful prefixes (10 errors) -> <scratch>/lc-before.json
@@ -113,9 +137,13 @@ after smoke-2k cold 2048/128 rep 0: prompt_tokens 2046, server cached_tokens 0
 after ctx-2k   cold 2048/128 rep 0: prompt_tokens 1918, server cached_tokens 0
 exit=0
 ```
-(the D1 capping line is the last 90 characters of the server log line, as the script prints it; `<scratch>/lc-*.json` are
-under `<scratch>/n11/demos/`, the script's own path rewrite shortened them; the D3 error text is cut at 150 characters by
-the script.)
+(the block between the command line and `exit=0` is `<scratch>/n11/run/demos.txt`, the script's output saved with
+`| tee` after `sed "s|<scratch path>|<scratch>|g"`, pasted byte for byte - including its first, empty line; `exit=0` is
+printed by the shell, `echo "exit=${PIPESTATUS[0]}"`, not by the script. The script writes U+FFFD as the six characters
+`\ufffd` where it prints with `json.dumps(..., ensure_ascii=True)` or `ascii()` (demos.py:101, 104-105); the D3 error line
+carries the character itself, from the tool's own message. The D1 capping line is the last 90 characters of the server log
+line, as the script prints it; `<scratch>/lc-*.json` are under `<scratch>/n11/demos/` (the path rewrite shortened them);
+the D3 error text is cut at 150 characters by the script.)
 
 ### 3.2 logprob_compare: `-fa off` (reference) against `-fa on` (candidate), 200 prefixes, both architectures
 
@@ -183,7 +211,10 @@ exit=0
 checkout; `real` includes the from-scratch llama-server build.)
 
 The same smoke with the four fixed PR #1 tools put back to their `c2f6c91` versions (scratch copy of HEAD, nothing else
-changed) fails exactly at the four bugs:
+changed) fails at four checks: matrix (`92e3886`); logprob (`026b0e9`/`2d59d65`); r1, through its logprob_compare step
+(`026b0e9` and `0f23aa6` together: here the old tool fails on the layout; with the fixed tool and the old run_r1 the step
+still failed, on the missing directory - Run B's dry run, section 3.5); slot - the old tool has no `compared` field, an
+output-schema difference, not a wrong result:
 ```
 $ python3 tools/srvcheck/r1_tools_smoke.py --server <scratch>/n11/build-n11/bin/llama-server --model <scratch>/n11/ci-out/qwen4exp_text.gguf --workdir <scratch>/n11/oldtree-work --out <scratch>/n11/oldtree-smoke.json   # run in <scratch>/n11/oldtree
 matrix   second run: the cold request is not served from the cache      FAIL  cached [1019] of [1023]; salts None / None
@@ -348,7 +379,7 @@ commit applies there as it is. Each fix has a test that fails before it (literal
 
 | commit | tool | what broke on the real server | fix |
 |---|---|---|---|
-| `026b0e9` | `tools/quality/logprob_compare.py` | every prefix: "response has no top_logprobs" - llama-server's layout `logprobs.content[0].top_logprobs` was not read; distinct byte tokens share the text U+FFFD | read both layouts; key tokens by raw bytes (text when valid UTF-8, else `bytes:<hex>`); duplicates add probabilities; null-logprobs answer stays an error, with the real reason |
+| `026b0e9` | `tools/quality/logprob_compare.py` | every prefix: "response has no top_logprobs" - llama-server's layout `logprobs.content[0].top_logprobs` was not read; distinct byte tokens share one printed text (U+FFFD, or an empty string when the piece ends in an incomplete lead byte) | read both layouts; key tokens by raw bytes (text when valid UTF-8, else `bytes:<hex>`); duplicates add probabilities; null-logprobs answer stays an error, with the real reason |
 | `2d59d65` | same | control tokens come back with an empty piece, so EOS and others merged under one key | empty piece with an id -> `id:<n>`; error text names both causes of `"logprobs": null` |
 | `92e3886` | `tools/bench/run_matrix.py` | a second run with the same `--seed` (and R1's ctx-2k after smoke-2k) re-sent byte-identical "cold" prompts, served from the server's cache (1019 of 1023 / 1530 of 1918 tokens) | `--nonce-salt`, random per run and recorded in `meta.json`, in the cold/warm nonce and the agent session nonces; the same salt reproduces a run. BENCH_PROTOCOL.md "cold" updated |
 | `ffec637` | `tools/kv/slot_persist.py` | not a failure: the continuation check compared decoded text, a lossy view (ids 200 and 201 both read U+FFFD) | `return_tokens` and comparison by token ids when the server returns them (`compared` recorded) |
@@ -362,7 +393,10 @@ The commit message of `92e3886` says the BENCH_PROTOCOL.md line is in "section 3
 1. **logprob_compare could not read llama-server's logprobs** (CONFIRMED, D3 and section 3.2; fixed in `026b0e9`).
    Without the fix, V6 could never be measured with llama.cpp on either side.
 2. **Token identity in logprobs is the byte string, not the text** (CONFIRMED: D2 shows id 252 printed as U+FFFD with
-   `bytes [249]`; `/detokenize` of 200 and of 201 both answer U+FFFD; control tokens have an empty piece). Fixed in
+   `bytes [249]`; `/detokenize` of 200 and of 201 both answer U+FFFD; control tokens have an empty piece). A piece that
+   ends in an incomplete multi-byte lead byte is printed as an empty string instead, its raw byte kept in `bytes`
+   (`validate_utf8`, `tools/server/server-common.cpp:947-972`, applied at `server-task.cpp:260` and `280` @79e2e74;
+   CONFIRMED by reading); only invalid or continuation bytes come out as U+FFFD. Fixed in
    `026b0e9` and `2d59d65`; after the fix both 200-prefix runs merged 0 keys.
 3. **llama-server sends no logprobs for a token whose text ends in an incomplete UTF-8 sequence** - `slot.add_token`
    is inside `if (!incomplete)` (`tools/server/server-context.cpp:1977-2009` @79e2e74) and `logprobs` stays `null`
@@ -375,7 +409,11 @@ The commit message of `92e3886` says the BENCH_PROTOCOL.md line is in "section 3
    `scripts/r1/configs/llamacpp-server.json` the ctx-2k cell 2048/128 rep 0 shares its key with smoke-2k; any re-run
    against an engine started outside run_r1 repeats every cold prompt and the agent loop's cold control. The pack's
    `prefix_cache` criterion takes cold TTFT at face value (`tools/verify/pack.py:691-721`), so such a run would have
-   skewed the warm/cold ratio. Recommendation (not done): the pack could refuse a cold cell whose server-reported cached
+   skewed the warm/cold ratio. Side effect of the fix: agent tool-result sizes for a given `--seed` differ from runs
+   before `92e3886` - the session nonce used to be the first draw of the same random stream (`c2f6c91`
+   `tools/bench/run_matrix.py:342-343`, sizes `:374`), now it has its own (`run_matrix.py:351-352`, sizes `:384`); for
+   `--seed 0` the first sizes were 3381, 1521, 3223 and are 1486, 1345, 3381 (CONFIRMED with both seeding schemes in
+   Python). Recommendation (not done): the pack could refuse a cold cell whose server-reported cached
    tokens exceed the template head.
 5. **run_r1 never created `artifacts/quality/`** (CONFIRMED, Run B dry run; fixed in `0f23aa6`). The mock config has no
    reference endpoint, and the failure-path test expected exit 1, which the crash also produced.
@@ -391,10 +429,22 @@ The commit message of `92e3886` says the BENCH_PROTOCOL.md line is in "section 3
    template's poll interval; the 503 `Loading model` phase was too short to observe with a 4 MB model - CONFIRMED only by
    reading), and SIGTERM stops it with exit code 0. CONFIRMED on CPU; on a GPU build NOT RUN.
 9. **`prompts.py` exact fits rely on the pad piece `" the"` being one token** (`prompts.py:33`). With the tiny vocabulary
-   it is 3 tokens (D2), fits end 1-2 tokens short (8192 -> 8191, 16384 -> 16382, 16000 -> 15999, 12000 -> 11999, 8000
-   -> 7999) and the CLI exits 1, so run_r1's `slot_persist[prompt]` step would fail and skip the persist step (V7 NOT RUN).
-   Run B therefore used `slot_persist.prompt_file`. Whether `" the"` is one token in the target tokenizers: UNKNOWN (not in
-   the repository). Not changed.
+   it is 3 tokens (D2), fits end 1-2 tokens short and the CLI exits 1 (CONFIRMED: 8192 -> 8191 in
+   `<scratch>/n11/run/kv/prompt-fit.json`, the prompt Run B used; all five targets re-run with an artifact,
+   `<scratch>/n11/run/fits-n11.json`, against `qwen4exp_text.gguf` (sha256 `e9555b37...`) served with `-c 16384 -np 1 -t 2
+   --no-warmup`, literal:
+   ```
+   $ python3 tools/bench/prompts.py --url http://127.0.0.1:18990 --kind prose --targets 8192,16384,16000,12000,8000 --seed 0 --out <scratch>/n11/run/fits-n11.json
+   {"kind": "prose", "target": 8192, "tokens": 8191, "exact": true, "method": "server-tokenize", "chars": 9361, "n_units": 1274, "pad": 0, "calls": 6}
+   {"kind": "prose", "target": 16384, "tokens": 16382, "exact": true, "method": "server-tokenize", "chars": 18726, "n_units": 2554, "pad": 0, "calls": 8}
+   {"kind": "prose", "target": 16000, "tokens": 15999, "exact": true, "method": "server-tokenize", "chars": 18291, "n_units": 2494, "pad": 1, "calls": 8}
+   {"kind": "prose", "target": 12000, "tokens": 11999, "exact": true, "method": "server-tokenize", "chars": 13718, "n_units": 1871, "pad": 1, "calls": 7}
+   {"kind": "prose", "target": 8000, "tokens": 7999, "exact": true, "method": "server-tokenize", "chars": 9142, "n_units": 1244, "pad": 0, "calls": 6}
+   exit=1
+   ```
+   the same values as the session's first runs, whose stdout was not saved apart from the 8192 file). So run_r1's `slot_persist[prompt]` step would fail and
+   skip the persist step (V7 NOT RUN); Run B therefore used `slot_persist.prompt_file`. Whether `" the"` is one token in the
+   target tokenizers: UNKNOWN (not in the repository). Not changed.
 10. **Gateway on llama-server:** the context guard (`/apply-template` + `/tokenize` with `add_special: true`) counted 74
     tokens for a chat request for which the server reported 74 prompt tokens; a client that leaves mid-stream makes the
     gateway close the backend connection and llama-server cancels the task (`stop: cancel task`, slot idle within 0.1 s)
@@ -488,12 +538,24 @@ OK (skipped=84)
 ```
 (the six targeted lines are condensed from their runs' last lines; the full-suite lines are literal.)
 
+After the audit corrections (code at `9fb267d`/`aa7d9ac`: a docstring change in `logprob_compare.py` and its test,
+`server-cpu.yml`), literal:
+```
+$ LLAMA_CPP_GGUF_PY=<scratch>/llama-ec7630a/gguf-py python3 -m unittest tests.test_logprob_compare tests.test_bench tests.test_slot_persist tests.test_r1_orchestration tests.test_r1_tools_smoke tests.test_tinygen_text_vocab 2>&1 | tail -4
+----------------------------------------------------------------------
+Ran 86 tests in 34.639s
+
+OK
+$ python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/server-cpu.yml'))"; echo "yaml exit=$?"
+yaml exit=0
+```
+
 ## 8. Not covered (NOT RUN)
 
 | what | why / where it belongs |
 |---|---|
 | anything on a GPU, the GPU build's `--help`, speed of anything | no GPU; R1 on the server |
-| the template's matrix, probes and K3 at 32K, 128K, 262K | about 10 s per cold 32K prefill here (CPU tiny model) - hours for the template; the pack would then judge CPU tiny-model numbers; R1 on the server |
+| the template's matrix, probes and K3 at 32K, 128K, 262K | 9.7 s per cold 32K prefill in the server log (CPU tiny model, wall time, not a measurement); about 1 to 3 hours of prefill for the whole template (PROVISIONAL, arithmetic in section 2); the pack would then judge CPU tiny-model numbers; R1 on the server |
 | real chat templates, tool-call parsing, reasoning output of GLM-5.3 / Qwen3.8 | gap 6; the tiny model uses llama-server's built-in chatml |
 | real tokenizers (`" the"` one token?), how often logprobs are dropped on real text | tokenizer files not in the repository; R2.1 on the server |
 | ik_llama.cpp, Strata, vLLM servers with these tools | only llama.cpp here (gap 5 for ik_llama.cpp) |
@@ -501,6 +563,27 @@ OK (skipped=84)
 | `vs_roofline` with meaningful inputs; the pack on real artifacts (R6.2) | needs real runs |
 | the CI job on GitHub | the branch is not pushed by this task |
 | the gateway with HTTPS to the engine, under load | as in its README |
+
+## Evidence audit (evidence-auditor, read-only, on `7dcd9a3`)
+
+Result as relayed by the coordinator: 1 FAIL, 9 MINOR (a 10th item needed no change). Everything core held: the five fixes
+are real at 79e2e74, each new test fails on the pre-fix tool, the 19/23 smoke with the old tools reproduces, the default
+generator outputs are byte-identical, the full suite gives 475 OK (skipped=84). `7dcd9a3` (the coordinator's) removed the
+copy of CORRECTNESS.md; its gap 7 line is `0d4d582` on `claude/n10-quant-fa-parity`.
+
+| finding | fix |
+|---|---|
+| FAIL: "a cold 32768-token prefill took 9.8 s" without label or source; "hours for the template" unlabelled | section 2: the server-log lines quoted (9721.72 ms prompt eval, 9747.28 ms total), labelled CPU tiny model, wall time, not a measurement; the template cost PROVISIONAL with its arithmetic and what it ignores; section 8 row likewise |
+| "fails exactly at the four bugs" overstates | section 3.3: "fails at four checks", each mapped to its commit; the slot check is an output-schema difference |
+| the D2 block was not literal (U+FFFD rendered, `exit=0` from the shell) | section 3.1: the block is `<scratch>/n11/run/demos.txt` byte for byte (`cmp` silent); the note says where `exit=0` and `\ufffd` come from |
+| `server-cpu.yml`: the stand-in step also ran a no-server test | own step "N11 derived R1 config (no server)" (`9fb267d`) |
+| `server-cpu.yml` paths missed files the smoke runs | `tools/gguf_quant_audit.py`, `tools/roofline.py`, `models/specs/**` and the template's hw file added to both filters (`9fb267d`) |
+| CORRECTNESS.md cited but not on this branch | header of this file and ROADMAP row N11 say where it is (`aa7d9ac` for ROADMAP) |
+| "printed as U+FFFD" too broad: an incomplete lead byte prints as "" | `logprob_compare.py` docstring and the test fixture's docstring (`6dff91a`); section 4 row `026b0e9` and finding 2 here |
+| agent tool-result sizes for a given `--seed` changed with `92e3886` | finding 4 here and BENCH_PROTOCOL.md section 4 (`aa7d9ac`) |
+| scripts/r1/README.md did not say probes failed and the pack is FAIL | said, and "прошла" -> "выполнила" (`aa7d9ac`) |
+| fit shortfalls unlabelled, no artifact | finding 9: CONFIRMED, `kv/prompt-fit.json` and a re-run saved as `fits-n11.json`, literal |
+| the add and removal of CORRECTNESS.md stay in history | no change (coordinator notes it in the PR body) |
 
 ## Reproduce
 ```
