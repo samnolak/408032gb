@@ -138,6 +138,10 @@ print(f"baseline (no mutation), driver: rc={rc} {' | '.join(summary)}")
 if rc != 0:
     sys.exit("baseline must pass; fix that first")
 caught = total = 0
+ONLY = os.environ.get("MUT_ONLY")          # a regex on the labels: run only those mutants
+if ONLY:
+    PY = [m for m in PY if re.match(ONLY, m[0])]
+    CPP = [m for m in CPP if re.match(ONLY, m[0])]
 # Python mutants first, on the baseline dumps
 for label, path, old, new in PY:
     tree = make_tree(label.split()[0])

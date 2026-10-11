@@ -40,10 +40,12 @@ def main(argv=None):
     ap.add_argument("--n-batch", type=int, default=2048)
     ap.add_argument("--heads", type=int, default=3)
     ap.add_argument("--ctx", type=int, default=262144)
+    ap.add_argument("--np", type=int, default=1, help="llama-server -np with a unified KV cache: the ring is "
+                    "pad(min(ctx, n_swa * np + n_ubatch), 256) (KVI:73 @79e2e74); one request is active")
     ap.add_argument("--modes", default="upstream,fixed,one-head,swa-full")
     a = ap.parse_args(argv)
-    ring = ring_size(a.ctx, a.n_swa, a.n_ubatch)
-    print(f"SWA ring of the MTP context: {ring} cells (pad(min({a.ctx}, {a.n_swa} + {a.n_ubatch}), 256)); "
+    ring = ring_size(a.ctx, a.n_swa * a.np, a.n_ubatch)
+    print(f"SWA ring of the MTP context: {ring} cells (pad(min({a.ctx}, {a.n_swa} * {a.np} + {a.n_ubatch}), 256)); "
           f"{a.heads} heads, verify batches of {a.heads + 1}, prompt calls of {a.n_batch}, gen {a.gen}, "
           f"seeds {a.seeds}")
     print(f"{'mode':9s} {'prompt':>6s} {'accept':>6s} {'drafts':>7s} {'head-0 drafts on foreign K/V':>29s} "
