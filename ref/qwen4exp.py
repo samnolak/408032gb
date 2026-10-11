@@ -97,6 +97,8 @@ read the dequantized values. With plain float64 arrays (F32 weights) nothing cha
 Shapes are numpy-natural (token-major); weights are the GGUF arrays as numpy reads them (ggml ne reversed).
 Everything runs in float64; cast at the boundary when comparing with a kernel.
 """
+import copy
+
 import numpy as np
 
 from ref.fattn import attend_rows, row_modes, store
@@ -819,3 +821,712 @@ def forward_chunks(tokens, W, hp, sizes, overrides=None, prec=None):
         i += n
     assert i == len(tokens), (i, len(tokens))
     return outs
+
+
+# ---------------------------------------------------------------- several sequences in one context (N19, gap 10)
+#
+# llama.cpp keeps every sequence of a context in one memory, llama_memory_hybrid_idx (src/llama-memory-hybrid-idx.cpp,
+# "HI" below), made of an attention KV cache (src/llama-kv-cache.cpp, "KV"), an indexer KV cache that takes the
+# attention cache's slots (HI:128-132) and a recurrent cache (src/llama-memory-recurrent.cpp, "RC"). Every sequence
+# must compute exactly what it computes alone: the oracle (B) below runs each sequence through forward_chunk with its
+# own per-sequence cache, and models the cells llama.cpp places the sequences in, so that a dump indexed by cells
+# (kq_mask_qsa, kq_soft_max, the k-pool lists) can be read back as positions of one sequence. The recurrent state is
+# the one place where the cell model decides values: llama.cpp reads every sequence's state from a recurrent cell row
+# chosen by RC find_slot / s_copy, and with n_rs_seq > 0 from one of 1 + n_rs_seq snapshot planes; the model keeps
+# those planes (with the token prefix each row stands for) and feeds forward_chunk what llama.cpp would read. Where a
+# plane holds the state of another prefix than the sequence's KV history, the sequence is marked "diverged" from that
+# graph on: llama.cpp then computes something no single sequence computes, and (B) predicts it.
+# Line numbers are @ec7630a640789c393694fb194f1bbbf0369fc62d unless "@79e2e74" (R1 pin) is written; `pin` = "ec" or
+# "r1" selects the behaviour of the two pins where they differ (HI k-pool sharing, RC rollback of a shared cell).
+
+LLAMA_MAX_SEQ = 256                       # src/llama-cparams.h:8
+POS_CLEAN = (1 << 31) - 1                 # llama_memory_hybrid_idx::POS_CLEAN = max llama_pos (HI header :99)
+KV_PAD = 256                              # get_n_kv pads to max(n_pad, 256) (KV:1265); qwen4exp's n_pad is 1
+
+
+def split_equal(seq_of, n_ubatch, sequential, n_keep_tail=0):
+    """llama_batch_allocr::split_equal (src/llama-batch.cpp:542-711) repeated until the batch is used up, as
+    HI init_batch does (HI:84-112: sequential = the attention cache has more than one stream, n_keep_tail = n_rs_seq + 1
+    when n_rs_seq > 0), for a batch whose entries carry one sequence id each. seq_of[i]: sequence of batch entry i.
+    Returns [(idxs, n_seqs)]: the batch indices of every ubatch in ubatch order (the sequence sets concatenated, each
+    n_seq_tokens long) and the number of sequence sets."""
+    n = len(seq_of)
+    used = [False] * n
+    seq_map = {}
+    for i, s in enumerate(seq_of):
+        seq_map.setdefault(s, []).append(i)
+    out = []
+    while True:
+        cur, last = [], -1
+        for i in range(n):                                            # :553-583 the sequence sets of this ubatch
+            if used[i]:
+                continue
+            s = seq_of[i]
+            add = s not in cur
+            if sequential:
+                add = add and (not cur or s == last + 1)
+            if add:
+                cur.append(s)
+                last = s
+                if len(cur) > n_ubatch:
+                    break
+        if not cur:
+            return out
+        idx = [0] * len(cur)
+        for k, s in enumerate(cur):                                   # :595-599
+            while used[seq_map[s][idx[k]]]:
+                idx[k] += 1
+        per = [[] for _ in cur]
+        while True:                                                   # :605-635 one token per set and round
+            if any(idx[k] >= len(seq_map[s]) for k, s in enumerate(cur)):
+                break
+            for k, s in enumerate(cur):
+                i = seq_map[s][idx[k]]
+                per[k].append(i)
+                used[i] = True
+                idx[k] += 1
+            if (len(per[0]) + 1) * len(cur) > n_ubatch:
+                break
+        n_seqs = len(cur)
+        if n_keep_tail > 0:                                           # :637-701 [TAG_RECURRENT_ROLLBACK_SPLITS]
+            assert n_ubatch > n_keep_tail
+
+            def rem(k):
+                return len(seq_map[cur[k]]) - idx[k]
+            n_keep = 0
+            while n_keep < n_seqs:
+                r = rem(n_keep)
+                if r != 0 and r < n_keep_tail:
+                    break
+                n_keep += 1
+            if n_keep == 0:
+                own = seq_map[cur[0]]
+                if len(per[0]) + rem(0) <= n_ubatch:
+                    while rem(0) > 0:
+                        i = own[idx[0]]
+                        per[0].append(i)
+                        used[i] = True
+                        idx[0] += 1
+                else:
+                    while rem(0) < n_keep_tail:
+                        used[per[0].pop()] = False
+                        idx[0] -= 1
+                n_keep = 1
+            for k in range(n_keep, n_seqs):
+                for i in per[k]:
+                    used[i] = False
+            n_seqs = n_keep
+        out.append(([i for k in range(n_seqs) for i in per[k]], n_seqs))
+
+
+def kpool_pad(n_pool):
+    """HI:386-388: the padded pool count of the graph, max(64, pad(n_pool + 1, 64))."""
+    return max(64, -(-(n_pool + 1) // 64) * 64)
+
+
+class KVCells:
+    """The cells of the attention KV cache of a qwen4exp context (the indexer cache uses the same slots, HI:128-132).
+    n_stream = 1 with kv_unified, else one stream per sequence (KV:84, 148-155); size = n_ctx_seq cells per stream.
+    pos[st][c] = position held by cell c of stream st (-1 empty), seqs[st][c] = the sequences holding it."""
+
+    def __init__(self, n_stream, size):
+        self.n_stream, self.size = n_stream, size
+        self.pos = [[-1] * size for _ in range(n_stream)]
+        self.seqs = [[set() for _ in range(size)] for _ in range(n_stream)]
+        self.head = [0] * n_stream
+
+    def stream(self, seq):
+        return 0 if self.n_stream == 1 else seq
+
+    def used(self, st):
+        return sum(1 for c in range(self.size) if self.seqs[st][c])
+
+    def used_max_p1(self, st):
+        nz = [c for c in range(self.size) if self.seqs[st][c]]
+        return nz[-1] + 1 if nz else 0
+
+    def seq_cells(self, seq):
+        """Sorted (pos, cell) of a sequence (llama_kv_cells seq_pos, used by HI kpool_layout_update)."""
+        st = self.stream(seq)
+        return sorted((self.pos[st][c], c) for c in range(self.size) if seq in self.seqs[st][c])
+
+    def seq_pos_min(self, seq):
+        cells = self.seq_cells(seq)
+        return cells[0][0] if cells else -1
+
+    def find_slot(self, groups):
+        """KV:898-1095 with cont = false (prepare, KV:769): groups = [(stream, n_tokens)] in ubatch order (one group
+        with every token for a unified cache; one per sequence otherwise, KV:966-997). Returns the cells per group."""
+        res = []
+        for st, n in groups:
+            head = self.head[st]
+            if head > self.used(st) + 2 * n:                              # KV:1004-1006
+                head = 0
+            idxs, tested = [], 0
+            while True:
+                if head + 1 > self.size:                                  # KV:1020-1025
+                    tested += self.size - head
+                    head = 0
+                    continue
+                c = head
+                head += 1
+                tested += 1
+                if not self.seqs[st][c]:                                  # empty cells only: no SWA (n_swa 0)
+                    idxs.append(c)
+                if len(idxs) == n:
+                    break
+                if tested >= self.size:
+                    raise RuntimeError("find_slot: no slot")
+            res.append(idxs)
+        return res
+
+    def apply(self, groups, idxs, rows):
+        """KV:1097-1186: rows[g] = [(seq, pos)] of group g in ubatch order; head = last cell + 1 (KV:1180-1185)."""
+        for (st, _), cells, rr in zip(groups, idxs, rows):
+            for c, (seq, p) in zip(cells, rr):
+                assert not self.seqs[st][c]
+                self.pos[st][c] = p
+                self.seqs[st][c] = {seq}
+            self.head[st] = cells[-1] + 1
+
+    def seq_rm(self, seq, p0, p1):
+        """KV:382-449 for one sequence: drop it from every cell with p0 <= pos < p1 (negative = no bound)."""
+        p0 = max(p0, 0)
+        p1 = (1 << 62) if p1 < 0 else p1
+        st = self.stream(seq)
+        new_head = self.size
+        for c in range(self.size):
+            if seq in self.seqs[st][c] and p0 <= self.pos[st][c] < p1:
+                self.seqs[st][c].discard(seq)
+                if not self.seqs[st][c]:
+                    self.pos[st][c] = -1
+                    if new_head == self.size:
+                        new_head = c
+        if new_head != self.size and new_head < self.head[st]:
+            self.head[st] = new_head
+        return True
+
+    def seq_cp(self, src, dst):
+        """KV:451-541, whole sequence: one stream -> the cells gain dst (shared, no data copy); two streams -> the dst
+        stream is reset, takes src's cells at the same indices and src's head, and the buffers are copied at the next
+        update (KV:508-512, 536, 817-855). Returns (src stream, dst stream) of a pending buffer copy, or None."""
+        s0, s1 = self.stream(src), self.stream(dst)
+        if s0 == s1:
+            for c in range(self.size):
+                if src in self.seqs[s0][c]:
+                    self.seqs[s0][c].add(dst)
+            return None
+        self.pos[s1] = [-1] * self.size
+        self.seqs[s1] = [set() for _ in range(self.size)]
+        for c in range(self.size):
+            if src in self.seqs[s0][c]:
+                self.pos[s1][c] = self.pos[s0][c]
+                self.seqs[s1][c] = {dst}
+        self.head[s1] = self.head[s0]
+        return (s0, s1)
+
+    def n_kv(self, streams):
+        """KV:1260-1274: the cells a graph reads, max over the ubatch's streams of min(size, max(256, pad(used_max_p1,
+        256)))."""
+        return max(min(self.size, max(KV_PAD, -(-self.used_max_p1(st) // KV_PAD) * KV_PAD)) for st in streams)
+
+    def snapshot(self):
+        return [[(self.pos[st][c], frozenset(self.seqs[st][c])) for c in range(self.size)] for st in range(self.n_stream)]
+
+
+class RecurrentCells:
+    """The cell bookkeeping of llama_memory_recurrent (RC), size = max(1, n_seq_max) cells (src/llama-model.cpp:2745-2760
+    for qwen4exp). cells[i]: pos, src, src0, the sequences it holds; tail[s] = the cell holding sequence s
+    (RC keeps it as cells[s].tail); rs_idx[s] = a pending rollback of s (RC:211, read once by s_copy, RC:1364-1381).
+    refuse_shared: the R1 pin refuses a partial rollback of a cell that several sequences hold (RC:202-205@79e2e74)."""
+
+    def __init__(self, size, n_rs_seq, refuse_shared):
+        self.size, self.n_rs_seq, self.refuse_shared = size, n_rs_seq, refuse_shared
+        self.pos = [-1] * size
+        self.src = [-1] * size
+        self.src0 = [-1] * size
+        self.seqs = [set() for _ in range(size)]
+        self.tail = [-1] * size
+        self.rs_idx = [0] * size
+        self.head, self.n, self.rs_z = 0, 0, -1
+
+    def used(self):
+        return sum(1 for c in range(self.size) if self.seqs[c])
+
+    def seq_pos_max(self, seq):
+        ps = [self.pos[c] for c in range(self.size) if seq in self.seqs[c]]
+        return max(ps) if ps else -1
+
+    def seq_rm(self, seq, p0, p1):
+        """RC:168-259 (bool). p0 < 0 -> 0, p1 < 0 -> no bound; a cut inside the sequence (0 < p0 <= pos < p1) is a
+        rollback from the snapshots: refused unless 1 <= rollback <= n_rs_seq and no rollback is pending (RC:200-215)."""
+        p0 = max(p0, 0)
+        big = (1 << 62)
+        p1 = big if p1 < 0 else p1
+        if seq >= self.size:
+            return False
+        if p0 == 0 and p1 == big:                                         # RC:184-187
+            self.rs_idx[seq] = 0
+        t = self.tail[seq]
+        if t >= 0:
+            if 0 < p0 <= self.pos[t] < p1:
+                if self.refuse_shared and len(self.seqs[t]) > 1:          # RC:202-205@79e2e74
+                    return False
+                rollback = self.pos[t] - (p0 - 1)
+                if self.rs_idx[seq] == 0 and 1 <= rollback <= self.n_rs_seq:
+                    self.rs_idx[seq] = rollback
+                    self.pos[t] = p0 - 1
+                    return True
+                return False
+            if p0 <= self.pos[t] < p1:                                    # RC:217-220
+                self.tail[seq] = -1
+        new_head = self.size
+        for c in range(self.size):                                        # RC:230-251
+            if p0 <= self.pos[c] < p1 and seq in self.seqs[c]:
+                self.seqs[c].discard(seq)
+                if not self.seqs[c]:
+                    self.pos[c] = -1
+                    self.src[c] = -1
+                    if new_head == self.size:
+                        new_head = c
+        if new_head != self.size and new_head < self.head:
+            self.head = new_head
+        return True
+
+    def seq_cp(self, src, dst):
+        """RC:261-296: dst drops its cell and shares src's tail cell (no data is copied; rs_idx is not touched)."""
+        if src == dst:
+            return
+        t = self.tail[dst]
+        if t >= 0:
+            self.seqs[t].discard(dst)
+            self.tail[dst] = -1
+            if not self.seqs[t]:
+                self.pos[t] = -1
+                self.src[t] = -1
+        if self.tail[src] >= 0:
+            self.seqs[self.tail[src]].add(dst)
+            self.tail[dst] = self.tail[src]
+
+    def find_slot(self, seqs, last_pos):
+        """RC:517-726 for a ubatch whose sequence sets are the single sequences `seqs` (ubatch order), the last
+        position of each in last_pos. Moves a sequence that shares its cell to an empty one (copy on write, src
+        kept), gathers the ubatch's cells to head = min .. (swapping cell metadata, src moves along), stages src0
+        (the row each cell is read from; rs_z, the zeroed row, for a new sequence) and sets head, n, rs_z."""
+        n_seqs = len(seqs)
+        if self.head > self.used() + 2 * n_seqs:                          # RC:521-525
+            self.head = 0
+        mn, mx = self.size - 1, 0
+        nec = self.head
+        for _ in range(self.size):                                        # RC:590-598 next empty cell
+            if nec >= self.size:
+                nec -= self.size
+            if not self.seqs[nec]:
+                break
+            nec += 1
+        for s, seq in enumerate(seqs):                                    # RC:600-637
+            t = self.tail[seq]
+            own = t >= 0 and len(self.seqs[t]) == 1
+            if not own:
+                assert not self.seqs[nec]
+                if t >= 0:
+                    self.pos[nec], self.src[nec] = self.pos[t], self.src[t]
+                    self.seqs[t].discard(seq)
+                    self.seqs[nec].add(seq)
+                    assert self.seqs[t]
+                self.tail[seq] = nec
+                if s + 1 < n_seqs:
+                    for _ in range(self.size):
+                        nec += 1
+                        if nec >= self.size:
+                            nec -= self.size
+                        if not self.seqs[nec]:
+                            break
+            mn, mx = min(mn, self.tail[seq]), max(mx, self.tail[seq])
+        for s, seq in enumerate(seqs):                                    # RC:639-662 gather and re-order
+            dst, src = s + mn, self.tail[seq]
+            if dst != src:
+                for a in (self.pos, self.src, self.seqs):
+                    a[dst], a[src] = a[src], a[dst]
+                for j in range(self.size):
+                    if self.tail[j] == src:
+                        self.tail[j] = dst
+                    elif self.tail[j] == dst:
+                        self.tail[j] = src
+        for s, seq in enumerate(seqs):                                    # RC:664-684
+            c = s + mn
+            self.pos[c] = last_pos[s]
+            self.seqs[c] = {seq}
+            self.tail[seq] = c
+        refc = [0] * self.size                                            # RC:686-722
+        for i in range(self.size):
+            if self.src[i] >= 0:
+                refc[self.src[i]] += 1
+        self.rs_z = -1
+        for i in range(mn, mx + 1):
+            if refc[i] == 0:
+                self.rs_z = i
+                break
+        for i in range(mn, mx + 1):
+            if self.src[i] < 0:
+                assert self.rs_z >= 0
+                self.src0[i] = self.rs_z
+            else:
+                self.src0[i] = self.src[i]
+            self.src[i] = i
+        self.head, self.n = mn, mx - mn + 1
+        return mn
+
+    def s_copy(self):
+        """RC:1364-1381 for i = 0 .. n-1, in that order (llm_graph_input_mem_hybrid set_input): the row cell head + i
+        reads, (plane, cell); a pending rollback of the cell's first sequence picks the plane, and is reset."""
+        out = []
+        for i in range(self.n):
+            c = self.head + i
+            plane = 0
+            if self.n_rs_seq > 0 and self.seqs[c]:
+                seq = min(self.seqs[c])
+                plane = self.rs_idx[seq]
+                self.rs_idx[seq] = 0
+            out.append((plane, self.src0[c]))
+        return out
+
+
+class KPoolLayout:
+    """HI kpool_layout_update (HI:413-511) and kpool_build_state (HI:681-771; HI:633-721@79e2e74): per sequence its
+    cells sorted by position, the pools (kpool consecutive positions, grouped from the sequence's first position),
+    and at ec7630a whether a cell is shared with another sequence (any shared cell -> cache_safe false: every pool is
+    re-pooled every ubatch and nothing is cached, HI:728-733, G:793-803). pin "r1": no sharing state; a pool is marked
+    new once per rep cell (HI:653-662@79e2e74)."""
+
+    def __init__(self, kpool, pin, n_seq_max):
+        self.kpool, self.pin, self.n_seq_max = kpool, pin, n_seq_max
+        self.seqs = {s: dict(pos_min=0, strm=0, cells=[], pools=[], j_next=0, shared=False) for s in range(n_seq_max)}
+
+    def update(self, kv, stale):
+        kp = self.kpool
+        unified = kv.n_stream == 1
+        for s in range(self.n_seq_max):
+            sq = self.seqs[s]
+            sp = kv.seq_cells(s)
+            st = kv.stream(s)
+            sq["strm"] = st
+            n_kept = 0
+            if stale[s] == POS_CLEAN and sq["cells"] and sp and sq["pos_min"] == sp[0][0]:
+                n_kept = len(sq["cells"])
+                sq["cells"] = sq["cells"] + [x for x in sp if x > sq["cells"][-1]]
+            if len(sq["cells"]) != len(sp) or stale[s] != POS_CLEAN:
+                sq.update(cells=list(sp), pools=[], j_next=0, shared=False, pos_min=sp[0][0] if sp else 0)
+                n_kept = 0
+            if self.pin == "ec" and unified and not sq["shared"]:          # HI:463-473
+                sq["shared"] = any(len(kv.seqs[st][c]) > 1 for _, c in sq["cells"][n_kept:])
+            j = sq["j_next"]
+            cells = sq["cells"]
+            while j + kp <= len(cells):
+                p0 = cells[j][0]
+                if (p0 - sq["pos_min"]) % kp != 0 or any(cells[j + k][0] != p0 + k for k in range(1, kp)):
+                    j += 1
+                    continue
+                sq["pools"].append(j)
+                j += kp
+            sq["j_next"] = j
+
+    def pools(self):
+        """[(seq, k, [(pos, cell)] of the members)] in layout order (sequence by sequence)."""
+        return [(s, k, self.seqs[s]["cells"][j:j + self.kpool]) for s in range(self.n_seq_max)
+                for k, j in enumerate(self.seqs[s]["pools"])]
+
+    def cache_safe(self):
+        return not any(self.seqs[s]["shared"] for s in range(self.n_seq_max))
+
+    def build_state(self, rows, n_seqs_unq, stale_batch, first_ubatch, kv_size, n_stream):
+        """The pools this ubatch pools (list of layout indices, in layout order) and n_new_g, the padded length of
+        the new-pool list. rows = [(seq, pos)] of the ubatch in ubatch order."""
+        kp, pools = self.kpool, self.pools()
+        start, ip = {}, 0
+        for s in range(self.n_seq_max):
+            start[s] = ip
+            ip += len(self.seqs[s]["pools"])
+        n_real = len(pools)
+        if self.pin == "ec" and not self.cache_safe():
+            return list(range(n_real)), max(n_real, 1)
+        new, reps = [], set()
+
+        def mark(s, k):
+            sq = self.seqs[s]
+            rep = sq["strm"] * kv_size + sq["cells"][sq["pools"][k] + kp - 1][1]
+            if self.pin == "r1":
+                if rep in reps:
+                    return
+                reps.add(rep)
+            if start[s] + k not in new:
+                new.append(start[s] + k)
+        for s in range(self.n_seq_max):
+            sq = self.seqs[s]
+            stale_from = stale_batch[s] if first_ubatch else POS_CLEAN
+            if stale_from == POS_CLEAN:
+                continue
+            for k, j in enumerate(sq["pools"]):
+                if sq["cells"][j + kp - 1][0] >= stale_from:
+                    mark(s, k)
+        for s, p in rows:
+            sq = self.seqs[s]
+            cand = [k for k, j in enumerate(sq["pools"]) if sq["cells"][j][0] <= p]
+            if cand and p <= sq["cells"][sq["pools"][cand[-1]] + kp - 1][0]:
+                mark(s, cand[-1])
+        n_pool_max = kv_size // kp * self.n_seq_max
+        bound = len(rows) // kp + n_seqs_unq
+        n_new_g = max(len(new), 1, min(bound, kpool_pad(n_real) - 1, n_pool_max))
+        return sorted(new), n_new_g
+
+
+def _cache_keep(cache, n_keep, kpool):
+    """Cut a forward_chunk cache to its first n_keep positions by slicing what it holds (unlike cache_truncate, which
+    recomputes the kept prefix): llama.cpp keeps the K/V rows, raw indexer keys and pooled keys it computed for the
+    kept cells (KV:382-449 frees only the cut ones; pools that end before the cut stay, HI:177-183), so a sequence
+    whose earlier rows were computed from another prefix's recurrent state keeps those rows too. The recurrent rows
+    (gdn, ple) are not touched: MultiSeqContext reads them from its planes before every graph."""
+    cache["tokens"] = cache["tokens"][:n_keep]
+    cache["modes"] = cache.get("modes", [])[:n_keep]
+    for il, kvc in cache["kv"].items():
+        kvc["k"], kvc["v"] = kvc["k"][:n_keep], kvc["v"][:n_keep]
+    for il, idxc in cache["idx"].items():
+        idxc["k_raw"] = idxc["k_raw"][:n_keep]
+        idxc["pooled"] = idxc["pooled"][:n_keep // kpool]
+    return cache
+
+
+def _plane_rows(conv_in, x, n_planes):
+    """build_conv_state_at's snapshot slots (G:1324-1345): slot j keeps the state_cols rows of [history ; x] that
+    start at max(0, n - j), i.e. the history of the prefix that ends max(0, n - j) rows into the ubatch."""
+    full = np.vstack([conv_in, x])
+    kc, n = conv_in.shape[0], x.shape[0]
+    return [(full[max(0, n - j):max(0, n - j) + kc], max(0, n - j)) for j in range(n_planes)]
+
+
+class MultiSeqContext:
+    """(B) for several sequences in one llama.cpp qwen4exp context: llama_process calls, seq_rm, seq_cp replayed on
+    the cell models above, every sequence computed by forward_chunk with its own cache (ref above) and the recurrent
+    state llama.cpp would read. n_ctx_seq: cells per KV stream; unified: kv_unified; pin: "ec" or "r1".
+
+    Recurrent storage: rs[(il, kind)][plane][cell] = (state, prefix), kind "conv" (GDN conv history, row r_l),
+    "state" (delta-rule state, s_l), "ple" (PLE conv history, p_l), 1 + n_rs_seq planes (RC:101), zero at the start
+    (RC:117-123), prefix = the token tuple the row is the state of. Per graph (build_rs, src/llama-graph.cpp:3520-3554):
+    plane 0 of cell rs_z is zeroed, every ubatch sequence reads its row (s_copy), the cells between the ubatch's and
+    head + n take a copy of theirs into plane 0; after the graph, plane j of a ubatch cell holds the state j tokens back
+    from its end: the delta-rule state for j < min(n, 1 + n_rs_seq) only (the other planes keep what they had,
+    ggml/src/ggml-cpu/ops.cpp:11184-11185, src/models/delta-net-base.cpp:563-603), the conv and PLE histories for every
+    j with the start clamped at the ubatch's first row (G:1324-1345). With n_rs_seq = 0 there is plane 0 only.
+
+    decode(parts) returns one dict per graph: rows [(seq, pos, token)], the ubatch's batch indices, per-sequence
+    results (forward_chunk dicts with the states read), the KV cell of every row and a snapshot of the cells, n_kv,
+    the k-pool layout (pools, new pools, n_new_g, cache_safe, padding cells), the recurrent rows read, and which
+    sequences read a state of another prefix ("diverged")."""
+
+    def __init__(self, W, hp, n_seq_max, n_ctx_seq, unified, n_rs_seq, pin, n_ubatch):
+        assert pin in ("ec", "r1")
+        self.W, self.hp, self.pin, self.n_ubatch = W, hp, pin, n_ubatch
+        self.n_seq_max, self.unified, self.n_rs_seq = n_seq_max, unified, n_rs_seq
+        self.kv = KVCells(1 if unified else n_seq_max, n_ctx_seq)
+        self.rc = RecurrentCells(max(1, n_seq_max), n_rs_seq, refuse_shared=(pin == "r1"))
+        self.lay = KPoolLayout(hp["kpool"], pin, n_seq_max)
+        self.stale = [POS_CLEAN] * LLAMA_MAX_SEQ
+        self.caches = {s: new_cache() for s in range(n_seq_max)}
+        self.diverged = {s: False for s in range(n_seq_max)}
+        self.pending_copies = []
+        self.QSA = [il for il in range(hp["n_layer"]) if not hp["recurrent"][il] and hp["compress"][il] > 0]
+        self.idx_raw = {il: np.zeros((self.kv.n_stream, n_ctx_seq, hp["idx_dim"])) for il in self.QSA}
+        n_planes = 1 + n_rs_seq
+        self.rs = {}
+        for il in range(hp["n_layer"]):
+            if not hp["recurrent"][il]:
+                continue
+            w = layer_weights(W, il)
+            C, K = w["ssm_conv1d.weight"].shape
+            S, Hv = hp["ssm_state"], hp["ssm_v_heads"]
+            shapes = {"conv": (K - 1, C), "state": (Hv, S, S)}
+            if il in hp["ple_layers"]:
+                Kp = w["ple_conv1d.weight"].shape[1]
+                shapes["ple"] = ((Kp - 1) * hp["ple_ngram"], hp["hc"] * hp["n_embd"])
+            for kind, shp in shapes.items():
+                self.rs[(il, kind)] = [[(np.zeros(shp), ()) for _ in range(self.rc.size)] for _ in range(n_planes)]
+
+    # ---- sequence edits
+    def seq_rm(self, seq, p0, p1=-1):
+        """HI:185-204 (HI:185-198@79e2e74): the recurrent cache first, it can refuse and then nothing changes."""
+        if not self.rc.seq_rm(seq, p0, p1):
+            return False
+        stale = 0 if p0 <= self.kv.seq_pos_min(seq) else p0               # HI:177-183 mem_idx_stale_pos
+        shared = self.pin == "ec" and not self.lay.cache_safe()
+        self.kv.seq_rm(seq, p0, p1)
+        self.stale[seq] = min(self.stale[seq], max(stale, 0))
+        if shared:                                                        # HI:196-200 (absent @79e2e74)
+            self.stale = [0] * LLAMA_MAX_SEQ
+        assert p1 < 0, "only cuts of a sequence's tail are modelled"
+        keep = max(p0, 0)
+        if keep == 0:
+            self.caches[seq] = new_cache()
+            self.diverged[seq] = False
+        else:
+            _cache_keep(self.caches[seq], keep, self.hp["kpool"])
+        return True
+
+    def seq_cp(self, src, dst):
+        """HI:206-215 (HI:200-212@79e2e74), whole sequences: RC shares src's cell, KV shares or copies the cells."""
+        kv_copy = self.kv.seq_cp(src, dst)
+        if kv_copy is not None:
+            self.pending_copies.append(kv_copy)
+        self.rc.seq_cp(src, dst)
+        self.stale[dst] = 0
+        if self.pin == "ec":
+            self.stale[src] = 0
+        self.caches[dst] = copy.deepcopy(self.caches[src])
+        self.diverged[dst] = self.diverged[src]
+
+    # ---- one llama_process call
+    def seq_pos(self, seq):
+        """(llama_memory_seq_pos_min, llama_memory_seq_pos_max) of a sequence: the hybrid memory takes the max of the
+        two caches' minimum and the min of their maximum (src/llama-memory-hybrid.cpp:172-180)."""
+        kv = [p for p, _ in self.kv.seq_cells(seq)]
+        rc = [self.rc.pos[c] for c in range(self.rc.size) if seq in self.rc.seqs[c]]
+        lo = max(min(kv) if kv else -1, min(rc) if rc else -1)
+        hi = min(max(kv) if kv else -1, max(rc) if rc else -1)
+        return lo, hi
+
+    def decode(self, parts, overrides=None):
+        """parts = [(seq, [tokens])] in batch order; each continues its sequence. overrides: {(ubatch index, seq):
+        forward_chunk overrides} (a replay of a reference choice among tied candidates). Returns the list of graph
+        dicts (class docstring)."""
+        hp = self.hp
+        assert len({s for s, _ in parts}) == len(parts), "one part per sequence and call"
+        for s0, s1 in self.pending_copies:                                # KV:827-855 at the next update
+            for il in self.QSA:
+                self.idx_raw[il][s1] = self.idx_raw[il][s0].copy()
+        self.pending_copies = []
+        batch = [(s, len(self.caches[s]["tokens"]) + i, t) for s, toks in parts for i, t in enumerate(toks)]
+        seq_of = [b[0] for b in batch]
+        sequential = self.kv.n_stream > 1
+        ubs = split_equal(seq_of, self.n_ubatch, sequential, self.n_rs_seq + 1 if self.n_rs_seq > 0 else 0)
+        stale_batch = list(self.stale)
+        graphs = []
+        for ui, (idxs, n_seqs) in enumerate(ubs):
+            rows = [batch[i] for i in idxs]
+            nst = len(rows) // n_seqs
+            seqs = [rows[k * nst][0] for k in range(n_seqs)]
+            # recurrent cells (RC apply -> find_slot) and the rows each graph reads
+            head = self.rc.find_slot(seqs, [rows[k * nst + nst - 1][1] for k in range(n_seqs)])
+            copies = self.rc.s_copy()
+            n_rs = self.rc.n
+            # KV cells (prepare + apply), the indexer takes the same slots
+            if self.kv.n_stream == 1:
+                groups = [(0, len(rows))]
+                grows = [[(s, p) for s, p, _ in rows]]
+            else:
+                groups = [(self.kv.stream(s), nst) for s in seqs]
+                grows = [[(s, p) for s, p, _ in rows[k * nst:(k + 1) * nst]] for k in range(n_seqs)]
+            cells = self.kv.find_slot(groups)
+            self.kv.apply(groups, cells, grows)
+            row_cell = [(st, c) for (st, _), cc in zip(groups, cells) for c in cc]
+            n_kv = self.kv.n_kv(sorted({st for st, _ in groups}))
+            # k-pool layout after this ubatch's cells (HI:582-600 apply), then what it re-pools
+            self.lay.update(self.kv, self.stale)
+            pools = self.lay.pools()
+            new, n_new_g = self.lay.build_state([(s, p) for s, p, _ in rows], n_seqs, stale_batch, ui == 0,
+                                                self.kv.size, self.kv.n_stream)
+            cache_safe = self.lay.cache_safe() if self.pin == "ec" else True
+            # recurrent reads (before any write of the graph): zero row rs_z, the ubatch's rows, the extra rows
+            for key, planes in self.rs.items():
+                if self.rc.rs_z >= 0:
+                    planes[0][self.rc.rs_z] = (np.zeros_like(planes[0][self.rc.rs_z][0]), ())
+            reads = {key: [planes[pl][c] for pl, c in copies] for key, planes in self.rs.items()}
+            for key, planes in self.rs.items():
+                for i in range(n_seqs, n_rs):
+                    planes[0][head + i] = reads[key][i]
+            extra = [(head + i, copies[i], sorted(self.rc.seqs[head + i])) for i in range(n_seqs, n_rs)]
+            per_seq, read_info = {}, {}
+            for k, s in enumerate(seqs):
+                c = self.caches[s]
+                toks = [t for _, _, t in rows[k * nst:(k + 1) * nst]]
+                assert [p for _, p, _ in rows[k * nst:(k + 1) * nst]] == list(
+                    range(len(c["tokens"]), len(c["tokens"]) + nst)), "positions must continue the sequence"
+                prefix = tuple(c["tokens"])
+                bad = []
+                for (il, kind), rr in reads.items():
+                    st_, pre = rr[k]
+                    if pre != prefix:
+                        bad.append((il, kind))
+                    if kind == "ple":
+                        c["ple"][il] = dict(hist=st_.copy())
+                    else:
+                        c["gdn"].setdefault(il, {})[kind] = st_.copy()
+                if bad:
+                    self.diverged[s] = True
+                read_info[s] = dict(rows=copies[k], stale=bad)
+                res = forward_chunk(toks, self.W, hp, c, (overrides or {}).get((ui, s)))
+                per_seq[s] = res
+                full = prefix + tuple(toks)
+                n_planes = 1 + self.n_rs_seq
+                for il in range(hp["n_layer"]):
+                    if not hp["recurrent"][il]:
+                        continue
+                    L = res["layers"][il]
+                    G = L["gdn"]
+                    for j, (rws, off) in enumerate(_plane_rows(G["conv_in"], G["qkv"], n_planes)):
+                        self.rs[(il, "conv")][j][head + k] = (rws, full[:len(prefix) + off])
+                    for j in range(min(nst, n_planes)):
+                        m = nst - j
+                        if j == 0:
+                            stj = G["state"]
+                        else:
+                            stj = gated_delta_rule(G["q"][:m], G["k"][:m], G["v"][:m], G["g"][:m], G["beta"][:m],
+                                                   state=G["state_in"], normalize_qk=True, eps=hp["eps"])[1]
+                        self.rs[(il, "state")][j][head + k] = (stj, full[:len(prefix) + m])
+                    if (il, "ple") in self.rs:
+                        P = L["ple"]
+                        normed = P["normed"]
+                        for j, (rws, off) in enumerate(_plane_rows(P["hist_in"], normed, n_planes)):
+                            self.rs[(il, "ple")][j][head + k] = (rws, full[:len(prefix) + off])
+            # raw indexer keys into their cells (the padding rows of indexer_pool_k_new read them)
+            for il in self.QSA:
+                for r, (s, p, _) in enumerate(rows):
+                    k = seqs.index(s)
+                    st_, cc = row_cell[r]
+                    self.idx_raw[il][st_][cc] = per_seq[s]["layers"][il]["attn"]["k_raw"][r - k * nst]
+            pads = self._pad_cells(pools, new, n_new_g, rows, row_cell)
+            pooled = {il: {s: self.caches[s]["idx"][il]["pooled"].copy() for s in range(self.n_seq_max)
+                           if il in self.caches[s]["idx"]} for il in self.QSA}
+            kcache = {s: {il: self.caches[s]["kv"][il]["k"].copy() for il in self.caches[s]["kv"]} for s in seqs}
+            graphs.append(dict(rows=[(s, p, t) for s, p, t in rows], batch_idx=list(idxs), seqs=seqs, nst=nst,
+                               per_seq=per_seq, row_cell=row_cell, cells=self.kv.snapshot(), n_kv=n_kv,
+                               pools=pools, new=new, n_new_g=n_new_g, cache_safe=cache_safe, pads=pads,
+                               rs_head=head, rs_n=n_rs, rs_reads=read_info, rs_extra=extra, pooled=pooled, kcache=kcache,
+                               idx_raw={il: self.idx_raw[il].copy() for il in self.QSA},
+                               diverged={s: self.diverged[s] for s in seqs}))
+            if ui == 0:                                                   # HI:567-580 next(): clear after ubatch 0
+                self.stale = [POS_CLEAN] * LLAMA_MAX_SEQ
+        return graphs
+
+    def _pad_cells(self, pools, new, n_new_g, rows, row_cell):
+        """Global cells (stream * size + cell) of the padded entries of indexer_pool_k_new: ec7630a (HI:947-967) the
+        first member of the first pool if some pool is new, else the cell of the ubatch's first token; 79e2e74
+        (HI:888-905@79e2e74) every entry its own cell, the smallest that is no pool's rep."""
+        n_pad = n_new_g - len(new)
+        if n_pad <= 0:
+            return []
+        size = self.kv.size
+        if self.pin == "ec":
+            if new and pools:
+                s, _, mem = pools[0]
+                cell = self.kv.stream(s) * size + mem[0][1]
+            else:
+                st_, c = row_cell[0]
+                cell = st_ * size + c
+            return [cell] * n_pad
+        reps = sorted(self.kv.stream(s) * size + mem[-1][1] for s, _, mem in pools)
+        out, c = [], 0
+        while len(out) < n_pad:
+            while c in reps:
+                c += 1
+            out.append(c)
+            c += 1
+        return out
