@@ -14,7 +14,7 @@
 | C | Memory & Offload Research | СДЕЛАНО: R7 (KV/длинный контекст), R8 (ярусы, предсказание), модель затрат слоя с анализом чувствительности, перепроверка R11, N8 (персистентность сессий) | `research/R7…R8`, `tools/ceilings/tier_cost.py`, `docs/evidence/2026-10-10-tier-cost-model.md`, PR #4 |
 | D | Architecture Alternatives | СДЕЛАНО: шесть архитектур A–F, потолки с калибровкой по трём чужим замерам, go/no-go; два аудита (4 FAIL + 7 MINOR исправлены, повторная проверка — все исправлены) | `ARCHITECTURE-ALTERNATIVES.md` |
 | E | Engineering Experiments | СДЕЛАНО на CPU (ниже, раздел 2), включая трассы маршрутизации двух реальных прокси-моделей (`traces-real`) | evidence 2026-10-10-* |
-| F | Correctness Infrastructure | СДЕЛАНО: уровни 1–3 — 12 + 9 + 6 проверок, уровни 4–6 — NOT RUN; 37 проверок, ждущих GPU/сервер (B1–B37); закрыты на CPU пробелы 1 (паритет на пине R1), 4 (декод, откат, MTP для GLM — N9, PR #5), 3 (f16 KV + flash attention) и 2 (веса Q8_0/Q4_K_M) — N10, PR #6; 7 (инструменты замеров против настоящего сервера) — N11, PR #7; 5 (диалект `glm5next` и ik_llama.cpp) — N12, PR #8 | `CORRECTNESS.md`, `docs/evidence/2026-10-10-parity-r1-pin.md` |
+| F | Correctness Infrastructure | СДЕЛАНО: уровни 1–3 — 12 + 9 + 6 проверок, уровни 4–6 — NOT RUN; 37 проверок, ждущих GPU/сервер (B1–B37); закрыты на CPU пробелы 1 (паритет на пине R1), 4 (декод, откат, MTP для GLM — N9, PR #5), 3 (f16 KV + flash attention) и 2 (веса Q8_0/Q4_K_M) — N10, PR #6; 7 (инструменты замеров против настоящего сервера) — N11, PR #7; 5 (диалект `glm5next` и ik_llama.cpp) — N12, PR #8; 11 (а) (шаги паритета в CI зелёные при пропуске тестов) — N13, PR #9 | `CORRECTNESS.md`, `docs/evidence/2026-10-10-parity-r1-pin.md` |
 | G | Offline Deployment Readiness | ведёт сессия PR #1: офлайн-набор движков, сборки ExLlamaV3 sm_89 из набора без сети, резервные бандлы | `docs/evidence/2026-10-10-offline-engine-kit.md`, `…-backup-bundle.md` (PR #1) |
 | H | Updated Project State | этот файл + абзацы N7/N8 в `PROJECT_STATE.md` (ветки N7/N8) | — |
 | I | Published GitHub State | раздел 6 | — |
@@ -65,6 +65,13 @@
   восстановление пустого слота роняет сервер. Сессия PR #1 поправила `run_r1` и шаблон ik (`b0f7317`). Для B1
   (llama.cpp против ik на одном GGUF) расхождения ожидаемы и при верных ядрах. Модель крошечная, CPU.
   `docs/evidence/2026-10-11-n12-ik-glm5next-cpu.md` (ветка N12).
+* **N13** (PR #9): шаги паритета в CI больше не зелёные, если тесты на деле не прогнались. Все 17 шагов `ci.yml` и
+  `parity-r1-pin.yml` обёрнуты в `tools/ci/check_unittest.py`: точное число тестов и разрешённых пропусков на коммит
+  (`tools/ci/parity_expectations.json`; единственный разрешённый — MTP-класс N9 на `ec7630a`), привязка коммита
+  checkout к шагу (rc=2 при расхождении — дыру нашёл аудит, закрыта в коде). Из 34 сломанных окружений (переменная дампа
+  снята или указывает на пустой каталог) все теперь падают, 26 из них раньше были зелёными. В GitHub: 16/16 зелёные,
+  проверка печатает «Ran N, skipped K as expected» для каждого шага. Ни один тест, драйвер, оракул и допуск не менялись.
+  `docs/evidence/2026-10-11-n13-ci-no-silent-skips.md` (ветка N13).
 * **Трассы маршрутизации на реальных моделях:** инструменты не писали трассу для графов, где последний слой оставляет
   только выходные строки (qwen3moe, deepseek2); исправлено, проверено на крошечной qwen3moe и в CI.
   `docs/evidence/2026-10-10-traces-real-fix.md`.
@@ -119,7 +126,7 @@
   агентных промптах 32K–128K (хост 3090 или сервер); сохранять файлы `.probe` в следующем прогоне CI, чтобы измерить
   recall предсказателей именно на промахах кэша (сейчас UNKNOWN); генерации длиннее 128 токенов.
 * Пробелы корректности на CPU (CORRECTNESS §3): 1–5 и 7 закрыты (N9–N12); остаются шаблоны чата (6), нефьюзные ветви
-  (8), несколько последовательностей qwen4exp (10), ложнозелёные сигналы CI (11), MiMo/MXFP4 (12) и др.; на GPU — всё
+  (8), несколько последовательностей qwen4exp (10), части (б)–(г) пробела 11, MiMo/MXFP4 (12) и др.; на GPU — всё
   уровня 4–6.
 * Решение владельца из N12: с каким вариантом clamp SwiGLU обучена GLM-5.3-Flash (ik и llama.cpp считают по-разному)
   — проверять на сервере по качеству на настоящем файле, а не предполагать.
@@ -143,6 +150,7 @@
 | #6 | `claude/n10-quant-fa-parity` | PR #5 | N10: паритет при f16 KV + flash attention и на квантованных весах |
 | #7 | `claude/n11-r1-tools-cpu-server` | PR #2 | N11: инструменты замеров R1 против настоящего llama-server на CPU |
 | #8 | `claude/n12-ik-glm5next-cpu` | PR #6 | N12: ik_llama.cpp и диалект glm5next на CPU |
+| #9 | `claude/n13-ci-no-silent-skips` | PR #8 | N13: шаги паритета в CI падают при пропуске тестов |
 
 Головы в `origin` перед последним изменением этого файла (CONFIRMED, литеральный вывод; голова
 `claude/research-landscape` после коммита — в описании PR #3):
@@ -152,14 +160,16 @@ $ git ls-remote origin 'refs/heads/claude/*' 'refs/heads/main'
 0d4d582209f41ed8131cb49525aa3a08290cb90a	refs/heads/claude/n10-quant-fa-parity
 6680448bd3ab2091f7e9e73af143f4789328141c	refs/heads/claude/n11-r1-tools-cpu-server
 5730cc4225c712f5aef5901758b3ac20e3cc67e9	refs/heads/claude/n12-ik-glm5next-cpu
+6dd6b28eec9489a2fc343e1b3d0892fa8d25819d	refs/heads/claude/n13-ci-no-silent-skips
 c2f6c912c00bec0c83ce301784ab2068dd36f1c2	refs/heads/claude/n7-server-hybrid-cpu
 c4c9015dbc278ec6be980be44f1864761a4f4edf	refs/heads/claude/n8-session-store
 af4db13f43f7027f20effb5401affcd0ca365a93	refs/heads/claude/n9-glm-decode-parity
 b0f73176e434bf7554eb0d7f9ff5a9607c8fa525	refs/heads/claude/relaxed-dijkstra-1d7i5o
-abb4c0f02114a9f950ece7ffcddee90ddee31d91	refs/heads/claude/research-landscape
+4422ea7b13ce513259a0085ed2ac4e99608980cf	refs/heads/claude/research-landscape
 eb59224c835581740a715ddcaa9abe101f90aa2f	refs/heads/main
 ```
 
-CI на этих головах (GitHub Actions): PR #2 `c2f6c91` — 14/14 зелёные; PR #3 `abb4c0f` — зелёный; PR #4 `c4c9015` —
+CI на этих головах (GitHub Actions): PR #2 `c2f6c91` — 14/14 зелёные; PR #3 `4422ea7` — зелёный; PR #4 `c4c9015` —
 14/14 зелёные; PR #5 `af4db13` — зелёный; PR #6 `0d4d582` — зелёный; PR #7 `6680448` — 14/14 зелёные; PR #8 `5730cc4` —
-16/16 зелёные (в том числе задание `ik-glm5next`: `Ran 43 tests … OK`). PR #1 ведёт другая сессия.
+16/16 зелёные; PR #9 `6dd6b28` — 16/16 зелёные (проверка `check_unittest.py` отработала на каждом шаге). PR #1 ведёт
+другая сессия.
