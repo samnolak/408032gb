@@ -30,6 +30,25 @@
 //                  j-1's MTP logits at the next position with step j-1's MTP h_nextn row.
 //   DUMP_MTP_NO_RESERVE 1 = skip the scheduler re-reserve after llama_set_embeddings_nextn (see main()); at
 //                  @ec7630a the first MTP graph then crashes in ggml_gallocr_init_tensor (kept to reproduce it).
+//   Several sequences (N19, opt-in; a plan that uses none of these steps behaves exactly as before). Run with
+//   -np <n_seq_max>; sequence s keeps its own next position pos[s] (0 at the start). Steps of DUMP_CALLS:
+//                  "<n>@<s>[:<p>]"  one part: the next n tokens of DUMP_TOKENS for sequence s at positions pos[s]..
+//                                   (or p.. when ":<p>" is given; pos[s] then continues after them);
+//                  "<n>@<s>|<s2>..." the same with every token in sequences s, s2, ... at once (coupled sequence
+//                                   ids, as a common prompt of parallel sequences; needs one KV stream);
+//                  "<part>+<part>+..." one llama_process call with the parts in that batch order (a lone part is a
+//                                   call of its own). A call llama_process refuses is recorded with its return code
+//                                   ("ret") and the plan goes on; its tokens are consumed, pos[s] does not move;
+//                  "r<n>@<s>"       roll sequence s back by n: llama_memory_seq_rm(mem, s, pos[s] - n, -1); the return
+//                                   value is recorded ("ok") and the plan goes on; pos[s] moves only when ok;
+//                  "x<s>"           llama_memory_seq_rm(mem, s, -1, -1) (drop the whole sequence), "ok" recorded;
+//                  "c<a>:<b>"       llama_memory_seq_cp(mem, a, b, -1, -1) (whole-sequence copy); pos[b] = pos[a].
+//                  Every such step is recorded in manifest.json with llama_memory_seq_pos_min / _max of every
+//                  sequence after it ("multiseq": true, plus n_seq_max, n_ctx_seq and kv_unified); the graph count of
+//                  a several-sequence call is recorded, not checked (llama_batch_allocr::split_equal decides it).
+//   DUMP_KV_UNIFIED 1 = context parameter kv_unified (one KV stream shared by all sequences; -kvu is a server/batched
+//                  option that common_params_parse does not offer to this tool); default false = one stream per
+//                  sequence.
 // When DUMP_N_RS_SEQ or DUMP_MTP is set, the model and the context(s) are created here instead of by
 // common_init_from_params.
 // Usage: DUMP_DIR=d DUMP_PREFIXES=... DUMP_TOKENS=1,5,9 ./dump-tensors -m model.gguf -c 512 -b 512 -ub 512
@@ -154,21 +173,41 @@ static bool dump_cb(struct ggml_tensor * t, bool ask, void * ud) {
     return true;
 }
 
+struct PartRec {                 // several-sequence mode: one sequence's tokens within a call
+    int seq = 0, n = 0, pos0 = 0, tok0 = 0;
+    std::vector<int> also;       // further sequences every token of the part belongs to ("<n>@<s>|<s2>...")
+};
+
 struct CallRec {
-    std::string kind = "decode"; // decode | rollback (target); process | draft (MTP context)
+    std::string kind = "decode"; // decode | rollback (target); process | draft (MTP context); seq_rm | seq_cp
     int  n        = 0;    // tokens decoded, or positions rolled back
     int  pos0     = 0;    // first position decoded, or the position the sequence was cut at
     int  tok0     = 0;    // index into DUMP_TOKENS of the first token decoded
     int  g0 = -1, g1 = -1; // graphs [g0, g1) computed by this call
     std::vector<int> tokens; // MTP calls: the token ids fed
+    // several-sequence mode only (multi = true)
+    bool multi    = false;
+    std::vector<PartRec> parts;
+    int  ret      = 0;    // llama_process return value
+    int  seq = -1, seq_dst = -1, p0 = -1, p1 = -1;  // seq_rm (seq, p0, p1) / seq_cp (seq -> seq_dst)
+    bool ok       = true; // seq_rm return value
+    std::vector<int> pos_min, pos_max; // llama_memory_seq_pos_min / _max of every sequence after the step
 };
 
+static std::string json_ints(const std::vector<int> & v) {
+    std::string s = "[";
+    for (size_t i = 0; i < v.size(); ++i) s += (i ? "," : "") + std::to_string(v[i]);
+    return s + "]";
+}
+
+// extra: fields appended to the top-level object (several-sequence mode only, empty otherwise)
 static void write_manifest(const DumpState & st, const std::vector<CallRec> & calls, int n_ubatch, uint32_t n_rs_seq,
-                           int n_embd_out) {
+                           int n_embd_out, const std::string & extra = "") {
     std::ofstream mf(st.dir + "/manifest.json");
     mf << "{\"n_ubatch\":" << n_ubatch << ",\"n_rs_seq\":" << n_rs_seq
        << ",\"per_graph\":" << (st.per_graph ? "true" : "false");
     if (n_embd_out > 0) mf << ",\"n_embd_out\":" << n_embd_out;
+    mf << extra;
     mf << ",\"first_node\":\"" << st.first_node << "\",\"calls\":[";
     for (size_t c = 0; c < calls.size(); ++c) {
         const auto & r = calls[c];
@@ -178,6 +217,27 @@ static void write_manifest(const DumpState & st, const std::vector<CallRec> & ca
             mf << ",\"tokens\":[";
             for (size_t i = 0; i < r.tokens.size(); ++i) mf << (i ? "," : "") << r.tokens[i];
             mf << "]";
+        }
+        if (r.multi) {
+            if (r.kind == "decode") {
+                mf << ",\"ret\":" << r.ret << ",\"parts\":[";
+                for (size_t i = 0; i < r.parts.size(); ++i) {
+                    const auto & p = r.parts[i];
+                    mf << (i ? "," : "") << "{\"seq\":" << p.seq << ",\"n\":" << p.n << ",\"pos0\":" << p.pos0
+                       << ",\"tok0\":" << p.tok0;
+                    if (!p.also.empty()) {
+                        std::vector<int> all = {p.seq};
+                        all.insert(all.end(), p.also.begin(), p.also.end());
+                        mf << ",\"seqs\":" << json_ints(all);
+                    }
+                    mf << "}";
+                }
+                mf << "]";
+            } else {
+                mf << ",\"seq\":" << r.seq << ",\"seq_dst\":" << r.seq_dst << ",\"p0\":" << r.p0 << ",\"p1\":" << r.p1
+                   << ",\"ok\":" << (r.ok ? "true" : "false");
+            }
+            mf << ",\"pos_min\":" << json_ints(r.pos_min) << ",\"pos_max\":" << json_ints(r.pos_max);
         }
         mf << "}";
     }
@@ -215,6 +275,13 @@ int main(int argc, char ** argv) {
     const bool mtp = mtp_env && std::strcmp(mtp_env, "0") != 0 && *mtp_env;
     const char * draft_env = std::getenv("DUMP_MTP_DRAFT");
     const int n_draft = draft_env ? std::atoi(draft_env) : 0;
+    const char * kvu_env = std::getenv("DUMP_KV_UNIFIED");
+    const bool kv_unified = kvu_env && std::strcmp(kvu_env, "0") != 0 && *kvu_env;
+    // several-sequence mode: some step of the plan uses the N19 syntax (see the header)
+    bool multiseq = false;
+    for (const auto & step : plan) {
+        multiseq = multiseq || step.find('@') != std::string::npos || step[0] == 'c' || step[0] == 'x';
+    }
 
     common_params params;
     common_init();
@@ -223,6 +290,7 @@ int main(int argc, char ** argv) {
     params.cb_eval = dump_cb;
     params.cb_eval_user_data = &st;
     params.warmup = false;
+    if (kv_unified) params.kv_unified = true;
 
     common_init_result_ptr init;
     llama_model_ptr own_model;
@@ -367,11 +435,126 @@ int main(int argc, char ** argv) {
         return true;
     };
 
+    // several-sequence mode (N19): the memory's view of every sequence after a step
+    const int n_seq_max = (int) llama_n_seq_max(ctx);
+    std::vector<int> spos(n_seq_max, 0);  // next position of every sequence
+    auto mem_snapshot = [&](CallRec & rec) {
+        auto * mem = llama_get_memory(ctx);
+        for (int s = 0; s < n_seq_max; ++s) {
+            rec.pos_min.push_back((int) llama_memory_seq_pos_min(mem, (llama_seq_id) s));
+            rec.pos_max.push_back((int) llama_memory_seq_pos_max(mem, (llama_seq_id) s));
+        }
+    };
+    // one llama_process call with several parts; a refused call is recorded (ret) and the plan goes on
+    auto decode_multi = [&](const std::vector<PartRec> & parts) {
+        batch.clear();
+        int n = 0;
+        for (const auto & p : parts) {
+            for (int i = 0; i < p.n; ++i) {
+                std::vector<llama_seq_id> ids = {(llama_seq_id) p.seq};
+                for (int s : p.also) ids.push_back((llama_seq_id) s);
+                batch.add((llama_token) std::atoi(toks[p.tok0 + i].c_str()), (llama_pos) (p.pos0 + i), ids, true);
+                ++n;
+            }
+        }
+        CallRec rec;
+        rec.multi = true; rec.parts = parts; rec.n = n; rec.pos0 = parts[0].pos0; rec.tok0 = parts[0].tok0;
+        st.call = (int) calls.size();
+        rec.g0 = st.graph + 1;
+        rec.ret = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+        rec.g1 = st.graph + 1;
+        if (rec.ret == 0) {
+            for (int i = 0; i < n; ++i) {
+                lo.write(reinterpret_cast<const char *>(llama_get_logits_ith(ctx, (int32_t) i)),
+                         (std::streamsize) n_vocab * sizeof(float));
+            }
+            for (const auto & p : parts) {
+                spos[p.seq] = p.pos0 + p.n;
+                for (int s : p.also) spos[s] = p.pos0 + p.n;
+            }
+        } else {
+            LOG_WRN("call %d: llama_process returned %d (recorded, the plan goes on)\n", st.call, rec.ret);
+        }
+        mem_snapshot(rec);
+        calls.push_back(rec);
+        return rec.ret == 0 ? n : 0;
+    };
+
     int n_decoded = 0, pos = 0;
     if (plan.empty()) {
         if (!decode(0, 0, (int) toks.size())) return 1;
         n_decoded = (int) toks.size();
         pos = n_decoded;
+    } else if (multiseq) {
+        if (mtp) { LOG_ERR("DUMP_MTP does not support the several-sequence steps\n"); return 1; }
+        int ti = 0;
+        auto bad_seq = [&](int s) { return s < 0 || s >= n_seq_max; };
+        for (const auto & step : plan) {
+            int a = 0, b = 0, c = 0;
+            char tail = 0;
+            if (step[0] == 'r' || step[0] == 'x' || step[0] == 'c') {
+                CallRec rec;
+                rec.multi = true; rec.tok0 = ti; rec.g0 = rec.g1 = st.graph + 1;
+                auto * mem = llama_get_memory(ctx);
+                if (step[0] == 'r' && std::sscanf(step.c_str(), "r%d@%d%c", &a, &b, &tail) == 2 && !bad_seq(b) &&
+                        a > 0 && a <= spos[b]) {
+                    rec.kind = "seq_rm"; rec.n = a; rec.seq = b; rec.p0 = spos[b] - a; rec.p1 = -1; rec.pos0 = rec.p0;
+                    rec.ok = llama_memory_seq_rm(mem, (llama_seq_id) b, rec.p0, -1);
+                    if (rec.ok) spos[b] = rec.p0;
+                } else if (step[0] == 'x' && std::sscanf(step.c_str(), "x%d%c", &b, &tail) == 1 && !bad_seq(b)) {
+                    rec.kind = "seq_rm"; rec.n = spos[b]; rec.seq = b; rec.p0 = -1; rec.p1 = -1; rec.pos0 = 0;
+                    rec.ok = llama_memory_seq_rm(mem, (llama_seq_id) b, -1, -1);
+                    if (rec.ok) spos[b] = 0;
+                } else if (step[0] == 'c' && std::sscanf(step.c_str(), "c%d:%d%c", &a, &b, &tail) == 2 &&
+                        !bad_seq(a) && !bad_seq(b) && a != b) {
+                    rec.kind = "seq_cp"; rec.seq = a; rec.seq_dst = b; rec.p0 = -1; rec.p1 = -1; rec.pos0 = spos[a];
+                    llama_memory_seq_cp(mem, (llama_seq_id) a, (llama_seq_id) b, -1, -1);
+                    spos[b] = spos[a];
+                } else {
+                    LOG_ERR("bad step '%s'\n", step.c_str());
+                    return 1;
+                }
+                LOG_INF("step '%s': %s\n", step.c_str(), rec.ok ? "ok" : "refused (recorded, the plan goes on)");
+                mem_snapshot(rec);
+                calls.push_back(rec);
+                continue;
+            }
+            std::vector<PartRec> parts;
+            std::stringstream ss(step);
+            std::string part;
+            while (std::getline(ss, part, '+')) {
+                PartRec p;
+                // "<n>@<s>[|<s2>...][:<p>]": the extra sequence ids are cut out first, the rest is "<n>@<s>[:<p>]"
+                std::string head = part, more;
+                const size_t bar = part.find('|');
+                if (bar != std::string::npos) {
+                    const size_t colon = part.find(':', bar);
+                    more = part.substr(bar + 1, colon == std::string::npos ? std::string::npos : colon - bar - 1);
+                    head = part.substr(0, bar) + (colon == std::string::npos ? "" : part.substr(colon));
+                }
+                const int got = std::sscanf(head.c_str(), "%d@%d:%d%c", &a, &b, &c, &tail);
+                bool ok = (got == 2 || got == 3) && a > 0 && !bad_seq(b) && ti + a <= (int) toks.size() &&
+                          !(got == 3 && c < 0);
+                std::stringstream ms(more);
+                std::string id;
+                while (ok && std::getline(ms, id, '|')) {
+                    char * end = nullptr;
+                    const long s2 = std::strtol(id.c_str(), &end, 10);
+                    ok = !id.empty() && *end == 0 && !bad_seq((int) s2) && (int) s2 != b;
+                    p.also.push_back((int) s2);
+                }
+                if (!ok) {
+                    LOG_ERR("bad call part '%s' of step '%s'\n", part.c_str(), step.c_str());
+                    return 1;
+                }
+                p.seq = b; p.n = a; p.pos0 = got == 3 ? c : spos[b]; p.tok0 = ti;
+                ti += a;
+                parts.push_back(p);
+            }
+            if (parts.empty()) { LOG_ERR("bad call step '%s'\n", step.c_str()); return 1; }
+            n_decoded += decode_multi(parts);
+        }
+        if (ti != (int) toks.size()) { LOG_ERR("DUMP_CALLS consumed %d of %zu tokens\n", ti, toks.size()); return 1; }
     } else {
         int ti = 0;
         for (const auto & step : plan) {
@@ -419,7 +602,12 @@ int main(int argc, char ** argv) {
         write_manifest(st_mtp, mtp_calls, (int) llama_n_ubatch(mtp_ctx.get()), 0, n_embd_out);
     }
     if (st.per_graph || !plan.empty() || mtp) {
-        write_manifest(st, calls, n_ubatch, llama_n_rs_seq(ctx), n_embd_out);
+        std::string extra;
+        if (multiseq) {
+            extra = ",\"multiseq\":true,\"n_seq_max\":" + std::to_string(n_seq_max) + ",\"n_ctx_seq\":" +
+                    std::to_string(llama_n_ctx_seq(ctx)) + ",\"kv_unified\":" + (kv_unified ? "true" : "false");
+        }
+        write_manifest(st, calls, n_ubatch, llama_n_rs_seq(ctx), n_embd_out, extra);
     }
     mtp_ctx.reset();
     own_ctx.reset();
