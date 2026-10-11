@@ -13,7 +13,9 @@ jobs:
           git -C ../llama.cpp checkout ec7630a640789c393694fb194f1bbbf0369fc62d
           touch ../llama.cpp/ggml/ggml.pc.in   # needed only for the standalone ggml build below
       - name: deps
-        run: pip install numpy pyyaml
+        # jinja2: tests/test_chat_templates.py (N14) renders the vendored chat templates; without it its
+        # TemplateProperties class would skip in the unwrapped `unit tests` step
+        run: pip install numpy pyyaml jinja2
       # Every parity step below goes through tools/ci/check_unittest.py: green only if its unittest run is OK with exactly
       # the tests and skips tools/ci/parity_expectations.json lists for the checkout's commit (a missing dump or env
       # variable makes the tests skip, which unittest alone reports as OK; docs/reassessment/CORRECTNESS.md gap 11 (a)).
