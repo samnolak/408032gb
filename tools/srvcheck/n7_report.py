@@ -6,6 +6,10 @@ except the comparisons named below).
   attr <name>=<result.json> ...      precision attribution: warm-vs-cold |delta log-prob| per check for every run,
                                      and each run's cold answer against the FIRST run (the reference) compared only
                                      up to the first differing token - later steps have different histories
+                                     NOTE: each run's prefix_extend prompt holds that run's own first answer
+                                     (hybrid_server_checks.check_prefix_extend), so when two runs' first answers
+                                     differ, their cold prompts differ too and the column is not a same-prompt
+                                     comparison of the configurations
 """
 import json
 import sys
