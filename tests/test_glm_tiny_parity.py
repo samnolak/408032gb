@@ -9,10 +9,14 @@ The reference run uses f32 caches and no flash attention (-ctk f32 -ctv f32 -fa 
 default f16 cache llama.cpp rounds q, the cached latent and the attention probabilities to f16
 (reproduced to 6e-8 in docs/evidence/2026-10-02-g1-parity.md), which is a precision choice of the
 reference, not of the model.
+Every comparison is recorded; the table printed at the end of the module lists, per class, component and layer, the max
+abs and normwise relative error and how close it is to its tolerance (gap 14 of docs/reassessment/CORRECTNESS.md;
+tolerances unchanged).
 """
 import json
 import os
 import pathlib
+import re
 import sys
 import unittest
 
@@ -36,6 +40,36 @@ def dump(name):
     while a.ndim > 1 and a.shape[0] == 1:      # drop leading ggml dims of size 1 (ne3, ne2, ...)
         a = a[0]
     return a
+
+
+TABLE = []    # (class, component, layer, max abs, rel, tol, compared): the per-layer error report (gap 14)
+
+
+def record(cls, what, il, mx, rel, tol, compared="rel"):
+    TABLE.append((cls, what, il, mx, rel, tol, compared))
+
+
+def tearDownModule():
+    if not TABLE:
+        return
+    print("\nper-layer errors (rel = max|got-want| / max|want|; 'of tol' = the compared error / tolerance; "
+          "layer -1 = no layer):", file=sys.stderr)
+    print(f"{'class':18s} {'component':22s} {'layer':>5s} {'max abs':>10s} {'rel':>10s} {'tol':>12s} {'of tol':>7s}",
+          file=sys.stderr)
+    for cls, what, il, mx, rel, tol, cmp in TABLE:
+        frac = (rel if cmp == "rel" else mx) / tol
+        print(f"{cls:18s} {what:22s} {il:5d} {mx:10.3e} {rel:10.3e} {tol:8.0e} {cmp:3s} {frac:7.3f}", file=sys.stderr)
+    worst = {}
+    for row in TABLE:
+        cls, what, il, mx, rel, tol, cmp = row
+        frac = (rel if cmp == "rel" else mx) / tol
+        if il not in worst or frac > worst[il][0]:
+            worst[il] = (frac, row)
+    print("worst per layer:", file=sys.stderr)
+    for il in sorted(worst):
+        frac, (cls, what, _, mx, rel, tol, cmp) = worst[il]
+        print(f"  L{il:<3d} {cls}.{what}: max abs {mx:.3e}, rel {rel:.3e}, {frac:.3f} of tol {tol:.0e} {cmp}",
+              file=sys.stderr)
 
 
 def sigmoid(x):
@@ -65,7 +99,16 @@ class _TinyBase(unittest.TestCase):
         return x.reshape(self.T, 4, -1)
 
     def assertClose(self, got, want, tol, what):
-        err = np.max(np.abs(got - want)) / (np.max(np.abs(want)) + 1e-12)
+        """Normwise relative error < tol. The layer is the trailing ` L<n>` of `what`, else self.IL (DSA class), else -1.
+        Sizes must match (no silent numpy broadcasting); got is read in want's shape."""
+        got, want = np.asarray(got, dtype=np.float64), np.asarray(want, dtype=np.float64)
+        self.assertEqual(got.size, want.size, f"{what}: size {got.shape} vs {want.shape}")
+        got = got.reshape(want.shape)
+        m = re.fullmatch(r"(.*) L(\d+)", what)
+        comp, il = (m[1], int(m[2])) if m else (what, getattr(self, "IL", -1))
+        mx = float(np.max(np.abs(got - want)))
+        err = mx / (np.max(np.abs(want)) + 1e-12)
+        record(type(self).__name__, comp, il, mx, float(err), tol)
         self.assertLess(err, tol, f"{what}: rel err {err:.2e}")
         return err
 
@@ -130,9 +173,11 @@ class GlmTinyParity(_TinyBase):
             got_ids = dump(f"ffn_moe_topk-{il}__0").astype(int)
             got_w = dump(f"ffn_moe_weights_scaled-{il}__0")[:, :, 0]
             self.assertTrue(np.array_equal(np.sort(ids, 1), np.sort(got_ids, 1)), f"top-k ids L{il}")
-            for t in range(self.T):
-                mine = dict(zip(ids[t], w[t]))
-                theirs = dict(zip(got_ids[t], got_w[t]))
+            pairs = [(dict(zip(ids[t], w[t])), dict(zip(got_ids[t], got_w[t]))) for t in range(self.T)]
+            diffs = [abs(mine[e] - theirs.get(e, np.inf)) for mine, theirs in pairs for e in mine]
+            record(type(self).__name__, "router weights", il, float(max(diffs)),
+                   float(max(diffs) / (np.max(np.abs(got_w)) + 1e-12)), 1e-5, "abs")
+            for mine, theirs in pairs:
                 for e in mine:
                     self.assertAlmostEqual(mine[e], theirs[e], delta=1e-5)
 
