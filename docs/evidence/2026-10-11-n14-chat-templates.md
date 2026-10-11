@@ -55,16 +55,18 @@ only that substitution. No GPU, no performance claims.
    and **the model sees a wrong history** from then on (another turn's reasoning duplicated). Qwen: no break.
 6. **Tool-call parsing, CONFIRMED with a harness against `common` @79e2e74 (section 6, `tools/chattmpl/chat_parse_harness.cpp`):**
    Qwen3.8 → specialized `Qwen3-Coder` handler (`common/chat.cpp:1218-1227`, `common/parsers/qwen3-coder.cpp`); GLM-5.3
-   → no specialized handler, the differential autoparser (`common/chat.cpp:1381-1399`); both `peg-native`, both with a
-   lazy tool-call grammar. Every assistant turn of the session, written exactly in the template's format, is parsed back
+   → no specialized handler, the differential autoparser (`common/chat.cpp:1381-1399`); both `peg-native`, both build a
+   tool-call grammar when tools are given (harness field `grammar_nonempty`, asserted by `ParseHarness`; lazy, i.e.
+   triggered at the tool-call start, for Qwen with `tool_choice: auto`, `common/parsers/qwen3-coder.cpp:178`; for GLM's
+   autoparser whether it is lazy was not checked). Every assistant turn of the session, written exactly in the template's format, is parsed back
    into `reasoning_content`, `content` and structured `tool_calls` (both parallel calls of one turn included), and the
    parsed message re-renders to the same bytes (7/7 per template). Field-level exceptions: GLM returns a JSON `null`
    argument as the string `"null"` (schema type `["string","null"]`; the bytes round-trip, the tool gets a string); Qwen
    keeps a trailing `\n` in `reasoning_content` and `\n\n` at the end of `content` before a tool call (the template trims
    both, so the bytes round-trip). A call to a tool that is not in the list: GLM → parse error ("The model produced output
    that does not match the expected peg-native format"), Qwen → the call silently disappears (empty content, no
-   `tool_calls`); with the lazy grammar active the model cannot emit such a name (PROVISIONAL, from the grammar triggers,
-   not run with sampling).
+   `tool_calls`); with the tool grammar active the model cannot emit such a name (PROVISIONAL, from the grammar rules, not run
+   with sampling).
 7. **Whitespace a real model might add, CONFIRMED on the parser + server (section 6):** GLM keeps whitespace inside
    `<think>…</think>` and re-renders it verbatim; Qwen trims reasoning (line 115); both strip content (GLM 154-155, Qwen
    103). If the real model writes whitespace the template would not (e.g. `\n` after `</think>` on GLM, `<think>\n\n` on
