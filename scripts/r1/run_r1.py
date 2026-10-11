@@ -217,6 +217,12 @@ def str_list(v, what, allow_empty=True):
     return [str(x) for x in v]
 
 
+def nonempty_list(v, what):
+    if not isinstance(v, list) or not v:
+        raise ConfigError("%s must be a non-empty list, got %r" % (what, v))
+    return v
+
+
 def obj(v, what):
     if v is None:
         return {}
@@ -349,6 +355,8 @@ class Cell:
             "version_argv": str_list(e.get("version_argv"), "engine.version_argv"),
             "help_argv": str_list(e.get("help_argv"), "engine.help_argv"),
             "help_ignore": str_list(e.get("help_ignore"), "engine.help_ignore"),
+            "help_ok_codes": [num(x, "engine.help_ok_codes[%d]" % i, 0, 255, integer=True)
+                              for i, x in enumerate(nonempty_list(e.get("help_ok_codes", [0]), "engine.help_ok_codes"))],
             "env": {str(k): str(v) for k, v in obj(e.get("env"), "engine.env").items()},
             "cwd": str(e.get("cwd") or self.run_dir),
             "config_files": obj(e.get("config_files"), "engine.config_files"),
@@ -596,7 +604,8 @@ class Cell:
                               stdout=self.a("engine", "version.txt"), timeout=self.version_timeout_s))
             if e["help_argv"]:
                 P.append(Item("engine_version", sub="help", argv=e["help_argv"], cwd=e["cwd"], env=e["env"],
-                              stdout=self.a("engine", "help.txt"), timeout=self.version_timeout_s, flags_check=True))
+                              stdout=self.a("engine", "help.txt"), timeout=self.version_timeout_s,
+                              ok_codes=e["help_ok_codes"], flags_check=True))
         # engine_start
         if not self.enabled("engine_start"):
             P.append(Item("engine_start", skip="disabled in the config: the engine is managed outside this run"))
