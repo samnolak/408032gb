@@ -527,7 +527,7 @@ def mtp_forward_chunk(tokens, h_prev, W, hp, cache, overrides=None, prec=None):
     emb = w.get("nextn.embed_tokens.weight", W["token_embd.weight"])
     e = rms_norm(emb[tokens], eps, w["nextn.enorm.weight"])
     h = rms_norm(h_prev, eps, w["nextn.hnorm.weight"])
-    x = np.concatenate([e, h], axis=-1) @ np.asarray(w["nextn.eh_proj.weight"], dtype=np.float64).T
+    x = np.concatenate([e, h], axis=-1) @ w["nextn.eh_proj.weight"].T
     out = dict(pos=pos, e_norm=e, h_norm=h, eh_proj=x)
     out["attn_norm"] = an = rms_norm(x, eps, w["attn_norm.weight"])
     out["dsa"] = blk = dsa_layer_chunk(an, w, hp, pos, cache["dsa"][il], overrides.get(("dsa", il)), prec)
@@ -537,5 +537,5 @@ def mtp_forward_chunk(tokens, h_prev, W, hp, cache, overrides=None, prec=None):
     out["post_ffn"] = post = ffn["out"] + f
     out["h_nextn"] = hn = rms_norm(post, eps, w.get("nextn.shared_head_norm.weight", W["output_norm.weight"]))
     head = w.get("nextn.shared_head_head.weight", W["output.weight"])
-    out["logits"] = hn @ np.asarray(head, dtype=np.float64).T
+    out["logits"] = hn @ head.T
     return out

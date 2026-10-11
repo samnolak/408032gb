@@ -89,6 +89,11 @@ cache and gathered back for the scores, G:793-797); the pooling reads the cached
 itself runs in the mode of ref/fattn.py the run takes (flash attention one_chunk / tiled, or mul_mat with f16
 operands). Recurrent states stay f32 (GGML_TYPE_F32, src/llama-model.cpp:2754-2755).
 
+Quantized weights (N10, gap 2): a weight may be a ref/quant.py QWeight (a non-F32 GGUF tensor, dequantized). Every
+matrix product here is written x @ w.T or w @ x, which for a QWeight converts the activations to the vec_dot_type of
+the weight's type the way ggml's CPU mul_mat / mul_mat_id do; gathers and elementwise uses (np.asarray(w), w[rows])
+read the dequantized values. With plain float64 arrays (F32 weights) nothing changes.
+
 Shapes are numpy-natural (token-major); weights are the GGUF arrays as numpy reads them (ggml ne reversed).
 Everything runs in float64; cast at the boundary when comparing with a kernel.
 """

@@ -106,6 +106,39 @@ def act_quant(x, vec_dot_type):
     return (q.astype(np.float64) * d.astype(np.float64)).reshape(shape)
 
 
+def flip_bound(x, w, ulps=8):
+    """Bound per output of x @ w.T (w a QWeight with Q8_0 / Q8_K activations) when x is llama.cpp's f32 activation
+    only up to `ulps` f32 spacings (an input the test recomputes instead of reading it from a dump): an element whose
+    scaled value x * 127 / amax lies within that distance of a rounding boundary (a half-integer) may round to the
+    neighbouring integer on llama.cpp's side, which moves its value by one step of its block. Returns
+    sum_j [x_j near a boundary] step_j |w_ij|. A change of amax itself by that much changes s by a relative `ulps`
+    2^-23 only (covered by the f32 tolerance of the caller), but for Q8_0 it can move the f16 scale d = f16(amax / 127)
+    across a binary16 rounding boundary: every value of that block then moves by |q_j| spacing16(d), added for such
+    blocks."""
+    vdt = w.vdt
+    if vdt not in ("Q8_0", "Q8_K"):
+        raise NotImplementedError(f"flip_bound for {vdt}")
+    shape = np.shape(x)
+    b = _blocks(x, QK8_0 if vdt == "Q8_0" else QK_K).astype(np.float64)
+    amax = np.abs(b).max(axis=-1, keepdims=True)
+    nz = amax != 0
+    s = np.where(nz, 127.0 / np.where(nz, amax, 1.0), 0.0)
+    v = np.abs(b) * s
+    dist = np.abs(v - (np.floor(v) + 0.5))
+    near = dist <= ulps * 2.0 ** -23 * np.maximum(v, 1.0)
+    if vdt == "Q8_0":
+        d = amax / 127
+        d16 = d.astype(np.float32).astype(np.float16).astype(np.float64)
+        sp = 2.0 ** (np.floor(np.log2(np.maximum(d, 2.0 ** -14))) - 10)          # binary16 spacing at d
+        mid = np.floor(d / sp) * sp + sp / 2                                  # the rounding boundary next to d
+        d_near = np.abs(d - mid) <= ulps * 2.0 ** -23 * d
+        extra = d_near * np.rint(v) * sp
+        contrib = near * d16 + extra
+    else:
+        contrib = near * np.where(nz, 1.0 / np.where(nz, s, 1.0), 0.0)
+    return contrib.reshape(shape) @ np.abs(w.w).T
+
+
 class QWeight:
     """A non-F32 weight: dequantized values plus the activation conversion of its vec_dot_type (module docstring)."""
     __array_ufunc__ = None          # ndarray @ QWeight -> QWeight.__rmatmul__ (via .T) instead of a silent ndarray
