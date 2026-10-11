@@ -218,16 +218,21 @@ def _mimo_rope(m):
     return out
 
 
+def _present(m):
+    """trunk layers that have tensors in this file (an MTP-only file has none)"""
+    return [i for i in range(_layers(m)) if _suffixes(m, i)]
+
+
 def _mimo_sinks(m):
     out = set()
-    for i in range(_layers(m)):
+    for i in _present(m):
         out.add(f"{_kind(m, i)} layers {'with' if 'attn_sinks.weight' in _suffixes(m, i) else 'without'} sinks")
     return out
 
 
 def _mimo_sinks_detail(m):
-    n = _layers(m)
-    w = [i for i in range(n) if "attn_sinks.weight" in _suffixes(m, i)]
+    n = len(_present(m))
+    w = [i for i in _present(m) if "attn_sinks.weight" in _suffixes(m, i)]
     return (f"trunk layers with attn_sinks: {_ranges(w)} ({len(w)} of {n}; full-attention layers among them "
             f"{[i for i in w if _kind(m, i) == 'full']}); MTP layers with attn_sinks: "
             f"{[i for i in _mtp_layers(m) if 'attn_sinks.weight' in _suffixes(m, i)]}")
@@ -245,7 +250,7 @@ def _ranges(xs):
 
 def _mimo_qkv(m):
     out = set()
-    for i in range(_layers(m)):
+    for i in _present(m):
         sx = _suffixes(m, i)
         out.add("fused attn_qkv" if "attn_qkv.weight" in sx else "split attn_q/k/v" if "attn_q.weight" in sx
                 else "no attention projection in the file")

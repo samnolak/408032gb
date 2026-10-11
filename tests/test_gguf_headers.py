@@ -1105,6 +1105,15 @@ class N18Analyzer(HubCase):
                                                  "MTP layer without a dense FFN (graph_mtp asserts)",
                                                  "MTP layer without fused attn_qkv (graph_mtp asserts)"])
         self.assertEqual(brc["mimo.value_scale"], ["no value scale"])
+        # an MTP-only file: the probes of trunk layers see no layers (not "SWA layers without sinks")
+        b, off = make_gguf(mimo2_kv(), mimo2_tensors(trunk=False))
+        mm = A.Model([G.summarize(G.parse(b[:off]), b[:off])])
+        brm = {x["id"]: (x["real"], x["real_detail"]) for x in A.section_branches(mm, "mimo2", None, {})}
+        self.assertEqual(brm["mimo.sinks"][0], [])
+        self.assertIn("(0 of 0;", brm["mimo.sinks"][1])
+        self.assertIn("MTP layers with attn_sinks: [4, 5]", brm["mimo.sinks"][1])
+        self.assertEqual((brm["mimo.qkv"][0], brm["mimo.ffn"][0]), ([], []))
+        self.assertEqual(brm["mimo.file_layout"][0], ["MTP-only file"])
 
     @unittest.skipUnless(GGUF_PY and HAVE_NUMPY, "set LLAMA_CPP_GGUF_PY=<llama.cpp>/gguf-py (and install numpy)")
     def test_mimo2_tiny_exercises_its_own_branches(self):
