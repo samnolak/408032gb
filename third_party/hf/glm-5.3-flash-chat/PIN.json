@@ -1,0 +1,412 @@
+{
+ "repo": "zai-org/GLM-5.3-Flash",
+ "revision": "eb9eb208eb0d988989d07a6a12d0fdeb5f52574a",
+ "requested": "main",
+ "gated": false,
+ "license_tags": [
+  "license:mit"
+ ],
+ "files": [
+  {
+   "path": "chat_template.jinja",
+   "size": 10950,
+   "sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+   "git_blob": "06bd89e94b96652fd5d76d9f9e11cfa15e09f49d"
+  },
+  {
+   "path": "tokenizer_config.json",
+   "size": 761,
+   "sha256": "98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc",
+   "git_blob": "e375fa0a4e16660ce0e2026e39374d35dad4c079"
+  },
+  {
+   "path": "generation_config.json",
+   "size": 194,
+   "sha256": "230c30609ecbbb9e6583bedde8e7bdda0c6eb8fe5fad0eaeb3d1b293d751cb4f",
+   "git_blob": "637ee6afa5c6ebfba4eb24bd5b9df68550143597"
+  },
+  {
+   "path": "config.json",
+   "size": 69416,
+   "sha256": "bb8f01c42cb92a52ca72e65afb4d5bd8d11aef083cd210e8de25dfb904f23e9f",
+   "git_blob": "f93128cf7f31ca2b22e367cd63676c320c4164a7"
+  }
+ ],
+ "not_vendored": [
+  {
+   "path": "special_tokens_map.json",
+   "why": "absent upstream"
+  },
+  {
+   "path": "tokenizer.json",
+   "why": "20217442 bytes or LFS: not a small text file"
+  }
+ ],
+ "upstream_listing": [
+  {
+   "path": ".eval_results/GLM-5.3-Flash.yaml",
+   "size": 845,
+   "lfs": false
+  },
+  {
+   "path": ".gitattributes",
+   "size": 1570,
+   "lfs": false
+  },
+  {
+   "path": "LICENSE",
+   "size": 1070,
+   "lfs": false
+  },
+  {
+   "path": "README.md",
+   "size": 8027,
+   "lfs": false
+  },
+  {
+   "path": "chat_template.jinja",
+   "size": 10950,
+   "lfs": false
+  },
+  {
+   "path": "config.json",
+   "size": 69416,
+   "lfs": false
+  },
+  {
+   "path": "generation_config.json",
+   "size": 194,
+   "lfs": false
+  },
+  {
+   "path": "model-00001-of-00062.safetensors",
+   "size": 5365306704,
+   "lfs": true
+  },
+  {
+   "path": "model-00002-of-00062.safetensors",
+   "size": 5320647824,
+   "lfs": true
+  },
+  {
+   "path": "model-00003-of-00062.safetensors",
+   "size": 5363467432,
+   "lfs": true
+  },
+  {
+   "path": "model-00004-of-00062.safetensors",
+   "size": 5364342296,
+   "lfs": true
+  },
+  {
+   "path": "model-00005-of-00062.safetensors",
+   "size": 5363915920,
+   "lfs": true
+  },
+  {
+   "path": "model-00006-of-00062.safetensors",
+   "size": 5361809384,
+   "lfs": true
+  },
+  {
+   "path": "model-00007-of-00062.safetensors",
+   "size": 5364342528,
+   "lfs": true
+  },
+  {
+   "path": "model-00008-of-00062.safetensors",
+   "size": 5364342304,
+   "lfs": true
+  },
+  {
+   "path": "model-00009-of-00062.safetensors",
+   "size": 5364169856,
+   "lfs": true
+  },
+  {
+   "path": "model-00010-of-00062.safetensors",
+   "size": 5361982080,
+   "lfs": true
+  },
+  {
+   "path": "model-00011-of-00062.safetensors",
+   "size": 5363915912,
+   "lfs": true
+  },
+  {
+   "path": "model-00012-of-00062.safetensors",
+   "size": 5364342288,
+   "lfs": true
+  },
+  {
+   "path": "model-00013-of-00062.safetensors",
+   "size": 5361809408,
+   "lfs": true
+  },
+  {
+   "path": "model-00014-of-00062.safetensors",
+   "size": 5364342504,
+   "lfs": true
+  },
+  {
+   "path": "model-00015-of-00062.safetensors",
+   "size": 5364342304,
+   "lfs": true
+  },
+  {
+   "path": "model-00016-of-00062.safetensors",
+   "size": 5361809176,
+   "lfs": true
+  },
+  {
+   "path": "model-00017-of-00062.safetensors",
+   "size": 5364084560,
+   "lfs": true
+  },
+  {
+   "path": "model-00018-of-00062.safetensors",
+   "size": 5364342304,
+   "lfs": true
+  },
+  {
+   "path": "model-00019-of-00062.safetensors",
+   "size": 5364342272,
+   "lfs": true
+  },
+  {
+   "path": "model-00020-of-00062.safetensors",
+   "size": 5361809528,
+   "lfs": true
+  },
+  {
+   "path": "model-00021-of-00062.safetensors",
+   "size": 5364342376,
+   "lfs": true
+  },
+  {
+   "path": "model-00022-of-00062.safetensors",
+   "size": 5363915936,
+   "lfs": true
+  },
+  {
+   "path": "model-00023-of-00062.safetensors",
+   "size": 5361809264,
+   "lfs": true
+  },
+  {
+   "path": "model-00024-of-00062.safetensors",
+   "size": 5364342640,
+   "lfs": true
+  },
+  {
+   "path": "model-00025-of-00062.safetensors",
+   "size": 5364342304,
+   "lfs": true
+  },
+  {
+   "path": "model-00026-of-00062.safetensors",
+   "size": 5364342272,
+   "lfs": true
+  },
+  {
+   "path": "model-00027-of-00062.safetensors",
+   "size": 5361809560,
+   "lfs": true
+  },
+  {
+   "path": "model-00028-of-00062.safetensors",
+   "size": 5363915976,
+   "lfs": true
+  },
+  {
+   "path": "model-00029-of-00062.safetensors",
+   "size": 5364342304,
+   "lfs": true
+  },
+  {
+   "path": "model-00030-of-00062.safetensors",
+   "size": 5361809296,
+   "lfs": true
+  },
+  {
+   "path": "model-00031-of-00062.safetensors",
+   "size": 5364341544,
+   "lfs": true
+  },
+  {
+   "path": "model-00032-of-00062.safetensors",
+   "size": 5363915232,
+   "lfs": true
+  },
+  {
+   "path": "model-00033-of-00062.safetensors",
+   "size": 5364342272,
+   "lfs": true
+  },
+  {
+   "path": "model-00034-of-00062.safetensors",
+   "size": 5361809552,
+   "lfs": true
+  },
+  {
+   "path": "model-00035-of-00062.safetensors",
+   "size": 5363915984,
+   "lfs": true
+  },
+  {
+   "path": "model-00036-of-00062.safetensors",
+   "size": 5364342304,
+   "lfs": true
+  },
+  {
+   "path": "model-00037-of-00062.safetensors",
+   "size": 5361809288,
+   "lfs": true
+  },
+  {
+   "path": "model-00038-of-00062.safetensors",
+   "size": 5364342624,
+   "lfs": true
+  },
+  {
+   "path": "model-00039-of-00062.safetensors",
+   "size": 5364342296,
+   "lfs": true
+  },
+  {
+   "path": "model-00040-of-00062.safetensors",
+   "size": 5363915912,
+   "lfs": true
+  },
+  {
+   "path": "model-00041-of-00062.safetensors",
+   "size": 5361809552,
+   "lfs": true
+  },
+  {
+   "path": "model-00042-of-00062.safetensors",
+   "size": 5364342368,
+   "lfs": true
+  },
+  {
+   "path": "model-00043-of-00062.safetensors",
+   "size": 5364342296,
+   "lfs": true
+  },
+  {
+   "path": "model-00044-of-00062.safetensors",
+   "size": 5361809312,
+   "lfs": true
+  },
+  {
+   "path": "model-00045-of-00062.safetensors",
+   "size": 5364342600,
+   "lfs": true
+  },
+  {
+   "path": "model-00046-of-00062.safetensors",
+   "size": 5363915368,
+   "lfs": true
+  },
+  {
+   "path": "model-00047-of-00062.safetensors",
+   "size": 5364341072,
+   "lfs": true
+  },
+  {
+   "path": "model-00048-of-00062.safetensors",
+   "size": 5361809576,
+   "lfs": true
+  },
+  {
+   "path": "model-00049-of-00062.safetensors",
+   "size": 5364342344,
+   "lfs": true
+  },
+  {
+   "path": "model-00050-of-00062.safetensors",
+   "size": 5364342312,
+   "lfs": true
+  },
+  {
+   "path": "model-00051-of-00062.safetensors",
+   "size": 5361809336,
+   "lfs": true
+  },
+  {
+   "path": "model-00052-of-00062.safetensors",
+   "size": 5364342576,
+   "lfs": true
+  },
+  {
+   "path": "model-00053-of-00062.safetensors",
+   "size": 5363915936,
+   "lfs": true
+  },
+  {
+   "path": "model-00054-of-00062.safetensors",
+   "size": 5364342272,
+   "lfs": true
+  },
+  {
+   "path": "model-00055-of-00062.safetensors",
+   "size": 5361808304,
+   "lfs": true
+  },
+  {
+   "path": "model-00056-of-00062.safetensors",
+   "size": 5364341080,
+   "lfs": true
+  },
+  {
+   "path": "model-00057-of-00062.safetensors",
+   "size": 5364341048,
+   "lfs": true
+  },
+  {
+   "path": "model-00058-of-00062.safetensors",
+   "size": 5361808088,
+   "lfs": true
+  },
+  {
+   "path": "model-00059-of-00062.safetensors",
+   "size": 5363914912,
+   "lfs": true
+  },
+  {
+   "path": "model-00060-of-00062.safetensors",
+   "size": 5364341064,
+   "lfs": true
+  },
+  {
+   "path": "model-00061-of-00062.safetensors",
+   "size": 5303993768,
+   "lfs": true
+  },
+  {
+   "path": "model-00062-of-00062.safetensors",
+   "size": 1261584968,
+   "lfs": true
+  },
+  {
+   "path": "model.safetensors.index.json",
+   "size": 8406613,
+   "lfs": false
+  },
+  {
+   "path": "processor_config.json",
+   "size": 909,
+   "lfs": false
+  },
+  {
+   "path": "tokenizer.json",
+   "size": 20217442,
+   "lfs": true
+  },
+  {
+   "path": "tokenizer_config.json",
+   "size": 761,
+   "lfs": false
+  }
+ ]
+}
