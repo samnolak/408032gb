@@ -150,6 +150,21 @@
         }
       }
     },
+    "n17-mimo2-mtp-heads-fa": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_mimo2_n17.sh",
+      "modules": ["tests.test_mimo2_mtp_heads_parity", "tests.test_mimo2_f16fa_parity", "tests.test_mimo2_heads_ref", "tests.test_fattn_sinks_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 70, "skipped": [],
+          "source": "N17 run, docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md (6 MTP heads f32 + 7 MTP heads f16/FA + 40 f16/FA trunk (5 runs x 8) + 8 heads_ref + 9 fattn_sinks_ref; this pin has the mimo2 MTP graph with nextn_layer_offset)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 70, "skipped": [],
+          "source": "N17 run, docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md (6 MTP heads f32 + 7 MTP heads f16/FA + 40 f16/FA trunk (5 runs x 8) + 8 heads_ref + 9 fattn_sinks_ref)"
+        }
+      }
+    },
     "gguf-audit": {
       "pin": "llama.cpp",
       "driver": "inline in ci.yml: the pinned gguf-py through LLAMA_CPP_GGUF_PY",
