@@ -12,6 +12,9 @@ WHICH tokens go into a run:
   --train-part prompt | gen   train the static ranking on the prompt tokens / generated tokens of the train traces only
                      (default all tokens, as cachesim)
   --per-trace        score every test trace on its own
+Every row also prints `cold`: the hit rate no cache that is empty at the first generated token can exceed (each expert's
+first use in the generation of a test trace is a miss; per test trace, not --session). With prompt_readonly the global/device
+LRUs start every generation empty, so at large capacity they sit on this bound.
 --warm, --session, --devices, --prompt-updates, --policies and --capacity mean what they mean in cachesim.py.
 Input: a directory of *.trace files (gunzip data/traces/real/<model>/traces/*.trace.gz first).
 Every printed number is a gen-token hit rate (cachesim's definition); the JSON (-o) also has prompt/all and per-layer
@@ -59,6 +62,18 @@ def train_view(tr, part):
     raise ValueError(part)
 
 
+def cold_bound(traces):
+    """1 - (distinct experts per layer in the generated tokens) / (generated (token, layer, slot) reads), pooled over
+    traces: the compulsory misses of a cache that is empty when generation starts."""
+    distinct = slots = 0
+    for tr in traces:
+        lo = tr["n_prompt"]
+        for seq in tr["per_layer"].values():
+            distinct += len({e for t in seq[lo:] for e in t})
+            slots += tr["k"] * (tr["n_tokens"] - lo)
+    return 1 - distinct / slots if slots else None
+
+
 def folds(traces, every, which="last"):
     """[(r, train, test)]: test = traces i with i % every == r. which: 'last' (r = every - 1, cachesim's split), 'all',
     or an int."""
@@ -83,7 +98,7 @@ def run(traces, n_experts, fractions, policies, fold="last", every=4, view="full
                                     n_devices=devices, prompt_readonly=prompt_readonly)
             for f in fractions:
                 rows.append({"fold": r, "test": [t["name"] for t in grp], "gen_tokens": sum(n_gen(t) for t in tv),
-                             "capacity": f, "cap": round(f * n_experts), "rates": res[str(f)]})
+                             "capacity": f, "cap": round(f * n_experts), "rates": res[str(f)], "cold": cold_bound(tv)})
     return rows
 
 
@@ -94,9 +109,11 @@ def pooled(rows, policies):
     for f in sorted({r["capacity"] for r in rows}):
         sel = [r for r in rows if r["capacity"] == f and r["gen_tokens"] > 0]
         w = sum(r["gen_tokens"] for r in sel)
-        out[f] = {p: {"pooled": sum(r["rates"][p]["gen"] * r["gen_tokens"] for r in sel) / w if w else None,
-                      "min": min(r["rates"][p]["gen"] for r in sel) if sel else None,
-                      "max": max(r["rates"][p]["gen"] for r in sel) if sel else None} for p in policies}
+        get = {p: (lambda r, p=p: r["rates"][p]["gen"]) for p in policies}
+        get["cold"] = lambda r: r["cold"]
+        out[f] = {p: {"pooled": sum(g(r) * r["gen_tokens"] for r in sel) / w if w else None,
+                      "min": min(g(r) for r in sel) if sel else None,
+                      "max": max(g(r) for r in sel) if sel else None} for p, g in get.items()}
     return out
 
 
@@ -141,19 +158,20 @@ def main(argv=None):
             f"gen_cap={a.gen_cap}, train_part={a.train_part}, per_trace={a.per_trace}, warm={a.warm}, "
             f"session={a.session}, devices={a.devices}, prompt_readonly={not a.prompt_updates}; hit rate on gen tokens")
     print(head)
-    print("fold  test                                gen  capacity  cap  " + "  ".join(f"{p:>10}" for p in pols))
+    print("fold  test                                gen  capacity  cap  " + "  ".join(f"{p:>10}" for p in pols) +
+          f"  {'cold':>10}")
 
     def cell(v):
         return f"{v:10.3f}" if v is not None else f"{'n/a':>10}"
     for r in rows:
         name = ",".join(t[:3] for t in r["test"])
         print(f"{r['fold']:4d}  {name:34s} {r['gen_tokens']:4d}  {r['capacity']:8.3f}  {r['cap']:3d}  " +
-              "  ".join(cell(r["rates"][p]["gen"]) for p in pols))
+              "  ".join(cell(r["rates"][p]["gen"]) for p in pols) + "  " + cell(r["cold"]))
     if len(rows) > len(fr):
         for stat in ("pooled", "min", "max"):
             for f in fr:
                 print(f"{stat:>6}  {'':34s} {'':4s}  {f:8.3f}  {round(f * a.n_experts):3d}  " +
-                      "  ".join(cell(summ[f][p][stat]) for p in pols))
+                      "  ".join(cell(summ[f][p][stat]) for p in pols + ["cold"]))
     if a.out:
         pathlib.Path(a.out).write_text(json.dumps({"header": head, "args": vars(a), "rows": rows,
                                                    "summary": {str(k): v for k, v in summ.items()}}, indent=1) + "\n")

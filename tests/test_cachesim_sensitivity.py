@@ -67,6 +67,20 @@ class Sensitivity(unittest.TestCase):
             self.assertAlmostEqual(cold, 4 / 5)                    # the first generated token misses both experts
             warm = sens.run(tr, self.E, [0.125], ["lru"], every=4, view="gen_only", warm=True)[0]["rates"]["lru"]["gen"]
             self.assertEqual(warm, 1.0)                            # the static set (from train) is {0, 1}
+            self.assertAlmostEqual(sens.cold_bound([sens.test_view(tr[3], "gen_only")]), 4 / 5)
+
+    def test_cold_bound_is_the_ceiling_of_a_cold_global_lru(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.corpus(d, n_files=8)
+            tr = sens.load(d)
+            for r in sens.run(tr, self.E, [1.0, 0.5], ["lru_global", "lru"], fold="all", view="gen_only"):
+                self.assertLessEqual(r["rates"]["lru"]["gen"], r["cold"] + 1e-12)
+                self.assertLessEqual(r["rates"]["lru_global"]["gen"], r["cold"] + 1e-12)
+                if r["capacity"] == 1.0:                       # nothing is ever evicted: only first uses miss
+                    self.assertAlmostEqual(r["rates"]["lru_global"]["gen"], r["cold"], places=12)
+            full = sens.run(tr, self.E, [1.0], ["lru_global"], fold="all")    # prompt read-only: same as cold
+            for r in full:
+                self.assertAlmostEqual(r["rates"]["lru_global"]["gen"], r["cold"], places=12)
 
     def test_gen_cap_and_slices(self):
         with tempfile.TemporaryDirectory() as d:
