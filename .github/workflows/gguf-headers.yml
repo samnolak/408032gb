@@ -1,7 +1,8 @@
 # Reads ONLY the GGUF headers (KV metadata + tensor infos, up to the aligned data offset) of Hugging Face GGUF files
-# with HTTP Range requests, for the third_party/gguf-headers/*/REQUEST.json files that have no result yet, and commits
-# the header bytes (gzip), a JSON summary per file and PIN.json back to the claude/* branch that triggered the run
-# (docs/reassessment/CORRECTNESS.md gap 9). Never downloads a whole file: every file has a byte cap (64 MiB at most,
+# with HTTP Range requests, for the data/gguf-headers/<name>/REQUEST.json files (written by agents) that have no
+# result yet, and commits the header bytes (gzip), a JSON summary per file and PIN.json to third_party/gguf-headers/
+# <name>/ (CI-fetched upstream bytes) on the claude/* branch that triggered the run (docs/reassessment/CORRECTNESS.md
+# gap 9). Never downloads a whole file: every file has a byte cap (64 MiB at most,
 # scripts/gguf_headers_fetch.py), a header that needs more is an error, and the --plan step fails before any download
 # when a request asks for more. Same branch guards as vendor-hf-branch.yml: this workflow never touches main
 # (AGENTS.md "Git and sync": agents publish only claude/* branches). The agent sandbox cannot reach huggingface.co.
@@ -10,7 +11,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['claude/**']
-    paths: ['third_party/gguf-headers/*/REQUEST.json']
+    paths: ['data/gguf-headers/*/REQUEST.json']
 permissions:
   contents: write
 concurrency:

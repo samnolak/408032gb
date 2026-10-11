@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Read only the GGUF headers of Hugging Face files, with HTTP Range requests (runs in CI: workflow gguf-headers).
 
-The agent sandbox cannot reach huggingface.co; a GitHub-hosted runner can. Stdlib only. One directory per request:
+The agent sandbox cannot reach huggingface.co; a GitHub-hosted runner can. Stdlib only. A request is written by an
+agent under data/gguf-headers/<name>/REQUEST.json; its results go to third_party/gguf-headers/<name>/ (CI-fetched
+upstream bytes, never typed by an agent: third_party/README.md; agents' Edit/Write tools are blocked there).
 
-  third_party/gguf-headers/<name>/REQUEST.json, kind "headers" (the default):
+  data/gguf-headers/<name>/REQUEST.json, kind "headers" (the default):
     {"repo": "org/name", "revision": "main" | <40 hex>, "files": ["<fnmatch glob over the repo path>", ...],
      "expect_count": N, "max_header_bytes": <= 64 MiB (default 64 MiB), "initial_bytes": (default 1 MiB),
      "analysis": {...}  (read by tools/gguf_headers/analyze.py only)}
@@ -11,7 +13,8 @@ The agent sandbox cannot reach huggingface.co; a GitHub-hosted runner can. Stdli
     {"kind": "discover", "searches": [{"search": "GLM-5.3-Flash", "architectures": ["glm5-next", "glm5next"]}],
      "limit": 100, "list_files": true}
 
-A request is pending while its directory has no PIN.json (headers) / LISTING.json (discover). For a headers request:
+A request is pending while third_party/gguf-headers/<name>/ has no PIN.json (headers) / LISTING.json (discover).
+For a headers request:
   1. the revision is resolved through /api/models/<repo>/revision/<rev> and pinned to the commit sha (a 40-hex request
      must come back unchanged); a 401/403/404 there is recorded as status "repo_unavailable" (PIN.json, not an error);
   2. the files are listed through /api/models/<repo>/tree/<sha>?recursive=true (paginated by the Link header) and
@@ -23,7 +26,7 @@ A request is pending while its directory has no PIN.json (headers) / LISTING.jso
      more is an error ("cap exceeded"), never a full download. Every response must be 206 with a Content-Range for
      exactly the bytes asked for and the file's total size from the tree listing; a 200 is rejected before its body
      is read. At most the asked-for bytes are read from any response.
-Outputs (committed by the workflow, written only when every file of the request succeeded):
+Outputs in third_party/gguf-headers/<name>/ (committed by the workflow; written only when every file succeeded):
   <file basename>.header.gz      the bytes [0, data_offset) of the file, gzip -9 with mtime 0 (deterministic);
   <file basename>.summary.json   gguf_header.summarize() of those bytes (all KV; arrays over 4096 elements as count
                                  and sha256; the tensor list: name, ggml type, shape, offset, bytes);
@@ -35,7 +38,8 @@ Outputs (committed by the workflow, written only when every file of the request 
 workflow runs it first, and the fetch runs it again. Annotations (::notice:: / ::warning:: / ::error::) are the
 channel the sandbox reads through the check-runs API.
 
-Usage: python3 scripts/gguf_headers_fetch.py [--plan] [--root DIR] [--endpoint URL] [REQUEST.json ...]
+Usage: python3 scripts/gguf_headers_fetch.py [--plan] [--requests DIR] [--out DIR] [--endpoint URL] [REQUEST.json ...]
+  (a REQUEST.json given on the command line writes to <--out>/<name of its directory>/)
 """
 import argparse
 import fnmatch
@@ -201,11 +205,16 @@ def result_name(req):
     return "LISTING.json" if req["kind"] == "discover" else "PIN.json"
 
 
-def pending(paths):
+def out_dir(request_path, out_root):
+    """third_party/gguf-headers/<name> for data/gguf-headers/<name>/REQUEST.json."""
+    return os.path.join(out_root, os.path.basename(os.path.dirname(os.path.abspath(request_path))))
+
+
+def pending(paths, out_root):
     out = []
     for p in paths:
         req = load_request(p)
-        if not os.path.exists(os.path.join(os.path.dirname(p), result_name(req))):
+        if not os.path.exists(os.path.join(out_dir(p, out_root), result_name(req))):
             out.append((p, req))
     return out
 
@@ -425,19 +434,28 @@ def discover_request(path, req):
 
 # ---------------------------------------------------------------------------------------------------------- main
 
-def run_one(path, req):
-    dest = os.path.dirname(path)
-    for stale in ("ERROR.json",):
-        if os.path.exists(os.path.join(dest, stale)):
-            os.remove(os.path.join(dest, stale))
+def _request_ref(path):
+    with open(path, "rb") as f:
+        raw = f.read()
+    rel = os.path.relpath(os.path.abspath(path), ROOT)
+    if rel.startswith(".."):
+        rel = os.path.join(os.path.basename(os.path.dirname(os.path.abspath(path))), os.path.basename(path))
+    return {"request_path": rel,
+            "request_sha256": hashlib.sha256(raw).hexdigest()}
+
+
+def run_one(path, req, dest):
+    os.makedirs(dest, exist_ok=True)
+    if os.path.exists(os.path.join(dest, "ERROR.json")):
+        os.remove(os.path.join(dest, "ERROR.json"))
     if req["kind"] == "discover":
-        res = discover_request(path, req)
+        res = {**_request_ref(path), **discover_request(path, req)}
         with open(os.path.join(dest, "LISTING.json"), "w") as f:
             f.write(gguf_header.dumps(res))
         return
     tmp = tempfile.mkdtemp(prefix="gguf-headers-")
     try:
-        pin = headers_request(path, req, tmp)
+        pin = {**_request_ref(path), **headers_request(path, req, tmp)}
         for name in sorted(os.listdir(tmp)):
             shutil.move(os.path.join(tmp, name), os.path.join(dest, name))
     finally:
@@ -452,16 +470,17 @@ def run_one(path, req):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("requests", nargs="*")
-    ap.add_argument("--root", default=os.path.join(ROOT, "third_party", "gguf-headers"))
+    ap.add_argument("--requests", dest="req_root", default=os.path.join(ROOT, "data", "gguf-headers"))
+    ap.add_argument("--out", dest="out_root", default=os.path.join(ROOT, "third_party", "gguf-headers"))
     ap.add_argument("--endpoint", default=None, help="hub base URL (default $HF_ENDPOINT or https://huggingface.co)")
     ap.add_argument("--plan", action="store_true", help="check the pending requests against the caps, fetch nothing")
     a = ap.parse_args(argv)
     global ENDPOINT
     if a.endpoint:
         ENDPOINT = a.endpoint.rstrip("/")
-    paths = a.requests or sorted(glob.glob(os.path.join(a.root, "*", "REQUEST.json")))
+    paths = a.requests or sorted(glob.glob(os.path.join(a.req_root, "*", "REQUEST.json")))
     try:
-        todo = pending(paths)
+        todo = pending(paths, a.out_root)
         rows, total = plan(todo)
     except (FetchError, ValueError, OSError) as e:
         annotate("error", f"{type(e).__name__}: {e}")
@@ -476,15 +495,17 @@ def main(argv=None):
         return 0
     failed = 0
     for p, req in todo:
+        dest = out_dir(p, a.out_root)
         try:
-            run_one(p, req)
+            run_one(p, req, dest)
         except Exception as e:  # noqa: BLE001 - recorded per request; the annotation is what the sandbox reads
             failed += 1
             msg = f"{type(e).__name__}: {e}"
             if isinstance(e, urllib.error.HTTPError):
                 msg = f"HTTP {e.code} for {e.url}"
-            with open(os.path.join(os.path.dirname(p), "ERROR.json"), "w") as f:
-                f.write(gguf_header.dumps({"request": req, "error": msg, "endpoint": ENDPOINT,
+            os.makedirs(dest, exist_ok=True)
+            with open(os.path.join(dest, "ERROR.json"), "w") as f:
+                f.write(gguf_header.dumps({**_request_ref(p), "request": req, "error": msg, "endpoint": ENDPOINT,
                                            "fetched_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}))
             annotate("error", f"{p}: {msg[:800]}")
     return 1 if failed else 0

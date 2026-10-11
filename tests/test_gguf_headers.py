@@ -233,7 +233,7 @@ class HubCase(unittest.TestCase):
         self.addCleanup(setattr, F, "ENDPOINT", F.ENDPOINT)
 
     def request(self, name, **req):
-        d = os.path.join(self.tmp, name)
+        d = os.path.join(self.tmp, "req", name)
         os.makedirs(d, exist_ok=True)
         p = os.path.join(d, "REQUEST.json")
         with open(p, "w") as f:
@@ -243,11 +243,16 @@ class HubCase(unittest.TestCase):
     def run_fetch(self, *paths, plan=False):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            rc = F.main(["--endpoint", self.hub.url, *(["--plan"] if plan else []), *paths])
+            rc = F.main(["--endpoint", self.hub.url, "--out", os.path.join(self.tmp, "out"),
+                         *(["--plan"] if plan else []), *paths])
         return rc, out.getvalue()
 
+    def dest(self, p):
+        """where the results of request p go: <out>/<name>"""
+        return os.path.join(self.tmp, "out", os.path.basename(os.path.dirname(p)))
+
     def load(self, p, name):
-        with open(os.path.join(os.path.dirname(p), name)) as f:
+        with open(os.path.join(self.dest(p), name)) as f:
             return json.load(f)
 
 
@@ -354,6 +359,9 @@ class Fetch(HubCase):
         self.assertEqual(rc, 0, out)
         pin = self.load(p, "PIN.json")
         self.assertEqual((pin["status"], pin["revision"], pin["requested_revision"]), ("ok", SHA, "main"))
+        with open(p, "rb") as f:
+            self.assertEqual((pin["request_path"], pin["request_sha256"]),
+                             ("m/REQUEST.json", hashlib.sha256(f.read()).hexdigest()))
         self.assertEqual(len(pin["files"]), 3)
         for (b, off), rec in zip(self.shards, pin["files"]):
             self.assertEqual(rec["header_bytes"], off)
@@ -371,7 +379,7 @@ class Fetch(HubCase):
             self.assertEqual(rec["bytes_fetched"], rr[-1][1] + 1)
             self.assertLess(rr[-2][1] + 1 if len(rr) > 1 else 0, off)
             self.assertLessEqual(rec["bytes_fetched"], max(2 * off, 4096))
-            with open(os.path.join(os.path.dirname(p), rec["header_gz"]), "rb") as f:
+            with open(os.path.join(self.dest(p), rec["header_gz"]), "rb") as f:
                 hdr = gzip.decompress(f.read())
             self.assertEqual(hdr, b[:off])
         self.assertGreaterEqual(len(pin["files"][0]["range_requests"]), 8)   # 4 KiB doubling to ~1 MiB
@@ -382,7 +390,7 @@ class Fetch(HubCase):
     def test_summary_round_trips_from_the_committed_header(self):
         p = self.request("m", repo="org/M-GGUF", files=[self.GLOB], expect_count=3, initial_bytes=65536)
         self.assertEqual(self.run_fetch(p)[0], 0)
-        d = os.path.dirname(p)
+        d = self.dest(p)
         for rec in self.load(p, "PIN.json")["files"]:
             with open(os.path.join(d, rec["header_gz"]), "rb") as f:
                 gz = f.read()
@@ -403,7 +411,7 @@ class Fetch(HubCase):
             base = os.path.basename(rec["path"])
             with open(os.path.join(full, base), "wb") as f:
                 f.write(b)
-            with open(os.path.join(os.path.dirname(p), rec["header_gz"]), "rb") as f, \
+            with open(os.path.join(self.dest(p), rec["header_gz"]), "rb") as f, \
                     open(os.path.join(hdr, base), "wb") as g:
                 g.write(gzip.decompress(f.read()))
         first = "M-UD-Q4_K_XL-00001-of-00003.gguf"
@@ -418,10 +426,10 @@ class Fetch(HubCase):
         rc, out = self.run_fetch(p)
         self.assertEqual(rc, 1)
         self.assertIn("cap exceeded", out)
-        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(p), "PIN.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.dest(p), "PIN.json")))
         self.assertIn("cap exceeded", self.load(p, "ERROR.json")["error"])
         self.assertLessEqual(self.hub.bytes_sent(), cap)
-        self.assertEqual(sorted(os.listdir(os.path.dirname(p))), ["ERROR.json", "REQUEST.json"])
+        self.assertEqual(sorted(os.listdir(self.dest(p))), ["ERROR.json"])
 
     def test_plan_fails_before_any_request_on_caps(self):
         for req in ({"max_header_bytes": (64 << 20) + 1}, {"expect_count": 17}, {"initial_bytes": 1 << 21,
@@ -485,7 +493,7 @@ class Fetch(HubCase):
         rc, out = self.run_fetch(p)
         self.assertEqual(rc, 1)
         self.assertIn("instead of 206", self.load(p, "ERROR.json")["error"])
-        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(p), "PIN.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.dest(p), "PIN.json")))
 
     def test_wrong_etag_is_recorded_and_warned(self):
         self.hub.wrong_etag = True
@@ -501,7 +509,7 @@ class Fetch(HubCase):
         with open(p, "w") as f:
             json.dump({"repo": "org/M-GGUF", "files": [self.GLOB], "expect_count": 3}, f)
         self.assertEqual(self.run_fetch(p)[0], 0)
-        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(p), "ERROR.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.dest(p), "ERROR.json")))
         n = len(self.hub.log)
         rc, out = self.run_fetch(p)
         self.assertEqual(rc, 0)
@@ -577,7 +585,7 @@ class Tinygen(HubCase):
             r = self.reader(os.path.join(self.dir, name))
             self.assertEqual(rec["header_bytes"], r.data_offset)
             self.assertEqual(rec["size_check"], "exact")
-            with open(os.path.join(os.path.dirname(p), rec["summary"])) as f:
+            with open(os.path.join(self.dest(p), rec["summary"])) as f:
                 s = json.load(f)
             self.assertEqual(len(s["tensors"]), len(r.tensors))
             for t, rt in zip(s["tensors"], r.tensors):
@@ -613,7 +621,7 @@ class Workflow(unittest.TestCase):
     def test_triggers_and_guards(self):
         on = self.wf.get("on", self.wf.get(True))
         self.assertEqual(on["push"]["branches"], ["claude/**"])
-        self.assertEqual(on["push"]["paths"], ["third_party/gguf-headers/*/REQUEST.json"])
+        self.assertEqual(on["push"]["paths"], ["data/gguf-headers/*/REQUEST.json"])
         self.assertIn("workflow_dispatch", on)
         self.assertEqual(self.wf["permissions"], {"contents": "write"})
         (name, job), = self.wf["jobs"].items()
