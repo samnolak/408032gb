@@ -1,0 +1,9 @@
+$ for m in qwen3-coder-30b-a3b:128 glm-4.7-flash:64; do n=${m%%:*}; e=${m##*:}; ( s=$(date +%s); python3 tools/g0/cachesim.py $S/$n/traces --n-experts $e --capacity 0.1,0.25,0.5,0.75 --holdout-every 4 -o $S/$n/base.json > $S/$n/base.txt 2> $S/$n/base.err; echo "rc=$? seconds=$(( $(date +%s) - s ))" > $S/$n/base.rc ) & done; wait; for n in qwen3-coder-30b-a3b glm-4.7-flash; do cat $S/$n/base.rc $S/$n/base.err; diff $S/$n/base.txt data/traces/real/$n/cachesim.txt && echo "$n: cachesim.txt identical"; cmp $S/$n/base.json data/traces/real/$n/cachesim.json && echo "$n: cachesim.json identical"; done
+# run from /home/user/wt-research at 0914244 (cachesim.py is unchanged since); S as in runs-*.txt; output (the two bash job-control lines removed):
+rc=0 seconds=205
+qwen3-coder-30b-a3b: cachesim.txt identical
+qwen3-coder-30b-a3b: cachesim.json identical
+rc=0 seconds=83
+glm-4.7-flash: cachesim.txt identical
+glm-4.7-flash: cachesim.json identical
+

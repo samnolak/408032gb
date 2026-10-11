@@ -1,0 +1,18 @@
+$ python3 docs/evidence/2026-10-10-traces-real-results/fine_table.py docs/evidence/2026-10-10-traces-real-results
+== qwen3-coder-30b-a3b: gen-token hit (layer_min..layer_max over all test tokens for per-layer policies)
+capacity 0.546 cap 70/128: static 0.862 [0.627..0.946]; lru 0.953 [0.728..0.980]; lfu 0.908 [0.734..0.976]; tinylfu 0.811 [0.708..0.960]; hybrid 0.948 [0.674..0.981]; opt 0.980 [0.899..0.993]; lru_global 0.911; lru_device 0.910; opt_global 0.983
+capacity 0.607 cap 78/128: static 0.903 [0.682..0.963]; lru 0.963 [0.785..0.985]; lfu 0.936 [0.788..0.983]; tinylfu 0.866 [0.759..0.973]; hybrid 0.961 [0.745..0.987]; opt 0.986 [0.925..0.995]; lru_global 0.915; lru_device 0.915; opt_global 0.988
+capacity 0.746 cap 95/128: static 0.961 [0.814..0.988]; lru 0.981 [0.894..0.991]; lfu 0.974 [0.886..0.991]; tinylfu 0.947 [0.862..0.988]; hybrid 0.980 [0.863..0.993]; opt 0.993 [0.966..0.998]; lru_global 0.922; lru_device 0.921; opt_global 0.995
+== glm-4.7-flash: gen-token hit (layer_min..layer_max over all test tokens for per-layer policies)
+capacity 0.546 cap 35/64: static 0.707 [0.593..0.878]; lru 0.891 [0.647..0.926]; lfu 0.771 [0.656..0.916]; tinylfu 0.652 [0.637..0.884]; hybrid 0.865 [0.629..0.927]; opt 0.956 [0.861..0.970]; lru_global 0.864; lru_device 0.859; opt_global 0.967
+capacity 0.607 cap 39/64: static 0.770 [0.653..0.904]; lru 0.917 [0.709..0.944]; lfu 0.816 [0.712..0.938]; tinylfu 0.712 [0.695..0.914]; hybrid 0.902 [0.693..0.947]; opt 0.969 [0.893..0.979]; lru_global 0.884; lru_device 0.878; opt_global 0.977
+capacity 0.746 cap 48/64: static 0.892 [0.792..0.952]; lru 0.958 [0.837..0.973]; lfu 0.910 [0.827..0.972]; tinylfu 0.847 [0.813..0.962]; hybrid 0.954 [0.822..0.977]; opt 0.985 [0.948..0.992]; lru_global 0.900; lru_device 0.898; opt_global 0.989
+
+$ python3 docs/evidence/2026-10-10-traces-real-results/admission.py
+hit   misses/layer/token  copies/token  GB/token  GB/s@30tok/s  GB/s@40tok/s  per link (4 links) @40
+0.750                2.00          84.0     1.292          38.8          51.7       12.9
+0.770                1.84          77.3     1.189          35.7          47.5       11.9
+0.860                1.12          47.0     0.723          21.7          28.9        7.2
+0.900                0.80          33.6     0.517          15.5          20.7        5.2
+0.908                0.74          30.9     0.475          14.3          19.0        4.8
+0.950                0.40          16.8     0.258           7.8          10.3        2.6
