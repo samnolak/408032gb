@@ -9,7 +9,7 @@ src/llama-graph.cpp, "KV" = src/llama-kv-cache.cpp, "KVI" = src/llama-kv-cache-i
 "HP" = src/llama-hparams.h, "LM" = src/llama-model.cpp, "OPS" = ggml/src/ggml-cpu/ops.cpp, all at that commit; every
 cited line was printed from the pinned checkout. At the R1 pin 79e2e74 KV, KVI and the parts of LG used here are the
 same; mimo2.cpp differs only in the loader's NextN flags (nextn_flags, same flags) and in naming the final hidden state
-h_nextn in every trunk graph (M:235-237 @79e2e74), which renames the last layer's l_out in the dumps.
+h_nextn in every trunk graph (M:236-238 @79e2e74), which renames the last layer's l_out in the dumps.
 
 Trunk, per layer il (M:108-234):
     x       = rms_norm(inpL) * attn_norm                                                       (M:122)

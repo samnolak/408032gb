@@ -139,7 +139,7 @@ class _RunParity:
 
     def l_out_name(self, g, il):
         """The last layer's l_out is renamed h_nextn when the graph names the final hidden state (mimo2.cpp:244-246
-        @ec7630a only with embeddings_nextn; every graph @79e2e74, mimo2.cpp:235-237 there)."""
+        @ec7630a only with embeddings_nextn; every graph @79e2e74, mimo2.cpp:236-238 there)."""
         nm = f"l_out-{il}"
         if il == self.hp["n_layer"] - 1 and not self.R.has(g, nm):
             nm = "h_nextn"
