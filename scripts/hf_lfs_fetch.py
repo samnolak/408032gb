@@ -18,6 +18,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import urllib.request
@@ -33,8 +34,8 @@ def entries(pin_path):
     with open(pin_path) as f:
         pin = json.load(f)
     for e in pin.get("lfs_files", []):
-        if len(e["sha256"]) != 64 or len(pin["revision"]) != 40:
-            raise ValueError(f"{pin_path}: {e['path']}: needs a 40-hex revision and a sha256")
+        if not re.fullmatch(r"[0-9a-f]{64}", e["sha256"]) or not re.fullmatch(r"[0-9a-f]{40}", pin["revision"]):
+            raise ValueError(f"{pin_path}: {e['path']}: needs a 40-hex revision and a 64-hex sha256")
         yield pin, e
 
 
