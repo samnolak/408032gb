@@ -2,7 +2,7 @@
 
 Date 2026-10-11. Role: model-analyst. Branch `claude/n15-gguf-headers`, cut from `claude/n14-chat-templates` @`ac419b0`.
 Hardware-free. `<S>` stands for the session scratch directory
-`<S>`; outputs are pasted with only that
+`/tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad`; outputs are pasted with only that
 substitution. Round 1 built and tested the tooling and committed the requests (sections 1–6, 9). The lead pushed
 `4eae257`; workflow `gguf-headers` run 38136140582 read the headers and committed them as bot commit `6cce416`
 (fast-forwarded here). Round 2 analyses them offline (section 7, Result (round 2), appendices A–C).
@@ -14,19 +14,24 @@ substitution. Round 1 built and tested the tooling and committed the requests (s
    the log blob host, so the self-test's literal output is NOT available — only its step conclusion). File bytes
    fetched (PIN.json): GLM 10 740 704 B, Qwen 11 733 056 B, together 22 473 760 B of the files' 311 041 976 256 B
    (289.7 GiB). Both first
-   shards are **metadata-only files** (0 tensors: llama-gguf-split `--no-tensor-first-split`), so for them the whole
+   shards are **metadata-only files** (0 tensors; consistent with llama-gguf-split `--no-tensor-first-split`, an option
+   that exists at `tools/gguf-split/gguf-split.cpp:115@ec7630a` — which tool Unsloth used is PROVISIONAL), so for them the whole
    file was read (9 429 984 B and 10 946 624 B: header + 28 / 6 bytes of writer padding); every tensor shard was read
    with one 262 144-byte Range, of which 1 929 952 B in total are tensor data past the headers (discarded, not
    committed). Committed: GLM 2 778 264 B, Qwen 3 338 303 B, discovery 128 062 B.
 2. **Integrity, CONFIRMED:** all 10 committed headers decompress to the sha256 PIN.json records and re-derive their
    summaries byte for byte; hub `X-Linked-Etag` = LFS sha256 and `X-Repo-Commit` = pinned revision for all 10; header
-   data offset + padded tensor sizes = file size for all 10 (the fetcher's own size check misread the metadata-only
-   shards as "mismatch"; fixed in `9c5384c`, section 7.2).
+   data offset + padded tensor sizes = file size for the 8 tensor shards; for the 2 metadata-only shards, file size =
+   data offset aligned up to 32 (28 / 6 bytes) (the fetcher's own size check misread those as "mismatch"; fixed in
+   `9c5384c`, section 7.2). Stronger for those two: sha256(committed header + 28 / 6 zero bytes) equals the LFS sha256
+   of the whole file (`b59c0300…`, `44481862…`), so the committed bytes are the entire first shard, byte for byte
+   (section 7.2).
 3. **GLM: `unsloth/GLM-5.3-Flash-GGUF` @`a38483c8cd5df544f53d70fb281afe97369d5ab6`, architecture string `glm5-next`
-   — not `glm5next`** (CONFIRMED from the header). Its tensors total 185.983 GiB at 4.981 bpw, the numbers AGENTS.md and
-   PROBLEMS.md give for the host files they call `glm5next`; the repo was last modified 2026-10-05 (listing), after the
-   host note of 2026-10-03. That the host holds an earlier upload of the same quantization with other metadata is
-   PROVISIONAL (equal size and bpw, different architecture string); UNKNOWN until checked on epyc-ai (section 7.3).
+   — not `glm5next`** (CONFIRMED from the header). Its tensors total 185.983 GiB at 4.981 bpw; the host files, which
+   both documents call `glm5next`, are given as 185.983 GiB (AGENTS.md:23; no bpw there) and 185.983 GiB (4.981 BPW)
+   (PROBLEMS.md:21). The repo was last modified 2026-10-05 (`LISTING.json:256`), after the host note of 2026-10-03.
+   That the host holds an earlier upload of the same quantization with other metadata is PROVISIONAL (equal size and
+   bpw, different architecture string); UNKNOWN until checked on epyc-ai (section 7.3).
 4. **(e) Tokenizers and support, CONFIRMED:** GLM `gpt2` / pre `glm4`, 154 880 tokens; Qwen `gpt2` / pre `qwen35`,
    248 320 tokens. Both llama.cpp pins know `glm5-next`, `qwen4exp`, `gpt2`, `glm4`, `qwen35` (file:line in section 7.4);
    neither knows `glm5next`; ik `5194a9e` knows all of them. That both files load at both pins is PROVISIONAL (every
@@ -36,12 +41,15 @@ substitution. Round 1 built and tested the tooling and committed the requests (s
    (`src/llama-graph.cpp:2105@ec7630a`, `:2145@79e2e74` need > 1): N12's "possible 7th routing difference" does not
    arise on this file. Closes the N12 / N14 UNKNOWN. (Qwen: keys absent, no group step.)
 6. **(c) The embedded chat templates are NOT byte-equal to the vendored HF ones, CONFIRMED** (closes N14's UNKNOWN; full
-   diffs in appendix A). GLM (10 648 B vs 10 950 B): syntax rewrites only on N14's inputs — `x.0` → `x[0]`, `~` → `+`,
-   4 `{%- break -%}` removed, `elif content is not none` → `else`; jinja2 renders all 68 of N14's inputs byte-identically
-   with both. **It keeps the `{% set reasoning_content %}`-inside-`{% for m in messages %}` block** (vendored lines
-   143–150, unchanged), so N14's llama.cpp Jinja leak applies to what R1 actually runs: llama-server @79e2e74 renders
-   `<think>R1</think>a2` with the embedded template, the same 21 differences from jinja2 as with the vendored one
-   (CONFIRMED live, section 7.5). Qwen (9 993 B vs 8 952 B, "Unsloth fixes - developer role, merged system messages,
+   diffs in appendix A). GLM (10 648 B vs 10 950 B): on N14's inputs the changes do not change the output (`x.0` →
+   `x[0]`, `~` → `+`, 4 `{%- break -%}` removed, `elif content is not none` → `else`; jinja2 renders all 68 of N14's
+   inputs byte-identically with both); outside N14's inputs the effect of the removed `break` / the `else` is UNKNOWN.
+   **It keeps the `{% set reasoning_content %}`-inside-`{% for m in messages %}` block** (vendored lines 143–150,
+   unchanged): llama-server @79e2e74 renders `<think>R1</think>a2` with the embedded template, the same 21 differences
+   from jinja2 as with the vendored one (CONFIRMED live, section 7.5). R1's GLM llama.cpp config starts the server with
+   `--jinja` and no template file (`scripts/r1/configs/llamacpp-server-moecache.json:40`) but leaves its GGUF UNKNOWN
+   (`:52`: "file, quant and revision UNKNOWN"), so the leak applies to R1's GLM runs if they use this unsloth GGUF
+   (PROVISIONAL). Qwen (9 993 B vs 8 952 B, "Unsloth fixes - developer role, merged system messages,
    tool calling"): `reasoning_effort: "high"` is mapped to `xhigh` — N14's HTTP 500 is gone (server vs jinja2 70 of 72
    equal, the 2 others the by-design `--prefill-assistant` case); a system-only conversation is no longer refused;
    leading system/developer messages are merged; tool-call arguments given as a JSON string raise. N14's B3 prefix
@@ -53,15 +61,22 @@ substitution. Round 1 built and tested the tooling and committed the requests (s
    `nextn.shared_head_norm` (79e2e74 `glm5-next.cpp:647`; ec7630a has no MTP graph), the shared-expert clamp from its
    own key (same value 10 as the routed clamp); Qwen — layer pattern from `full_attention_interval` (no
    `recurrent_layers` array: `qwen4exp.cpp:149` else-branch), the PLE image-token key (used only for image batches).
-   **The Qwen UD-Q4_K_XL file has no MTP block** (no `nextn_predict_layers`, no `nextn` tensors; config has 1).
+   **The Qwen UD-Q4_K_XL file has no MTP block** (no `nextn_predict_layers`, no `nextn` tensors; the model has one:
+   `"mtp_num_hidden_layers": 1`, `third_party/hf/qwen3.8-flash-next-chat/config.json:96`). The same revision `38bb39e`
+   ships separate MTP GGUFs `MTP/mtp-Qwen3.8-Flash-Next-{BF16,Q4_K_M,Q8_0}.gguf` and `-shared-` variants (CONFIRMED,
+   `third_party/gguf-headers/qwen3.8-flash-next-ud-q4_k_xl/PIN.json:77-102`, `gguf_listing`; headers not fetched;
+   whether qwen4exp loads them at the pins is UNKNOWN).
 8. **(f) ADR-012 D5, CONFIRMED PASS for both** (`tools/gguf_quant_audit.py` on the header-only shards): GLM routed
-   experts 4.874 bpw [Q4_K 65.1 %, Q5_K 32.6 %, Q6_K 2.3 %], every other matrix Q8_0; Qwen routed experts 5.101 bpw
+   experts 4.874 bpw [Q4_K 65.1 %, Q5_K 32.6 %, Q6_K 2.3 %], every other large matrix Q8_0; router `ffn_gate_inp`,
+   `indexer.proj`, `indexer_compressor_ape` and the KDA conv weights `ssm_conv1d_{q,k,v}` are F32 (section 7.7); Qwen
+   routed experts 5.101 bpw
    [Q4_K 65.3 %, Q5_1 29.9 %, Q8_0 3.5 %, Q5_K 1.4 %] (its `ffn_down_exps` are Q5_1 / Q8_0: width 640 is not a multiple
    of 256), the PLE table `per_layer_token_embd.weight` IQ4_NL [160, 320 001 536] = 26.822 GiB of the 103.678 GiB.
    Lowest matrix: 4.5 bpw (Q4_K, IQ4_NL) in both.
 9. **Discovery (listing only), CONFIRMED from LISTING.json:** 95 GGUF repos for "GLM-5.3-Flash" (34 `glm5-next`, 46
    `glm5next`), 30 for "MiMo-V2.6-Flash" (28 `mimo2`). glm5-next GGUFs for llama.cpp mainline exist: the current
-   `unsloth/GLM-5.3-Flash-GGUF` itself, and `ggml-org/GLM-5.3-Flash-GGUF` @`c259a9f` (Q2_K, Q2_K_S, Q4_K = 168.91 GiB,
+   `unsloth/GLM-5.3-Flash-GGUF` itself, and `ggml-org/GLM-5.3-Flash-GGUF` @`c259a9f` (Q2_K, Q2_K_S, Q4_K: shard 00002 =
+   168.91 GiB, both shards 168.92 GiB,
    separate `mtp-GLM-5.3-Flash-Q4_0/Q8_0.gguf`; its embedded template sha256, as parsed by the hub, equals the vendored
    HF template's). MiMo: `ggml-org/MiMo-V2.6-Flash-MOPD-GGUF` and `-RL-GGUF` (mimo2) among 28; their file lists were not
    fetched (the 25-repo listing cap was spent on GLM).
@@ -365,20 +380,38 @@ it: "exact" for all 10 files. Bytes of tensor data read past the headers (first 
 header): GLM 1 221 600 B, Qwen 708 352 B — discarded, never committed. Committed per directory: GLM 2 778 264 B (header.gz
 2 500 627, summaries 255 875, PIN.json 21 762), Qwen 3 338 303 B (3 096 890 / 224 389 / 17 024), discovery LISTING.json
 128 062 B. Integrity (analyzer, appendix A): every header.gz decompresses to PIN.json's `header_sha256`, and
-`gguf_header.summarize()` of it equals the committed summary byte for byte — OK for all 10.
+`gguf_header.summarize()` of it equals the committed summary byte for byte — OK for all 10. Data offset + padded tensor
+sizes = file size holds for the 8 tensor shards; for the 2 metadata-only shards file size = data offset aligned up to 32.
+For those two the check is stronger (audit of `e2268d6`): the committed header plus its 28 / 6 zero bytes hashes to the
+LFS sha256 of the whole file, i.e. the committed bytes are the entire first shard (CONFIRMED):
+
+```
+$ python3 docs/evidence/mutation-scripts/2026-10-11-n15-committed-facts.py metashard
+GLM-5.3-Flash-UD-Q4_K_XL-00001-of-00006.gguf: header 9429956 + 28 zero bytes = 9429984 (file 9429984)
+   sha256(header + zeros) b59c030090f012b38213bc8c4f78ce10767f2693d730d0dbcd3dc16a5f69e2bc
+   PIN.json lfs_sha256    b59c030090f012b38213bc8c4f78ce10767f2693d730d0dbcd3dc16a5f69e2bc
+   equal: True
+Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf: header 10946618 + 6 zero bytes = 10946624 (file 10946624)
+   sha256(header + zeros) 4448186216b3af4cc558bbce2c3213f01608f8f8b2e5267a9767971dd3ec8082
+   PIN.json lfs_sha256    4448186216b3af4cc558bbce2c3213f01608f8f8b2e5267a9767971dd3ec8082
+   equal: True
+```
 
 ### 7.3 GLM: repo, revision, architecture string, and the host files
 
 `unsloth/GLM-5.3-Flash-GGUF` @`a38483c8cd5df544f53d70fb281afe97369d5ab6` (requested `main`), MIT, not gated; 70 `.gguf`
 files in 12 quant folders + 2 mmproj (LISTING.json). The UD-Q4_K_XL header says `general.architecture = "glm5-next"`
 with `glm5-next.*` keys (73 KV), `general.quantized_by = "Unsloth"`, `general.file_type = 15`. Tensor payload: 1412
-tensors, 185.983 GiB, 4.981 bpw; files 199 707 321 472 B (CONFIRMED, appendix A). AGENTS.md ("Weights on host
-epyc-ai") and PROBLEMS.md (`GLM-5.3-Flash-GGUF/UD-Q4_K_XL/*-00001-of-00006.gguf | glm5next | 185.983 GiB (4.981 BPW)`)
-describe the host files with the same size and bpw but architecture `glm5next`; the repo's `lastModified` is
-2026-10-05T22:23:39Z, after that host note (2026-10-03). PROVISIONAL: the host holds an earlier upload of the same
+tensors, 185.983 GiB, 4.981 bpw; files 199 707 321 472 B (CONFIRMED, appendix A). The host files, architecture
+`glm5next` in both documents, are given as 185.983 GiB (AGENTS.md:23, "Weights on host epyc-ai"; no bpw there) and
+185.983 GiB (4.981 BPW) (PROBLEMS.md:21, `GLM-5.3-Flash-GGUF/UD-Q4_K_XL/*-00001-of-00006.gguf | glm5next | 185.983 GiB
+(4.981 BPW)`): the same size and bpw, another architecture string. The repo's `lastModified` is 2026-10-05T22:23:39Z
+(`third_party/gguf-headers/discover-glm-mimo/LISTING.json:256`), after that host note (2026-10-03). PROVISIONAL: the host holds an earlier upload of the same
 quantization with other metadata. UNKNOWN until run on epyc-ai (no download needed there):
 
 - `head -c 9429956 <host>/GLM-5.3-Flash-UD-Q4_K_XL-00001-of-00006.gguf | sha256sum` → `0c90bc17e2486d3ed599dfda7e2b244bdded27c48d0680569077d741c11b1016` if the host's metadata shard is this revision;
+  equivalently (7.2: the committed bytes are the whole first shard) a plain `sha256sum` of the host's shard 1 →
+  `b59c030090f012b38213bc8c4f78ce10767f2693d730d0dbcd3dc16a5f69e2bc` (PIN.json `lfs_sha256`);
 - `sha256sum <host>/GLM-5.3-Flash-UD-Q4_K_XL-0000N-of-00006.gguf` for N = 2…6 against PIN.json's `lfs_sha256`
   (`d3ecb6ff…`, `328073c0…`, `6803ab7e…`, `852f3df9…`, `c6ba510f…`): the tensor shards carry no architecture string
   (3 KV: `split.no`, `split.count`, `split.tensors.count`), so equal hashes would mean byte-identical weights with only
@@ -507,8 +540,12 @@ qwen/jinja2_vendored_vs_embedded: 60 of 68 renders byte-equal
 - Qwen: `reasoning_effort: "high"` renders as `xhigh` (the switch to `high` now shares all 5093 bytes with the default
   prompt) instead of an exception / HTTP 500; the system-only conversation (`conv[:1]`) is no longer refused (N14:
   "No user query found in messages."); otherwise the same prefix behaviour.
-- R1's llama-server runs with `--jinja` and no `--chat-template-file` (`scripts/r1/configs/llamacpp-server.json`), i.e.
-  with these embedded templates.
+- Which R1 runs use these embedded templates: no config under `scripts/r1/configs/` passes `--chat-template-file`
+  (`grep -n chat-template scripts/r1/configs/*.json` prints nothing). Qwen: `llamacpp-server.json:38` (`--jinja`) with
+  this very file (`:51`, `unsloth/Qwen3.8-Flash-Next-GGUF @38bb39e…`, UD-Q4_K_XL), so the Qwen template above is what
+  R1 renders (CONFIRMED by the config). GLM: `llamacpp-server-moecache.json:40` (`--jinja`), but its GGUF is
+  "file, quant and revision UNKNOWN" (`:52`): the GLM leak applies to R1's GLM llama.cpp runs if they use this unsloth
+  GGUF (PROVISIONAL).
 
 ### 7.6 (b) Hyperparameters and the graph branches only the real geometry takes
 
@@ -621,6 +658,34 @@ Qwen's `ffn_down_exps` input width is 640, not a multiple of the 256-element k-q
 (32-element blocks; PROVISIONAL reason, from llama-quantize's fallback rule `tensor_type_fallback`, not traced for this
 file).
 
+The non-expert matrices (2+ dimensions) that are not Q8_0 — all above the 4.0 floor (F32, BF16, IQ4_NL):
+
+```
+$ python3 docs/evidence/mutation-scripts/2026-10-11-n15-committed-facts.py matrices
+glm-5.3-flash-ud-q4_k_xl
+    43 x ffn_gate_inp.weight F32 [4096, 288]
+    12 x indexer.proj.weight F32 [4096, 32]
+    12 x indexer_compressor_ape.weight F32 [128, 4]
+    34 x ssm_conv1d_k.weight F32 [4, 1, 8192]
+    34 x ssm_conv1d_q.weight F32 [4, 1, 8192]
+    34 x ssm_conv1d_v.weight F32 [4, 1, 8192]
+qwen3.8-flash-next-ud-q4_k_xl
+    48 x ffn_gate_inp.weight F32 [2560, 512]
+    48 x hc_attn_inject.weight F32 [10240, 4]
+    48 x hc_ffn_inject.weight F32 [10240, 4]
+    12 x indexer.k_proj.weight BF16 [2560, 128]
+    12 x indexer.q_proj.weight BF16 [2560, 512]
+     1 x per_layer_token_embd.weight IQ4_NL [160, 320001536]
+     1 x ple_conv1d.weight F32 [4, 10240]
+    36 x ssm_alpha.weight F32 [2560, 48]
+    36 x ssm_beta.weight F32 [2560, 48]
+    36 x ssm_conv1d.weight F32 [4, 10240]
+```
+
+So for GLM every other large matrix is Q8_0, while the router `ffn_gate_inp`, `indexer.proj`,
+`indexer_compressor_ape` and the KDA conv weights `ssm_conv1d_{q,k,v}` are F32 (the round-2 wording "every other matrix
+Q8_0" in `e2268d6` was wrong; audit MINOR 3).
+
 ### 7.8 Discovery (LISTING.json)
 
 ```
@@ -703,8 +768,14 @@ only at user-message starts). The tags of both templates are single tokens excep
 - AGENTS.md's "GGUF architecture string `glm5next`" for the host files may be outdated for the HF repo: the current
   UD-Q4_K_XL is `glm5-next` and, by its header, loadable by llama.cpp mainline at both pins (PROVISIONAL, 7.4). Which
   revision the host holds: UNKNOWN (commands in 7.3).
-- The Qwen UD-Q4_K_XL has no MTP block (CONFIRMED): native-MTP speculation on it needs another source.
-- R1's llama.cpp runs use the embedded templates: GLM's reasoning leak (N14 1(a)) applies; Qwen's `high` works.
+- The Qwen UD-Q4_K_XL has no MTP block (CONFIRMED; the model has one: `"mtp_num_hidden_layers": 1`,
+  `third_party/hf/qwen3.8-flash-next-chat/config.json:96`). The other source is in the same repo revision `38bb39e`:
+  separate MTP GGUFs `MTP/mtp-Qwen3.8-Flash-Next-{BF16,Q4_K_M,Q8_0}.gguf` and `MTP/mtp-Qwen3.8-Flash-Next-shared-
+  {BF16,Q4_K_M,Q8_0}.gguf` (CONFIRMED in `third_party/gguf-headers/qwen3.8-flash-next-ud-q4_k_xl/PIN.json:77-102`,
+  `gguf_listing`; their headers were not fetched; whether qwen4exp at either pin loads them is UNKNOWN).
+- R1's Qwen llama.cpp runs use the embedded template (CONFIRMED by `llamacpp-server.json:38,51`): `high` works. R1's
+  GLM llama.cpp config leaves the GGUF UNKNOWN (`llamacpp-server-moecache.json:52`): the reasoning leak (N14 1(a))
+  applies if it is this unsloth file (PROVISIONAL, 7.5).
 - Tiny-model gaps worth closing in tinygen (PROVISIONAL, by the probes): `attention.layer_norm_epsilon`,
   `nextn.shared_head_norm`, a qwen4exp file without `attention.recurrent_layers`.
 
@@ -839,7 +910,70 @@ M19-no-metadata-shard-padding KILLED  (Parser.test_size_check_of_tensor_and_meta
 
 **19 of 19 killed** (an intermediate run at `7190e17`, before M19, gave 18 of 18 and is not pasted).
 
+## 12. After the audit of `e2268d6` (evidence-auditor: no FAIL, 16/16 PASS, 8 MINOR)
+
+| # | MINOR | fix |
+|---|---|---|
+| 1 | AGENTS.md has no bpw figure | Result 3, 7.3 and the CORRECTNESS paragraph: 185.983 GiB (AGENTS.md:23; no bpw there) and 185.983 GiB (4.981 BPW) (PROBLEMS.md:21) |
+| 2 | Qwen MTP: cite the config, name the separate MTP files | Result 7, 7.10, CORRECTNESS: `config.json:96` `"mtp_num_hidden_layers": 1`; `MTP/mtp-Qwen3.8-Flash-Next-{BF16,Q4_K_M,Q8_0}.gguf` and `-shared-` variants in the same revision (PIN.json:77-102, headers not fetched, loadability UNKNOWN) |
+| 3 | "every other matrix Q8_0" false for GLM | Result 8, 7.7 (`committed-facts.py matrices`, pasted), CORRECTNESS: router, `indexer.proj`, `indexer_compressor_ape`, `ssm_conv1d_{q,k,v}` are F32 |
+| 4 | Result 2: size equation | 8 tensor shards exact; 2 metadata-only shards = data offset aligned to 32; sha256(header + zeros) = LFS sha256 for both (`committed-facts.py metashard`, pasted in 7.2); plain `sha256sum` of host shard 1 named as the equivalent host check (7.3) |
+| 5 | GLM template wording | Result 6 and CORRECTNESS: no output change on N14's inputs; effect of the removed `break` / the `else` outside them UNKNOWN |
+| 6 | "R1 runs exactly these" is Qwen only | Result 6, 7.5, 7.10, CORRECTNESS: Qwen `llamacpp-server.json:38,51` (CONFIRMED); GLM `llamacpp-server-moecache.json:40` (`--jinja`) with its GGUF UNKNOWN (`:52`) — the leak applies if R1 uses this unsloth file (PROVISIONAL) |
+| 7 | analyzer printed the mapped `ple_layer_ids` | `7234625`: raw value plus mapping, `[2] (1-based -> [1])`; Appendix A re-run (only that line changed) |
+| 8 | labels | `--no-tensor-first-split` PROVISIONAL with `gguf-split.cpp:115@ec7630a`; ggml-org Q4_K "shard 00002 = 168.91 GiB, both shards 168.92 GiB"; `LISTING.json:256` for lastModified |
+| — | found while fixing (not in the audit) | the definition of `<S>` in the header had itself been replaced by `<S>` in `e2268d6` (a whole-file substitution); restored |
+
+Re-run after the fixes (code HEAD `7234625`, facts script `be7f7cd`):
+
+```
+$ cd /home/user/wt-n15 && git log --oneline -n 1 && LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py python3 -m unittest discover -s tests > <S>/n15/full-suite-audit.log 2>&1; echo "exit $?"; grep -E "^(Ran|OK|FAILED)" <S>/n15/full-suite-audit.log
+be7f7cd [model-analyst] evidence scripts: committed-facts printer gains matrices (non-Q8_0 non-expert matrices) and metashard (N15 audit MINOR 3, 4)
+exit 0
+Ran 900 tests in 148.771s
+OK (skipped=358)
+$ python3 -m unittest tests.test_hooks tests.test_check_unittest 2>&1 | tail -3
+Ran 54 tests in 13.670s
+
+OK
+$ LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py LLAMA_CPP_SRC_79E2E74=<S>/llama.cpp LLAMA_TOKENIZE_BIN=<S>/n15/build-tok/bin/llama-tokenize python3 -m unittest tests.test_gguf_headers tests.test_gguf_headers_committed -v > <S>/n15/modules-audit.log 2>&1; echo "exit $?"; grep -E "^(Ran|OK|FAILED)" <S>/n15/modules-audit.log; grep -c " \.\.\. ok$" <S>/n15/modules-audit.log; grep -c "skipped" <S>/n15/modules-audit.log
+exit 0
+Ran 40 tests in 18.867s
+OK
+40
+0
+$ cd <S>/n15 && git -C /home/user/wt-n15 log --oneline -n 1 && bash /home/user/wt-n15/docs/evidence/mutation-scripts/2026-10-11-n15-mutations.sh > mutations-7234625.log 2>&1; echo "exit $?"; cut -c1-400 mutations-7234625.log
+7234625 [model-analyst] tools/gguf_headers: config cross-check prints the raw config value and the converter's mapping (N15 audit MINOR 7)
+exit 0
+HEAD 7234625
+base exit 0 (Ran 32 tests in 14.884s, OK (skipped=1))
+M1-no-data-padding KILLED  (Fetch.test_fetch_stops_at_the_header_and_pins_the_revision Parser.test_alignment_rules_of_gguf_cpp Parser.test_needmore_reports_the_exact_next_need Parser.test_size_check_of_tensor_and_metadata_only_shards Parser.test_summary_digests_big_arrays_and_keeps_the_rest Tinygen.test_offsets_agree_with_gguf_py )
+M2-pad-without-tensors KILLED  (Parser.test_alignment_rules_of_gguf_cpp Parser.test_rebuild_copies_values_byte_for_byte Parser.test_size_check_of_tensor_and_metadata_only_shards VocabOnly.test_vocab_only_file_keeps_the_tokenizer_bytes_and_renames_the_arch )
+M3-default-alignment-16 KILLED  (Fetch.test_fetch_stops_at_the_header_and_pins_the_revision Parser.test_summary_digests_big_arrays_and_keeps_the_rest Tinygen.test_offsets_agree_with_gguf_py )
+M4-ignore-alignment-key KILLED  (Parser.test_alignment_rules_of_gguf_cpp )
+M5-no-contiguity-check KILLED  (Parser.test_tensor_offsets_must_be_contiguous_like_gguf_cpp )
+M6-inline-big-arrays KILLED  (Parser.test_summary_digests_big_arrays_and_keeps_the_rest )
+M7-keep-infos-end-only KILLED  (Analyzer.test_integrity_failure_is_reported Analyzer.test_template_groups_identity_and_audit Analyzer.test_tiny_models_exercise_their_own_branches Fetch.test_fetch_stops_at_the_header_and_pins_the_revision Fetch.test_summary_round_trips_from_the_committed_header Tinygen.test_offsets_agree_with_gguf_py )
+M8-no-cap KILLED  (Fetch.test_cap_exceeded_is_an_error_and_never_a_full_download )
+M9-accept-200 KILLED  (Fetch.test_a_server_that_ignores_range_is_rejected_unread )
+M10-no-total-check KILLED  (Fetch.test_a_range_of_another_file_size_is_rejected )
+M11-no-revision-pin-check KILLED  (Fetch.test_revision_mismatch_is_an_error )
+M12-refetch-done-requests KILLED  (Fetch.test_done_requests_are_not_fetched_again_and_errors_retry )
+M13-no-run-cap KILLED  (Fetch.test_plan_fails_before_any_request_on_caps )
+M14-no-hard-cap KILLED  (Fetch.test_plan_fails_before_any_request_on_caps )
+M15-etag-inverted KILLED  (Fetch.test_fetch_stops_at_the_header_and_pins_the_revision Fetch.test_wrong_etag_is_recorded_and_warned )
+M16-template-always-equal KILLED  (Analyzer.test_template_groups_identity_and_audit )
+M17-groups-threshold KILLED  (Analyzer.test_template_groups_identity_and_audit )
+M18-no-summary-rederivation KILLED  (Analyzer.test_integrity_failure_is_reported )
+M19-no-metadata-shard-padding KILLED  (Parser.test_size_check_of_tensor_and_metadata_only_shards )
+```
+
+19 of 19 killed. No test pinned the changed report line (none checks the config cross-check text), so no test changed.
+
 ## Appendix A. `tools/gguf_headers/analyze.py` on the committed headers, full output
+
+Re-run at `7234625` (after audit MINOR 7); the only line that differs from the round-2 run is the `ple_layer_ids` row of
+the Qwen config cross-check.
 
 ```
 $ cd <S>/n15/r2 && LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py python3 /home/user/wt-n15/tools/gguf_headers/analyze.py --src ec7630a=<S>/llama-ec7630a --src 79e2e74=<S>/llama.cpp --src ik=<S>/n12/ik-src --json analyze.json > analyze.txt; echo "exit $?"
@@ -1485,7 +1619,7 @@ integrity: Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf OK, Qwen3.8-Flash-N
     OK     rms_norm_eps = 1e-06  ->  attention.layer_norm_rms_epsilon = 9.999999974752427e-07
     OK     max_position_embeddings = 262144  ->  context_length = 262144
     OK     rope_parameters.rope_theta = 10000000  ->  rope.freq_base = 10000000.0
-    OK     ple_layer_ids = [1]  ->  ple.layers = [1]
+    OK     ple_layer_ids = [2] (1-based -> [1])  ->  ple.layers = [1]
     OK     ngram_size = 3  ->  ple.ngram_size = 3
     OK     heads_per_ngram = 8  ->  ple.heads_per_ngram = 8
     OK     ple_conv_kernel_size = 4  ->  ple.conv_kernel = 4
