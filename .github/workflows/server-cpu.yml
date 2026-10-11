@@ -11,11 +11,13 @@ on:
   push:
     paths: [tools/srvcheck/**, tools/kv/**, tools/tinygen/**, tools/engines/pins.json, tests/test_srvcheck.py, tests/test_n7_report.py,
             tests/fixtures/srvcheck/**, .github/workflows/server-cpu.yml, tools/bench/**, tools/quality/**, tools/gateway/**,
-            tools/verify/**, scripts/r1/**, tests/test_r1_tools_smoke.py, tests/test_tinygen_text_vocab.py]
+            tools/verify/**, scripts/r1/**, tests/test_r1_tools_smoke.py, tests/test_tinygen_text_vocab.py,
+            tools/gguf_quant_audit.py, tools/roofline.py, models/specs/**, hardware/target-4x4080-32g.unverified.json]
   pull_request:
     paths: [tools/srvcheck/**, tools/kv/**, tools/tinygen/**, tools/engines/pins.json, tests/test_srvcheck.py, tests/test_n7_report.py,
             tests/fixtures/srvcheck/**, .github/workflows/server-cpu.yml, tools/bench/**, tools/quality/**, tools/gateway/**,
-            tools/verify/**, scripts/r1/**, tests/test_r1_tools_smoke.py, tests/test_tinygen_text_vocab.py]
+            tools/verify/**, scripts/r1/**, tests/test_r1_tools_smoke.py, tests/test_tinygen_text_vocab.py,
+            tools/gguf_quant_audit.py, tools/roofline.py, models/specs/**, hardware/target-4x4080-32g.unverified.json]
 concurrency:
   group: server-cpu-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -28,7 +30,9 @@ jobs:
       - name: deps
         run: pip install numpy
       - name: harness tests against a stand-in server (fault injection)
-        run: python3 -m unittest tests.test_srvcheck tests.test_n7_report tests.test_r1_tools_smoke -v
+        run: python3 -m unittest tests.test_srvcheck tests.test_n7_report -v
+      - name: N11 derived R1 config (no server)
+        run: python3 -m unittest tests.test_r1_tools_smoke -v
       - name: llama.cpp at the pinned commit (tools/engines/pins.json)
         run: |
           SHA=$(python3 -c "import json; print(json.load(open('tools/engines/pins.json'))['engines']['llama.cpp']['sha'])")
