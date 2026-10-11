@@ -203,8 +203,8 @@ def load(reader, dequantize, act=True):
 # ---------------------------------------------------------------- MXFP4 (N16, gap 12 of docs/reassessment/CORRECTNESS.md)
 #
 # The format and the CPU product, transcribed from llama.cpp @ec7630a640789c393694fb194f1bbbf0369fc62d; every file
-# below is identical at the R1 pin 79e2e74 except ggml-cpu.c and repack.cpp, whose cited lines are unchanged (the diff
-# is in docs/evidence/2026-10-11-n16-mimo-decode-parity.md). "CM" = ggml/src/ggml-common.h, "IM" =
+# below is identical at the R1 pin 79e2e74 except ggml-cpu.c, repack.cpp and ggml-quants.c, whose cited lines are
+# unchanged (the diff is in docs/evidence/2026-10-11-n16-mimo-decode-parity.md). "CM" = ggml/src/ggml-common.h, "IM" =
 # ggml/src/ggml-impl.h, "GQ" = ggml/src/ggml-quants.c, "C" = ggml/src/ggml-cpu/ggml-cpu.c, "X" =
 # ggml/src/ggml-cpu/arch/x86/quants.c, "XR" = ggml/src/ggml-cpu/arch/x86/repack.cpp, "RP" =
 # ggml/src/ggml-cpu/repack.cpp, "SM" = ggml/src/ggml-cpu/simd-mappings.h.

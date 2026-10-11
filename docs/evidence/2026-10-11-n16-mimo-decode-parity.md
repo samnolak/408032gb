@@ -46,7 +46,8 @@ was printed from the pinned checkout (section "Source lines").
   window relative to the cache's `seq_pos_max + 1` (KV:1057-1058), walking from the head; `head = last cell + 1`
   (KV:1184); n_kv = min(size, max(256, pad(used_max_p1, 256))) (KV:1265-1270); buffers start at zero (KV:293); the
   mask hides empty cells, future positions and, on SWA layers, `p1 - p0 >= n_swa` (KV:1656-1700).
-  `llama_memory_seq_rm` frees every cell of a position >= p in both caches and returns true (KVI:116-117, KV:410-419).
+  `llama_memory_seq_rm` frees every cell of a position >= p in both caches and returns true (KVI:116-117, KV:410-419,
+  448).
 * **mimo2 never reads `expert_weights_scale`** (M:3-23 reads no such key; the hparams default 0 makes build_moe_ffn skip
   the scale, src/llama-graph.cpp:2171): G1 finding 4's UNKNOWN about the real GGUF's key does not matter for llama.cpp.
   The value scale (`attention.value_scale`, read only if != 1, M:14-17) multiplies attn_out after W_o (M:182-185).
@@ -128,7 +129,7 @@ quantization emulated; without it every product must be off by more than TOL_OP 
    oracle sense: the cell-accurate oracle (B) matches llama.cpp, kqv_out within 6.2e-07 and logits within 4.5e-07; the
    full-sequence oracle (A) cannot).
    After prefill 280 the SWA cache holds positions 24..279; `llama_memory_seq_rm(0, 20, -1)` frees all 256 SWA cells and
-   returns true (KVI:116-117 combine the two caches' results, KV:382-420 never refuses). Position 20 then attends, in
+   returns true (KVI:116-117 combine the two caches' results; KV:382-448 returns true on every path). Position 20 then attends, in
    every SWA layer (they share the SWA cache's cells and mask), to itself alone instead of positions 13..20 (21 to two,
    ..., 26 to seven cells); kqv_out of layer 1 differs from (A) by 0.53 to 1.51 (relative) at 20..26, and through the
    global layers the logits stay off for every later position (0.10..1.03 at 20..31, still 2.4e-02..4.4e-02 at 44..47). llama-server avoids this for prompt reuse:
