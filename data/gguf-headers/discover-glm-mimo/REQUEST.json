@@ -1,0 +1,10 @@
+{
+ "_doc": "Lists GGUF repos through the hub search API (filter gguf, with the hub's parsed gguf.architecture) and, for the repos whose architecture matches, their .gguf paths and sizes from the tree API. Reads no file. Purpose: the repo id of the Unsloth glm5next files (UNKNOWN), a glm5-next GGUF for llama.cpp mainline (scripts/r1/configs/llamacpp-server-moecache.json GLM_GGUF is UNKNOWN), MiMo-V2.6-Flash GGUFs (mimo2). Result: third_party/gguf-headers/discover-glm-mimo/LISTING.json.",
+ "kind": "discover",
+ "limit": 100,
+ "list_files": true,
+ "searches": [
+  {"search": "GLM-5.3-Flash", "architectures": ["glm5-next", "glm5next"]},
+  {"search": "MiMo-V2.6-Flash", "architectures": ["mimo2"]}
+ ]
+}
