@@ -6,12 +6,14 @@ R1 pin in the sandbox (4 cores), N14's bytes-vocabulary tiny models (random weig
 hybrid model so that its template engine, chat parser and checkpoints run for real; they say nothing about either real
 model). `<S>` stands for the session scratch directory
 `/tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad`; outputs are pasted with only that
-substitution. No GPU, no performance claims. Round 1: everything that needs huggingface.co is **PENDING runner**.
+substitution. No GPU, no performance claims. Round 1: everything that needed huggingface.co was **PENDING runner**;
+round 2 (section 13) fills it in from the vendor run, or marks it NOT RUN with the reason.
 
 ## Result
 
-1. **Corrected template, CONFIRMED (section 2).** `templates/glm-5.3-flash/chat_template.jinja` (12 047 B, sha256
-   `b2ff07b242f6edc13337126b89285e979e9a5bcd5a17f4a6a1f9235d67349839`) = the official
+1. **Corrected template, CONFIRMED (section 2).** `templates/glm-5.3-flash/chat_template.jinja` (round 2: 13 249 B,
+   sha256 `5d47ac8e48510b5c6543db4000ef145201823bf46bae9cf51ac6a9553a16ef5a`, the header now also carries the upstream MIT
+   notice verbatim, section 13.2; round 1 file 12 047 B `b2ff07b2…9839`, which the round-1 outputs below refer to) = the official
    `zai-org/GLM-5.3-Flash@eb9eb208` template (sha256 `0c4099f3…6309c5`) plus a header comment, one inserted line
    (`{%- set reasoning_content = none %}`, line 153, the first statement of every assistant iteration after `content`)
    and one changed test (`reasoning_content is defined` → `is not none`, line 160). `CorrectedFile.test_only_the_two_lines_differ`
@@ -56,9 +58,10 @@ substitution. No GPU, no performance claims. Round 1: everything that needs hugg
    outside the tree (`~/.cache/408032gb/hf-lfs/<sha256>/tokenizer.json`), re-hashing on every lookup; CI keeps the cache
    with `actions/cache` keyed on the pins. Requests: `data/hf-requests/glm-5.3-flash-tokenizer` (@`eb9eb208`) and
    `qwen3.8-flash-next-tokenizer` (@`de4b8e4d`), the revisions the templates are pinned at; `LICENSE` and `README.md`
-   (model card) vendored as text. Licenses: GLM `license:mit` (HF tag, `third_party/hf/glm-5.3-flash-chat/PIN.json`,
-   CONFIRMED as a tag); Qwen `license:other` (tag CONFIRMED; the terms UNKNOWN until `LICENSE` arrives) — **PENDING
-   runner**. Sizes 20 217 442 B / 12 809 320 B (CONFIRMED from the vendored listings).
+   (model card) vendored as text. Round 2, CONFIRMED (section 13.1): both pins have sha256 = LFS oid and the listed
+   sizes (20 217 442 B / 12 809 320 B); GLM: MIT, "Copyright (c) 2026 Z.AI Co., Ltd"; Qwen: card `license: other`,
+   `license_name: qwen-community-1.0`, and `LICENSE` is the **Qwen Community License 1.0** (not MIT / Apache: conditions
+   on very large commercial deployments and a separate license for Model-as-a-Service / AI Work Assistant businesses).
 9. **Token level with llama.cpp's GGUF tokenizer, CONFIRMED in the sandbox (section 7)** (llama-tokenize @79e2e74 on
    vocab-only GGUFs from N15's committed Unsloth headers, `--no-bos --no-escape`): GLM — official and corrected
    template identical, token-level breaks only where bytes break (past reasoning dropped), all 16 tags single tokens, no
@@ -66,8 +69,9 @@ substitution. No GPU, no performance claims. Round 1: everything that needs hugg
    than N15 saw:** every assistant turn with empty, missing or whitespace-only reasoning breaks token reuse at the last
    token of the previous prompt (`<think> Ċ | Ċ </think>` held vs `<think> ĊĊ </think>` re-tokenized): 1 of 6 requests
    in the empty-reasoning session, **4 of 7** in the mixed loop; with `enable_thinking=false` no break (its generation
-   prompt already ends `<think>\n\n</think>\n\n`). With the HF tokenizer and HF-vs-llama.cpp id parity: **PENDING
-   runner** (`tests/test_token_level.py` asserts the same expectations for both tokenizers).
+   prompt already ends `<think>\n\n</think>\n\n`). With the HF tokenizer and HF-vs-llama.cpp id parity: **NOT RUN
+   yet** — the first runner run (job 114554706860) failed on my relative-path bug before printing any HF result
+   (section 13.3); fixed, needs the next push.
 10. **The Qwen break is real in llama-server too, CONFIRMED live (section 7.3)** on a tiny qwen4exp carrying the real
     Qwen vocabulary (248 320 tokens, 247 587 merges, pre `qwen35`, from N15's header) with the slot pre-filled with the
     canonical tokens of each turn: reuse breaks exactly where the tokenizer predicts, and the server restores the
@@ -84,7 +88,7 @@ substitution. No GPU, no performance claims. Round 1: everything that needs hugg
 
 Tests: `tests/test_glm_template_n23.py` 12 (6 without a build: 3 file, 3 jinja2; 1 transformers; 5 llama-server),
 `tests/test_token_level.py` 12 (5 llama, 5 hf, 1 parity, 1 pin), `tests/test_hf_lfs.py` 15. Sandbox: all llama-server
-and llama side tests pass; hf / parity / pin tests skip cleanly (PENDING runner). Mutation check: section 10.
+and llama side tests pass; hf / parity tests skip cleanly (runner); PinRecords passes since round 2. Mutation check: section 10.
 
 ## 1. Inputs
 
@@ -96,7 +100,7 @@ and llama side tests pass; hf / parity / pin tests skip cleanly (PENDING runner)
 | tiny models | N14's `bytes_vocab_model.py` with N11's tinygen (`git archive origin/claude/n11-r1-tools-cpu-server tools/tinygen`), rebuilt by `run_n23.sh`: glm5next_bytes.gguf sha256 `3fb41bfc…4f3d`, qwen4exp_bytes.gguf `135bf3f8…946c` | CONFIRMED |
 | GGUF headers | N15's committed Unsloth first shards, read with `git archive origin/claude/n15-gguf-headers` (@`67bd5baceafe63e70e1b78010181225ecebbefa4`) into `<S>/n23/n15` (nothing under third_party/): GLM `.header.gz` sha256 `f93ba472…244a`, Qwen `7f7334a9…1b5a`; vocab-only GGUFs by N15's `vocab_gguf.py`: `vocab-glm.gguf` 9 429 874 B sha256 `d66c3980…5f95` (arch glm5-next, pre glm4), `vocab-qwen.gguf` 10 946 536 B `c092638a…8f74` (qwen4exp, pre qwen35) | CONFIRMED |
 | reference renderer | jinja2 3.1.6 (system), `tools/chattmpl/hf_render.py` (transformers 5.16.0 configuration, N14); plus transformers 5.16.0, tokenizers 0.23.3, jinja2 3.1.6 from PyPI in the scratch venv `<S>/n23/venv` (no torch) | CONFIRMED |
-| HF tokenizer.json | not available in the sandbox (no huggingface.co) | PENDING runner |
+| HF tokenizer.json | not available in the sandbox (no huggingface.co); pinned by the vendor run (section 13.1) | CONFIRMED (pin) |
 
 ## 2. The change
 
@@ -204,10 +208,10 @@ value equal to N14's GLM row (CONFIRMED, run_n23 output in section 11).
 |---|---|---|
 | commit the file? | No. 20.2 MB + 12.8 MB would stay in history forever; a pin (`PIN.json` `lfs_files`: repo, 40-hex revision, path, size, sha256 = LFS oid, URL) is enough to reproduce the bytes from `resolve/<revision>`, and the fetcher refuses any other bytes | design |
 | who verifies the sha | the runner, once at vendoring (download, size and sha256 against `lfs.size` / `lfs.oid` of the tree API); `hf_lfs_fetch.py` again at every fetch and lookup | CONFIRMED by tests (fake hub, local HTTP server) |
-| where tests find it | `hf_lfs_fetch.path_for(PIN.json, "tokenizer.json")` → `$HF_LFS_CACHE` or `~/.cache/408032gb/hf-lfs/<sha256>/tokenizer.json`; missing or corrupt → `None` → the class skips with "PENDING runner" | CONFIRMED by tests |
+| where tests find it | `hf_lfs_fetch.path_for(PIN.json, "tokenizer.json")` → `$HF_LFS_CACHE` or `~/.cache/408032gb/hf-lfs/<sha256>/tokenizer.json`; missing or corrupt → `None` → the class skips (in the sandbox) | CONFIRMED by tests |
 | CI | `.github/workflows/token-level.yml`: `actions/cache@v4` on that directory, key `hf-lfs-${{ hashFiles('third_party/hf/*-tokenizer/PIN.json') }}`; `hf_lfs_fetch.py` (no-op on a cache hit); llama-tokenize of the R1 pin; vocab-only GGUFs from N15's headers at the pinned commit `67bd5ba` with sha256 check; `tests.test_token_level` + transformers render, **fails on any skip**; summary as notice annotations, `token-prefix.json` as artifact | NOT RUN (runner) |
 | trigger | `vendor-hf-branch.yml` calls `token-level.yml` (`workflow_call`, `ref` = the branch) right after its vendor job, because the bot's own push starts no workflow and a workflow that is not on `main` cannot be dispatched; later pushes that touch the listed paths start it directly. Before the pins exist it only warns `PENDING` | design |
-| licenses | recorded in PIN.json: `license_tags` (as before) and `card_license` (cardData `license`, `license_name`, `license_link`); `LICENSE` and `README.md` vendored as text next to the pin | PENDING runner |
+| licenses | recorded in PIN.json: `license_tags` (as before) and `card_license` (cardData `license`, `license_name`, `license_link`); `LICENSE` and `README.md` vendored as text next to the pin | CONFIRMED (round 2, 13.1) |
 | what if HF removes the revision | the pin still identifies the bytes; a copy would have to come from elsewhere (bundle, release asset) and pass the same sha check | PROVISIONAL |
 | cost | one 33 MB download per cache miss (pins change); no git growth | PROVISIONAL |
 
@@ -243,7 +247,7 @@ GLM ids of the 16 tags: `[gMASK]` 154822 … `</tool_response>` 154846, each one
 three tokens each. At every Qwen newline break: held `… <think>(248068) Ċ(198) | Ċ(198) </think>(248069)`, next
 `… <think> ĊĊ(271) </think>`.
 
-### 7.2 HF tokenizer and parity: PENDING runner
+### 7.2 HF tokenizer and parity: NOT RUN yet (section 13.3)
 
 `tests/test_token_level.py` `HFTokenLevel` asserts the same table for `tokenizers` + tokenizer.json
 (`add_special_tokens=False`, as transformers' `apply_chat_template(tokenize=True)`), `Parity` that both tokenizers give
@@ -303,7 +307,7 @@ scripts/r1/configs/llamacpp-server-moecache.json:40
 ```
 
 `${REPO}` is one of run_r1.py's fixed variables (`scripts/r1/run_r1.py:94`). The run should record the template's
-sha256 (`b2ff07b2…9839`) with the engine flags. `ik-llamacpp-server.json:37` (ik_llama.cpp, own template code): the same
+sha256 (round 2: `5d47ac8e…ef5a`) with the engine flags. `ik-llamacpp-server.json:37` (ik_llama.cpp, own template code): the same
 flag if its `--help` lists `--chat-template-file` (UNKNOWN; `artifacts/engine/flags_check.json` on the server); whether
 ik's engine has the loop-scope bug is UNKNOWN, but ours renders the same in both scoping models, so it is safe either
 way (PROVISIONAL: shown for jinja2 and llama.cpp only). The Qwen configs need no template change for this bug (N14).
@@ -317,9 +321,10 @@ Also for the client side of R1's agent loop: never send `"reasoning_content": nu
 | | JinjaEquality (3) | jinja2 | pass |
 | | TransformersRender (1) | transformers | pass in `<S>/n23/venv`; skip in system python |
 | | ServerRenderN23 (2), ParseHarnessN23 (1), PrefixN23 (1), LiveB3N23 (1) | llama-server + tiny model (+ harness) | pass (`run_n23.sh`) |
-| test_token_level | PinRecords (1) | vendored tokenizer pins | skip (PENDING runner) |
+| test_token_level | PinRecords (1) | vendored tokenizer pins | pass (round 2) |
 | | LlamaTokenLevel (5) | llama-tokenize + vocab GGUFs | pass |
-| | HFTokenLevel (5), Parity (1) | tokenizer.json in the cache (+ llama) | skip (PENDING runner) |
+| | LlamaTokPaths (1, round 2) | nothing | pass |
+| | HFTokenLevel (5), Parity (1) | tokenizer.json in the cache (+ llama) | skip in the sandbox; runner: NOT RUN yet (13.3) |
 | test_hf_lfs | VendorLfs (7), Fetch (7), Requests (1) | nothing (no network) | pass |
 
 The N14 suite (`tests/test_chat_templates.py`, 14 tests) still passes with the refactored `run_n14.py` (section 11).
@@ -510,15 +515,163 @@ tests`) is in the report of this round.
 
 ## 12. NOT RUN / PENDING runner
 
-- PENDING runner: vendoring of both tokenizer requests (PIN.json with sha256, card license, LICENSE / README.md text);
-  `token-level.yml` (HF tokenizer token-level table, HF-vs-llama.cpp id parity, transformers render on the runner,
-  PinRecords). Round 2 reads its annotations and artifact.
+- Vendoring of both tokenizer requests: done in round 2 (section 13.1).
+- NOT RUN yet: `token-level.yml` results (HF tokenizer token-level table, HF-vs-llama.cpp id parity, transformers render
+  on the runner). Its first run failed on a bug of mine (13.3); the fix and the richer annotations are committed and run on
+  the next push of this branch (the workflow's push paths include `tools/chattmpl/**` and the workflow file).
 - The live Qwen probe uses canonical tokens for the turn; tokens a real model samples may differ (UNKNOWN), which can
   only add breaks.
 - NOT RUN: ik_llama.cpp's template engine with our file; image / video / audio content parts; `add_vision_id`.
 - UNKNOWN: which tokens the real models sample around an empty think block.
-- The MIT notice of the GLM source: the header names the license; the copyright line of the upstream `LICENSE` is to be
-  added to the header once the file is vendored (PENDING runner).
+- The MIT notice of the GLM source: added to the header in round 2 (13.2).
+
+## 13. Round 2 (after the vendor run)
+
+`git fetch origin claude/n23-glm-template-tokenizer && git merge --ff-only origin/claude/n23-glm-template-tokenizer`
+brought bot commit `f09cb19` (vendor-hf-branch run 38168065511): `third_party/hf/{glm-5.3-flash,qwen3.8-flash-next}-tokenizer/`
+with PIN.json, LICENSE, README.md, REQUEST.json, SHA256SUMS.
+
+### 13.1 Pins and licenses (CONFIRMED)
+
+```
+$ for d in glm-5.3-flash-tokenizer qwen3.8-flash-next-tokenizer; do python3 -c "<compare PIN.json lfs_files with the chat PIN's revision and listing>"; done
+glm-5.3-flash-tokenizer True sha256==lfs_oid True size 20217442 listing 20217442 19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d
+  license_tags ['license:mit'] card_license {'license': 'mit', 'license_name': None, 'license_link': None}
+qwen3.8-flash-next-tokenizer True sha256==lfs_oid True size 12809320 listing 12809320 0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3
+  license_tags ['license:other'] card_license {'license': 'other', 'license_name': 'qwen-community-1.0', 'license_link': 'LICENSE'}
+$ (cd third_party/hf/glm-5.3-flash-tokenizer && sha256sum -c SHA256SUMS); (cd third_party/hf/qwen3.8-flash-next-tokenizer && sha256sum -c SHA256SUMS)
+LICENSE: OK
+README.md: OK
+LICENSE: OK
+README.md: OK
+```
+
+`sha256 == lfs_oid` in the PIN is by construction: `vendor_hf_files.lfs_one` raises unless the downloaded bytes hash
+to the LFS oid, so the run's success (job `vendor`, success) is the check. The sandbox cannot recompute it because it
+cannot download the file. `PinRecords` passes in the sandbox (13.4).
+
+| model | license | label |
+|---|---|---|
+| GLM-5.3-Flash | MIT, "Copyright (c) 2026 Z.AI Co., Ltd" (`third_party/hf/glm-5.3-flash-tokenizer/LICENSE:1-3`); card `license: mit` | CONFIRMED |
+| Qwen3.8-Flash-Next | **Qwen Community License 1.0**, "Copyright (c) 2026 Qwen" (`third_party/hf/qwen3.8-flash-next-tokenizer/LICENSE:1-3`); card `license: other`, `license_name: qwen-community-1.0`, `license_link: LICENSE`. Permissive grant with two conditions: (1) the notice in copies, and the model name displayed in products above 100 M monthly active users or US$ 20 M monthly revenue; (2) a **separate license from Qwen** before commercial use by a licensee that runs a "Model as a Service" or "AI Work Assistant" business (internal use excepted), `LICENSE:7-12` | CONFIRMED (text); legal reading for Ribrad's use UNKNOWN, a question for the customer |
+
+### 13.2 MIT notice in our template
+
+The header of `templates/glm-5.3-flash/chat_template.jinja` now contains the upstream `LICENSE` verbatim (copyright line
+and permission notice; it has no `<`, `[`, `{` or `#}`). It is a Jinja comment, so the rendered bytes do not change.
+`CorrectedFile.test_header_names_source_and_change` asserts that the vendored LICENSE text is in the header. Size
+13 249 B, sha256 `5d47ac8e48510b5c6543db4000ef145201823bf46bae9cf51ac6a9553a16ef5a`. All N23 template tests re-run on
+the new file (13.4).
+
+### 13.3 token-level run (job 114554706860): failed on my bug; HF results NOT RUN
+
+The job artifact and the job log could not be read from the sandbox: `gh api …/artifacts/11712579449/zip` and
+`gh api …/jobs/114554706860/logs` both redirect to `productionresultssa14.blob.core.windows.net` and get `Forbidden`.
+Steps and annotations (read-only `gh api` GETs):
+
+```
+$ gh api repos/samnolak/408032gb/actions/jobs/114554706860 --jq '.conclusion, (.steps[] | "\(.number) \(.name) \(.conclusion)")'
+failure
+1 Set up job success
+2 Run actions/checkout@v4 success
+3 tokenizer pins vendored? success
+4 deps (pinned versions) success
+5 cache of the pinned LFS files success
+6 fetch tokenizer.json by the pinned sha256 success
+7 llama-tokenize at the R1 pin success
+8 vocab-only GGUFs from N15's committed GGUF headers success
+9 token-level tests and transformers render (fail on any skip) failure
+10 summary (annotations) and token-prefix.json success
+11 Run actions/upload-artifact@v4 success
+21 Post cache of the pinned LFS files skipped
+22 Post Run actions/checkout@v4 success
+23 Complete job success
+$ gh api repos/samnolak/408032gb/check-runs/114554706860/annotations --jq '.[] | "\(.annotation_level) | \(.message)"'
+warning | Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/cache@v4, actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+notice | Traceback (most recent call last):
+  File "/home/runner/work/408032gb/408032gb/tools/chattmpl/token_prefix.py", line 255, in <module>
+    main()
+  File "/home/runner/work/408032gb/408032gb/tools/chattmpl/token_prefix.py", line 244, in main
+    results[kind][name] = {"tags": tags(model, by_model[model]), "rows": check(name, by_model[model])}
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/408032gb/408032gb/tools/chattmpl/token_prefix.py", line 182, in tags
+    return {t: tok(t) for t in TAGS[model]}
+               ^^^^^^
+  File "/home/runner/work/408032gb/408032gb/tools/chattmpl/token_prefix.py", line 94, in __call__
+    r = subprocess.run([self.binary, "-m", self.model, "-f", p, "--ids", "--log-disable", "--no-bos",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: '../build-tok/bin/llama-tokenize'
+
+failure | 105:FileNotFoundError: [Errno 2] No such file or directory: '../build-tok/bin/llama-tokenize'
+failure | 89:ERROR: test_qwen_newline_merge_after_empty_reasoning (tests.test_token_level.LlamaTokenLevel.test_qwen_newline_merge_after_empty_reasoning)
+failure | 86:FileNotFoundError: [Errno 2] No such file or directory: '../build-tok/bin/llama-tokenize'
+failure | 64:ERROR: test_glm_tokens_break_only_where_bytes_break (tests.test_token_level.LlamaTokenLevel.test_glm_tokens_break_only_where_bytes_break)
+failure | 61:FileNotFoundError: [Errno 2] No such file or directory: '../build-tok/bin/llama-tokenize'
+failure | 49:    self.assertEqual([t for t in T.TAGS["glm"] if len(tok(t)) == 1], T.TAGS["glm"])
+failure | 45:ERROR: test_glm_tags_single_tokens (tests.test_token_level.LlamaTokenLevel.test_glm_tags_single_tokens)
+failure | 42:FileNotFoundError: [Errno 2] No such file or directory: '../build-tok/bin/llama-tokenize'
+failure | 24:    self.assertEqual(strip(self.rows("glm_hf", "glm")), strip(self.rows("glm_n23", "glm")))
+failure | 20:ERROR: test_glm_official_and_corrected_identical (tests.test_token_level.LlamaTokenLevel.test_glm_official_and_corrected_identical)
+notice | Ran 16 tests in 4.255s FAILED (errors=6) 
+notice | llama.cpp 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6
+```
+
+What this does show (CONFIRMED):
+- The fetch by the pinned sha256 succeeded.
+- llama-tokenize built at `79e2e74`.
+- The vocab-only GGUFs were built, with their header sha256 checked.
+- 16 tests ran; 6 errored with `FileNotFoundError: '../build-tok/bin/llama-tokenize'`.
+
+The cause is in `token_prefix.LlamaTok`. It runs llama-tokenize with `cwd` = its own work directory, and the workflow
+passed a relative path. The sandbox runs passed absolute paths, so they did not hit it. The summary step crashed the
+same way. Only 8 error lines were annotated, so the outcome of the HF-side tests (`HFTokenLevel`, the transformers
+render) is UNKNOWN from this run. The HF-tokenizer results and the id parity are therefore **NOT RUN** in round 2.
+
+Fixes, committed in round 2:
+- `LlamaTok` stores absolute paths; test `LlamaTokPaths` covers it.
+- The workflow passes `realpath`s.
+- The workflow annotates every test's result line (40 per notice), the tokenizer.json sha256, and a token_prefix failure.
+
+The next push of this branch starts `token-level.yml` directly: its push paths include `tools/chattmpl/**` and the
+workflow file.
+
+### 13.4 Sandbox outputs (round 2)
+
+```
+$ python3 -m unittest -v tests.test_token_level.PinRecords
+Ran 1 test in 0.002s
+
+OK
+$ CHATTMPL_SERVER_BIN=<S>/llama.cpp/build-cpu/bin/llama-server CHATTMPL_HARNESS=<S>/n23/run2/chat-parse-harness CHATTMPL_GLM_GGUF=<S>/n23/run2/models/glm5next_bytes.gguf CHATTMPL_WORK=<S>/n23/r2-test-out python3 -m unittest -v tests.test_glm_template_n23   (new header)
+test_header_names_source_and_change (tests.test_glm_template_n23.CorrectedFile.test_header_names_source_and_change) ... ok
+test_only_the_two_lines_differ (tests.test_glm_template_n23.CorrectedFile.test_only_the_two_lines_differ) ... ok
+test_source_is_the_pinned_template (tests.test_glm_template_n23.CorrectedFile.test_source_is_the_pinned_template) ... ok
+test_agent_loops_prefix_stable (tests.test_glm_template_n23.JinjaEquality.test_agent_loops_prefix_stable) ... ok
+test_byte_equal_everywhere (tests.test_glm_template_n23.JinjaEquality.test_byte_equal_everywhere) ... ok
+test_turn_without_reasoning_renders_an_empty_think_block (tests.test_glm_template_n23.JinjaEquality.test_turn_without_reasoning_renders_an_empty_think_block) ... ok
+test_prompt_cache_reuse (tests.test_glm_template_n23.LiveB3N23.test_prompt_cache_reuse) ... ok
+test_parse_like_the_official_template (tests.test_glm_template_n23.ParseHarnessN23.test_parse_like_the_official_template) ... ok
+test_server_prompts_extend_held_turns (tests.test_glm_template_n23.PrefixN23.test_server_prompts_extend_held_turns) ... ok
+test_official_template_still_leaks_at_this_pin (tests.test_glm_template_n23.ServerRenderN23.test_official_template_still_leaks_at_this_pin) ... ok
+test_server_with_ours_equals_official_format (tests.test_glm_template_n23.ServerRenderN23.test_server_with_ours_equals_official_format) ... ok
+test_transformers_renders_like_hf_render (tests.test_glm_template_n23.TransformersRender.test_transformers_renders_like_hf_render) ... skipped 'transformers is not installed'
+
+----------------------------------------------------------------------
+Ran 12 tests in 120.149s
+
+OK (skipped=1)
+$ <S>/n23/venv/bin/python -m unittest tests.test_glm_template_n23.TransformersRender tests.test_glm_template_n23.JinjaEquality tests.test_glm_template_n23.CorrectedFile
+Ran 7 tests in 2.283s
+
+OK
+```
 
 ## Appendix A. `tools/chattmpl/run_n23.sh` at `4ed71cb`, full output
 
