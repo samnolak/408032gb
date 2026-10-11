@@ -4,7 +4,8 @@
 # rows of indexer_pool_k_new, whose cell choice changed upstream (tests/test_qwen4exp_decode_parity.py,
 # tests/test_glm5next_decode_parity.py); glm5-next has no small-ubatch gather path here and has an MTP graph
 # (tests/test_glm5next_decode_parity.py, tests/test_glm5next_mtp_parity.py). N10: the same runs at the R1 default
-# precision of the KV cache and the attention (-ctk f16 -ctv f16 -fa on), tools/tinygen/run_parity_f16fa.sh.
+# precision of the KV cache and the attention (-ctk f16 -ctv f16 -fa on), tools/tinygen/run_parity_f16fa.sh, and
+# quantized weights (Q8_0, Q4_K_M by the pin's own llama-quantize), tools/tinygen/run_parity_quant.sh.
 # CPU only, tiny random-weight models.
 name: parity-r1-pin
 on:
@@ -12,13 +13,13 @@ on:
   push:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
             tests/test_glm5next_*.py,
-            tests/f16fa.py, tests/test_fattn_ref.py,
+            tests/f16fa.py, tests/test_fattn_ref.py, tests/test_quant_ref.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/engines/pins.json,
             .github/workflows/parity-r1-pin.yml]
   pull_request:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
             tests/test_glm5next_*.py,
-            tests/f16fa.py, tests/test_fattn_ref.py,
+            tests/f16fa.py, tests/test_fattn_ref.py, tests/test_quant_ref.py,
             tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/engines/pins.json,
             .github/workflows/parity-r1-pin.yml]
 concurrency:
@@ -51,3 +52,5 @@ jobs:
         run: tools/tinygen/run_parity_glm5next_decode.sh ../llama.cpp ../build-tools
       - name: N10 R1 default precision (-ctk f16 -ctv f16 -fa on) of qwen4exp and glm5-next at the R1 pin (CPU)
         run: tools/tinygen/run_parity_f16fa.sh ../llama.cpp ../build-tools
+      - name: N10 quantized weights (Q8_0, Q4_K_M by the R1 pin's llama-quantize), qwen4exp products (CPU)
+        run: tools/tinygen/run_parity_quant.sh ../llama.cpp ../build-tools
