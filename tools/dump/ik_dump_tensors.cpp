@@ -17,7 +17,10 @@
 // Graph boundaries are found as in dump_tensors.cpp: the scheduler asks the callback about the nodes of a graph in
 // node order, so a graph starts where the name of the first node ever asked comes round again.
 // Usage: DUMP_DIR=d DUMP_PREFIXES=hc_,dsa_ DUMP_TOKENS=5,9,11 ./ik-dump-tensors -m tiny.gguf -c 512 -b 512 -ub 512 \
-//        -t 1 -fa off -ctk f32 -ctv f32 [--dsa]
+//        -t 1 -fa off -ctk f32 -ctv f16 -ictk f32 [--dsa]
+// (ik refuses -ctv f32 without flash attention, src/llama.cpp:9257-9259 @5194a9e; with -fa off and the default
+// -mla 3 the MLA latent cache takes the -ctv type, :1496-1497.) Run it from a scratch directory: ik's logger
+// writes llama.log into the current directory.
 #include "common.h"
 #include "llama.h"
 #include "ggml.h"
