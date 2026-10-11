@@ -74,3 +74,6 @@ mutate M15-etag-inverted $F '(etag == lfs_sha)' '(etag != lfs_sha)'
 mutate M16-template-always-equal $A 'byte_equal=emb == ref)' 'byte_equal=True)'
 mutate M17-groups-threshold $A 'if (g or 0) > 1 else' 'if (g or 0) > 8 else'
 mutate M18-no-summary-rederivation $A ' and derived == committed)' ')'
+# round 2: the size check of a metadata-only shard (writer padding after the KV block)
+mutate M19-no-metadata-shard-padding $P \
+    'if summary["n_tensors"] == 0 and size != off and size == align_up(off, summary["alignment"]):' 'if False:'
