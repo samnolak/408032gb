@@ -14,6 +14,9 @@ jobs:
           touch ../llama.cpp/ggml/ggml.pc.in   # needed only for the standalone ggml build below
       - name: deps
         run: pip install numpy pyyaml
+      # Every parity step below goes through tools/ci/check_unittest.py: green only if its unittest run is OK with exactly
+      # the tests and skips tools/ci/parity_expectations.json lists for the checkout's commit (a missing dump or env
+      # variable makes the tests skip, which unittest alone reports as OK; docs/reassessment/CORRECTNESS.md gap 11 (a)).
       - name: unit tests
         run: python3 -m unittest discover -s tests -v
       - name: ggml delta-net parity (CPU)
@@ -22,21 +25,22 @@ jobs:
           cmake --build ../ggml-build -j4 --target ggml
           tests/ggml_parity/build.sh ../llama.cpp ../ggml-build
           GGML_GDN_HARNESS=tests/ggml_parity/gdn_harness LLAMA_CPP_GGUF_PY=../llama.cpp/gguf-py \
+            python3 tools/ci/check_unittest.py --step ggml-gdn --checkout ../llama.cpp -- \
             python3 -m unittest tests.test_kda_vs_ggml tests.test_fitplan -v
       - name: G1 tiny-model parity against the real glm5-next graph (CPU)
-        run: tools/tinygen/run_parity.sh ../llama.cpp ../build-tools
+        run: python3 tools/ci/check_unittest.py --step g1-glm --checkout ../llama.cpp -- tools/tinygen/run_parity.sh ../llama.cpp ../build-tools
       - name: MiMo G1 tiny-model parity against the real mimo2 graph (CPU)
-        run: tools/tinygen/run_parity_mimo.sh ../llama.cpp ../build-tools
+        run: python3 tools/ci/check_unittest.py --step g1-mimo --checkout ../llama.cpp -- tools/tinygen/run_parity_mimo.sh ../llama.cpp ../build-tools
       - name: N2 qwen4exp (candidate 1) tiny-model parity against the real qwen4exp graph (CPU)
-        run: tools/tinygen/run_parity_qwen4exp.sh ../llama.cpp ../build-tools
+        run: python3 tools/ci/check_unittest.py --step n2-qwen4exp --checkout ../llama.cpp -- tools/tinygen/run_parity_qwen4exp.sh ../llama.cpp ../build-tools
       - name: N6 qwen4exp several ubatches, token-by-token decode, rollback and MTP against the real qwen4exp graph (CPU)
-        run: tools/tinygen/run_parity_qwen4exp_decode.sh ../llama.cpp ../build-tools
+        run: python3 tools/ci/check_unittest.py --step n6-qwen4exp-decode --checkout ../llama.cpp -- tools/tinygen/run_parity_qwen4exp_decode.sh ../llama.cpp ../build-tools
       - name: N9 glm5-next several ubatches, token-by-token decode and rollback against the real glm5-next graph (CPU; this pin has no glm5-next MTP graph)
-        run: tools/tinygen/run_parity_glm5next_decode.sh ../llama.cpp ../build-tools
+        run: python3 tools/ci/check_unittest.py --step n9-glm5next-decode --checkout ../llama.cpp -- tools/tinygen/run_parity_glm5next_decode.sh ../llama.cpp ../build-tools
       - name: N10 R1 default precision (-ctk f16 -ctv f16 -fa on) - qwen4exp and glm5-next runs against the precision-aware oracles (CPU)
-        run: tools/tinygen/run_parity_f16fa.sh ../llama.cpp ../build-tools
+        run: python3 tools/ci/check_unittest.py --step n10-f16fa --checkout ../llama.cpp -- tools/tinygen/run_parity_f16fa.sh ../llama.cpp ../build-tools
       - name: N10 quantized weights (Q8_0, Q4_K_M by the pinned llama-quantize) - every qwen4exp and glm5-next matrix product against ref/quant.py (CPU)
-        run: tools/tinygen/run_parity_quant.sh ../llama.cpp ../build-tools
+        run: python3 tools/ci/check_unittest.py --step n10-quant --checkout ../llama.cpp -- tools/tinygen/run_parity_quant.sh ../llama.cpp ../build-tools
       - name: G0 per-token routing tracer + cache simulator on the tiny glm5-next model (CPU smoke)
         run: tools/g0/run_trace_smoke.sh ../llama.cpp ../build-tools
       - name: G0 trace + probe on a tiny qwen3moe (last layer keeps only output rows; predict_eval self-checks) (CPU smoke)
@@ -44,7 +48,9 @@ jobs:
           cmake --build ../build-tools -j"$(nproc)" --target g0-expert-trace g0-expert-probe > /dev/null
           scripts/traces/smoke_tiny.sh ../llama.cpp ../build-tools ../smoke-tiny
       - name: roofline, cache-simulator and GGUF-audit unit tests (type table checked against the pinned gguf-py)
-        run: LLAMA_CPP_GGUF_PY=../llama.cpp/gguf-py python3 -m unittest tests.test_roofline tests.test_cachesim tests.test_gguf_quant_audit tests.test_offline_weights -v
+        run: |
+          LLAMA_CPP_GGUF_PY=../llama.cpp/gguf-py python3 tools/ci/check_unittest.py --step gguf-audit --checkout ../llama.cpp -- \
+            python3 -m unittest tests.test_roofline tests.test_cachesim tests.test_gguf_quant_audit tests.test_offline_weights -v
   ref-torch-cpu:
     # Oracles whose reference is torch code (vendored, pinned): DFlash2 primitives against vLLM (ADR-011).
     runs-on: ubuntu-24.04

@@ -1,0 +1,161 @@
+{
+  "comment": [
+    "What every CI parity step must print, per step and per commit of the checkout its dumps come from (gap 11 (a) of",
+    "docs/reassessment/CORRECTNESS.md). Read by tools/ci/check_unittest.py: the step fails unless its unittest run is OK",
+    "with exactly 'ran' tests and exactly the listed skips (test id equal, reason matching the regex in full).",
+    "Keys of 'expect' are full commits: ec7630a640789c393694fb194f1bbbf0369fc62d is the llama.cpp pin of AGENTS.md",
+    "(.github/workflows/ci.yml), 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6 the llama.cpp R1 pin and",
+    "5194a9e1451b885e24dd5a065f650864e8807c59 the ik_llama.cpp R1 pin of tools/engines/pins.json",
+    "(.github/workflows/parity-r1-pin.yml). A commit without an entry fails the step: after a pin change, run the step",
+    "once, review the counts and add them here with their source. tests/test_check_unittest.py checks that every parity",
+    "step goes through the checker and that an entry exists for the commit the step runs at.",
+    "'modules' are the unittest modules the step runs (checked against the driver's python3 -m unittest line)."
+  ],
+  "steps": {
+    "ggml-gdn": {
+      "pin": "llama.cpp",
+      "driver": "inline in ci.yml: tests/ggml_parity/gdn_harness built from ggml at the pin",
+      "modules": ["tests.test_kda_vs_ggml", "tests.test_fitplan"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 18, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (3 test_kda_vs_ggml + 15 test_fitplan)"
+        }
+      }
+    },
+    "g1-glm": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity.sh",
+      "modules": ["tests.test_glm_tiny_parity"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 9, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (8 op-by-op tests of G1 + GlmTinyWholeModel of N9)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 9, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md"
+        }
+      }
+    },
+    "g1-mimo": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_mimo.sh",
+      "modules": ["tests.test_mimo_tiny_parity"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 5, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 5, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md"
+        }
+      }
+    },
+    "n2-qwen4exp": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_qwen4exp.sh",
+      "modules": ["tests.test_qwen4exp_tiny_parity"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 17, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 17, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md"
+        }
+      }
+    },
+    "n6-qwen4exp-decode": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_qwen4exp_decode.sh",
+      "modules": ["tests.test_qwen4exp_decode_parity", "tests.test_qwen4exp_mtp_parity", "tests.test_qwen4exp_chunked_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 54, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (40 decode + 6 MTP + 8 chunked)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 54, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (40 decode + 6 MTP + 8 chunked)"
+        }
+      }
+    },
+    "n9-glm5next-decode": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_glm5next_decode.sh",
+      "modules": ["tests.test_glm5next_decode_parity", "tests.test_glm5next_mtp_parity", "tests.test_glm5next_chunked_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 52,
+          "skipped": [
+            {
+              "test": "tests.test_glm5next_mtp_parity.Mtp.setUpClass",
+              "reason": "no MTP run under .+ \\(llama\\.cpp ec7630a: no glm5-next MTP graph at ec7630a, see the module docstring\\)",
+              "why": "ec7630a has no glm5-next MTP graph (src/models/glm5-next.cpp throws 'GLM5-Next NextN graph not implemented yet'); the driver then produces no MTP run"
+            }
+          ],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (45 decode + 7 chunked, MTP class skipped)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 58, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (45 decode + 6 MTP + 7 chunked)"
+        }
+      }
+    },
+    "n10-f16fa": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_f16fa.sh",
+      "modules": ["tests.test_qwen4exp_f16fa_parity", "tests.test_glm5next_f16fa_parity", "tests.test_fattn_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 170, "skipped": [],
+          "source": "N13 run (PARITY_KV=f16 PARITY_FA=on, the driver's defaults), docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (75 qwen4exp + 84 glm5-next + 11 fattn_ref)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 170, "skipped": [],
+          "source": "N13 run (PARITY_KV=f16 PARITY_FA=on, the driver's defaults), docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (75 qwen4exp + 84 glm5-next + 11 fattn_ref)"
+        }
+      }
+    },
+    "n10-quant": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_quant.sh",
+      "modules": ["tests.test_qwen4exp_quant_parity", "tests.test_glm5next_quant_parity", "tests.test_quant_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 99, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (48 qwen4exp + 40 glm5-next + 11 quant_ref)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 99, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (48 qwen4exp + 40 glm5-next + 11 quant_ref)"
+        }
+      }
+    },
+    "gguf-audit": {
+      "pin": "llama.cpp",
+      "driver": "inline in ci.yml: the pinned gguf-py through LLAMA_CPP_GGUF_PY",
+      "modules": ["tests.test_roofline", "tests.test_cachesim", "tests.test_gguf_quant_audit", "tests.test_offline_weights"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 52, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (26 roofline + 14 cachesim + 7 gguf_quant_audit + 5 offline_weights)"
+        }
+      }
+    },
+    "n12-ik-glm5next": {
+      "pin": "ik_llama.cpp",
+      "driver": "tools/tinygen/run_parity_ik_glm5next.sh",
+      "modules": ["tests.test_ik_glm5next_parity"],
+      "expect": {
+        "5194a9e1451b885e24dd5a065f650864e8807c59": {
+          "ran": 43, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md; the same count as N12, docs/evidence/2026-10-11-n12-ik-glm5next-cpu.md"
+        }
+      }
+    }
+  }
+}

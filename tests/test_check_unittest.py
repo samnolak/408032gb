@@ -8,7 +8,11 @@ No dumps needed. Checked here:
     wrong-reason skip, unattributed skip, failure, unknown commit);
   * end to end through the command wrapper on a generated module shaped like the dump-parity tests: complete dumps
     pass, the legitimate pin-dependent skip passes at its pin only, a missing environment, an empty dump directory and
-    a partial dump fail, a failing command keeps its status.
+    a partial dump fail, a failing command keeps its status;
+  * the committed expectations file: well formed, its entry exists for the pin every workflow step runs at
+    (ec7630a in ci.yml, tools/engines/pins.json in parity-r1-pin.yml), every parity step of jobs cpu-parity, parity and
+    ik-glm5next goes through the checker with a known step id, the modules listed per step are the ones the step
+    runs, and the step's real test modules run without their environment are rejected at every pin.
 """
 import io
 import json
@@ -295,6 +299,120 @@ class Wrapper(_Tmp):
             self.assertEqual(C.main(argv), 0)
             self.assertEqual(C.main(argv + ["--commit", SHA_B]), 2)     # disagrees with the pin variable
         self.assertIn("::error::check_unittest: no commit", printed.getvalue())
+
+
+def workflow_steps(path):
+    """(job, step text) for every step of a workflow file; plain text, no YAML library needed."""
+    job, cur, out, in_jobs = None, None, [], False
+    for line in pathlib.Path(path).read_text().splitlines():
+        if line.startswith("jobs:"):
+            in_jobs = True
+            continue
+        if not in_jobs:
+            continue
+        m = re.match(r"^  ([\w-]+):\s*$", line)
+        if m:
+            if cur is not None:
+                out.append((job, "\n".join(cur)))
+            job, cur = m[1], None
+            continue
+        if re.match(r"^      - ", line):
+            if cur is not None:
+                out.append((job, "\n".join(cur)))
+            cur = [line]
+        elif cur is not None:
+            cur.append(line)
+    if cur is not None:
+        out.append((job, "\n".join(cur)))
+    return out
+
+
+PARITY_JOBS = {".github/workflows/ci.yml": ["cpu-parity"],
+               ".github/workflows/parity-r1-pin.yml": ["parity", "ik-glm5next"]}
+
+
+def parity_steps():
+    """(workflow, job, step id, step text) of every step that runs a parity driver or named test modules."""
+    out = []
+    for wf, jobs in PARITY_JOBS.items():
+        for job, text in workflow_steps(ROOT / wf):
+            if job not in jobs:
+                continue
+            if "tools/tinygen/run_parity" in text or re.search(r"-m unittest (?!discover)", text):
+                m = re.search(r"tools/ci/check_unittest\.py --step ([\w-]+)", text)
+                out.append((wf, job, m[1] if m else None, text))
+    return out
+
+
+def driver_modules(text):
+    """The unittest modules a step runs: inline, or on the `python3 -m unittest` line of its driver."""
+    m = re.search(r"(tools/tinygen/run_parity\w*\.sh)", text)
+    src = (ROOT / m[1]).read_text() if m else text
+    lines = re.findall(r"-m unittest ((?:tests\.\w+ ?)+)", src)
+    assert len(lines) == 1, (m and m[1], lines)
+    return lines[0].split()
+
+
+class ExpectationsFile(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.data = C.load_expectations()
+        cls.steps = parity_steps()
+        ci = (ROOT / ".github/workflows/ci.yml").read_text()
+        cls.ci_pin = re.search(r"git -C \.\./llama\.cpp checkout ([0-9a-f]{40})", ci)[1]
+        engines = json.loads((ROOT / "tools/engines/pins.json").read_text())["engines"]
+        cls.r1 = {"llama.cpp": engines["llama.cpp"]["sha"], "ik_llama.cpp": engines["ik_llama.cpp"]["sha"]}
+
+    def test_ci_pin_is_the_agents_md_pin(self):
+        self.assertIn(f"| ggml-org/llama.cpp | {self.ci_pin} |", (ROOT / "AGENTS.md").read_text())
+
+    def test_every_parity_step_goes_through_the_checker(self):
+        self.assertGreaterEqual(len(self.steps), 17)
+        for wf, job, step, text in self.steps:
+            with self.subTest(wf=wf, job=job, step=step):
+                self.assertIsNotNone(step, f"{wf} {job}: a parity step without tools/ci/check_unittest.py:\n{text}")
+                self.assertIn(step, self.data["steps"])
+                st = self.data["steps"][step]
+                self.assertRegex(text, rf"--checkout \.\./{re.escape(st['pin'])} ")
+                if st["driver"].startswith("tools/"):
+                    self.assertIn(st["driver"], text)
+                self.assertEqual(driver_modules(text), st["modules"])
+
+    def test_expectations_exist_for_the_pin_each_step_runs_at(self):
+        used = set()
+        for wf, job, step, _ in self.steps:
+            st = self.data["steps"][step]
+            pin = self.ci_pin if wf.endswith("ci.yml") else self.r1[st["pin"]]
+            used.add(step)
+            with self.subTest(wf=wf, step=step):
+                self.assertIn(pin, st["expect"], f"{step}: no expectations at {pin}")
+        self.assertEqual(used, set(self.data["steps"]), "expectations for steps no workflow runs")
+
+    def test_the_legitimate_mtp_skip_reason_is_the_one_the_test_gives(self):
+        """At ec7630a the N9 driver produces no MTP run; tests/test_glm5next_mtp_parity.py then skips with a reason
+        the expectations must recognize (and nothing else may skip)."""
+        exp = self.data["steps"]["n9-glm5next-decode"]["expect"][self.ci_pin]
+        with tempfile.TemporaryDirectory() as empty:
+            env = clean_env(GLM5NEXT_DECODE_DUMP=empty, GLM5NEXT_MTP_GGUF=os.path.join(empty, "none.gguf"),
+                            LLAMA_CPP_GGUF_PY=empty, PARITY_LLAMA_COMMIT=self.ci_pin)
+            out = subprocess.run([sys.executable, "-m", "unittest", "tests.test_glm5next_mtp_parity", "-v"],
+                                 cwd=ROOT, env=env, capture_output=True, text=True)
+        r = C.parse(out.stdout + out.stderr)
+        self.assertEqual((r["ran"], r["counts"]), (0, {"skipped": 1}), out.stderr[-2000:])
+        C.check(dict(r, ran=exp["ran"]), exp, "n9 skip only")
+
+    def test_real_modules_without_their_environment_fail_at_every_pin(self):
+        """What a broken driver would leave: the step's test modules with no dump / model / gguf-py variables."""
+        for step, st in self.data["steps"].items():
+            out = subprocess.run([sys.executable, "-m", "unittest"] + st["modules"] + ["-v"], cwd=ROOT,
+                                 env=clean_env(), capture_output=True, text=True)
+            with self.subTest(step=step):
+                self.assertEqual(out.returncode, 0, out.stderr[-2000:])   # green on its own: the gap
+                r = C.parse(out.stdout + out.stderr)
+                self.assertGreater(r["counts"].get("skipped", 0), 0)
+                for sha, exp in st["expect"].items():
+                    with self.assertRaises(C.CheckError, msg=f"{step} @ {sha[:7]}"):
+                        C.check(r, exp, step)
 
 
 if __name__ == "__main__":
