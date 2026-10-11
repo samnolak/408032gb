@@ -186,12 +186,12 @@
       "modules": ["tests.test_qwen4exp_multiseq_parity", "tests.test_qwen4exp_rs_guard_parity", "tests.test_qwen4exp_multiseq_ref", "tests.test_qwen4exp_rs_guard_ref"],
       "expect": {
         "ec7630a640789c393694fb194f1bbbf0369fc62d": {
-          "ran": 102, "skipped": [],
-          "source": "N20 run, docs/evidence/2026-10-11-n20-recurrent-rollback-guard.md (patched copy: 9 N19 + 3 N20 runs x 7 dump tests + GuardLog 1 + 9 multiseq_ref + 8 rs_guard_ref)"
+          "ran": 110, "skipped": [],
+          "source": "N20 run, docs/evidence/2026-10-11-n20-recurrent-rollback-guard.md (patched copy: 9 N19 + 4 N20 runs x 7 dump tests + GuardLog 1 + 9 multiseq_ref + 9 rs_guard_ref)"
         },
         "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
-          "ran": 102, "skipped": [],
-          "source": "N20 run, docs/evidence/2026-10-11-n20-recurrent-rollback-guard.md (patched copy: 9 N19 + 3 N20 runs x 7 dump tests + GuardLog 1 + 9 multiseq_ref + 8 rs_guard_ref)"
+          "ran": 110, "skipped": [],
+          "source": "N20 run, docs/evidence/2026-10-11-n20-recurrent-rollback-guard.md (patched copy: 9 N19 + 4 N20 runs x 7 dump tests + GuardLog 1 + 9 multiseq_ref + 9 rs_guard_ref)"
         }
       }
     },

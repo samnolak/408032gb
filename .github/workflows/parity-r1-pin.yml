@@ -22,7 +22,7 @@
 # shared recurrent cell is accepted, padded entries of indexer_pool_k_new share one cell; 79e2e74: one pooled row per rep
 # cell, that rollback refused, every padded entry its own non-rep cell), tools/tinygen/run_parity_qwen4exp_multiseq.sh.
 # N20: the recurrent rollback guard, patches/llama.cpp/79e2e74 applied to a copy of the checkout (patches/llama.cpp/apply.sh,
-# the checkout itself is not touched), the N19 plans and three guard plans on the patched build,
+# the checkout itself is not touched), the N19 plans and four guard plans on the patched build,
 # tools/tinygen/run_parity_qwen4exp_rs_guard.sh (its own build directory: a second CPU build of llama.cpp).
 # CPU only, tiny random-weight models.
 name: parity-r1-pin
