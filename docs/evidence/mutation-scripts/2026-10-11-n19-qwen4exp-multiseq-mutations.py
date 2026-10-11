@@ -5,7 +5,8 @@ Oracle mutants (O*): single-point edits of ref/qwen4exp.py's several-sequence se
 a seq_cp that does not share the recurrent state, off-by-one rollbacks, snapshot planes, the refusal rules, the
 extra-range copy, the cell / stream model, the k-pool sharing and dedupe, the split) and of the test's plan
 expectations; dump mutants (D*): a llama.cpp regression simulated on a copy of the artifacts (probability mass on another
-sequence's cell, the state of another sequence read, a rollback > n_rs_seq accepted, a stale snapshot "fixed").
+sequence's cell, the state of another sequence read, a rollback > n_rs_seq accepted, the kept prefix's state read where
+llama.cpp reads a stale snapshot).
 Every mutant must make tests.test_qwen4exp_multiseq_parity and/or tests.test_qwen4exp_multiseq_ref fail. The repository
 is never edited: ref/, tests/ and tools/tinygen/ are copied into <scratch>/<mutant> and mutated there; the artifacts
 are copied for the dump mutants only.
@@ -117,23 +118,42 @@ def d3_accept(root):
     json.dump(man, open(m, "w"))
 
 
-def d4_fixed_snapshot(root):
-    """stale: the state read after the rollback across calls replaced by the kept prefix's (as if llama.cpp kept the
-    right snapshot): the oracle (B) predicts the stale one, the test expects divergence."""
-    man = json.load(open(os.path.join(root, "stale", "manifest.json")))
+def d4_kept_state(root):
+    """stale: the delta-rule state sequence 0 reads in the first graph after its rollback across calls replaced by the
+    state of its kept 24-token prefix (as if llama.cpp had kept that snapshot); the oracle (B) predicts the stale
+    snapshot, so the test must fail. The kept state is computed by the full-sequence oracle Q.forward on the tokens of
+    the run's first call (the 24 kept ones) and written in ggml's layout (S[i][j] at [j*S_v + i] per head)."""
+    sys.path.insert(0, wt)
+    from ref import qwen4exp as Q
+    from ref.kda import gated_delta_rule
+    from tests import test_qwen4exp_decode_parity as D
+    D.GGUF_PY = os.path.join(llama, "gguf-py")
+    W, hp = D.model(os.path.join(art, "n19", "qwen4exp.gguf"))
+    run = os.path.join(root, "stale")
+    man = json.load(open(os.path.join(run, "manifest.json")))
+    toks = [int(x) for x in open(os.path.join(run, "tokens.txt")).read().split(",")]
+    first, rb = man["calls"][0], man["calls"][3]
+    assert first["parts"] == [{"seq": 0, "n": 24, "pos0": 0, "tok0": 0}], first["parts"]
+    assert rb["kind"] == "seq_rm" and rb["ok"] and rb["p0"] == 24
+    kept = toks[0:24]
+    A = Q.forward(kept, W, hp)
     g = man["calls"][4]["graphs"][0]
-    for name in os.listdir(os.path.join(root, "stale", f"g{g:03d}")):
-        if name.startswith("state_predelta-") and name.endswith(".json"):
-            p = os.path.join(root, "stale", f"g{g:03d}", name[:-5])
-            j, a = load(p)
-            save(p, (a * 0.5).astype(a.dtype))
+    for il in range(hp["n_layer"]):
+        if not hp["recurrent"][il]:
+            continue
+        G = A["layers"][il]["gdn"]
+        st = gated_delta_rule(G["q"], G["k"], G["v"], G["g"], G["beta"], normalize_qk=True, eps=hp["eps"])[1]
+        p = os.path.join(run, f"g{g:03d}", f"state_predelta-{il}__0")
+        j, a = load(p)
+        assert a.size == st.size, (a.size, st.shape)
+        save(p, st.transpose(0, 2, 1).astype(np.float32).reshape(-1))
 
 
 DUMP_MUTANTS = [
     ("D1 llama.cpp puts attention probability on another sequence's cell", d1_leak),
     ("D2 llama.cpp reads another sequence's delta-rule state", d2_wrong_state),
     ("D3 llama.cpp accepts a rollback longer than n_rs_seq", d3_accept),
-    ("D4 llama.cpp reads another state than the stale snapshot after a rollback across calls", d4_fixed_snapshot),
+    ("D4 llama.cpp reads the kept prefix's state, not the stale snapshot, after a rollback across calls", d4_kept_state),
 ]
 
 
