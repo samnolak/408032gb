@@ -989,7 +989,7 @@ FAKE_KV_NAMES = ["CONTEXT_LENGTH:context_length", "EMBEDDING_LENGTH:embedding_le
                  "EXPERT_FEED_FORWARD_LENGTH:expert_feed_forward_length",
                  "ATTENTION_SLIDING_WINDOW:attention.sliding_window", "ROPE_FREQ_BASE_SWA:rope.freq_base_swa",
                  "ATTENTION_SLIDING_WINDOW_PATTERN:attention.sliding_window_pattern",
-                 "ATTENTION_VALUE_SCALE:attention.value_scale"]
+                 "ATTENTION_VALUE_SCALE:attention.value_scale", "CLASSIFIER_ACTIVATION:classifier.activation"]
 
 
 def fake_src(root, pin):
@@ -1002,6 +1002,10 @@ def fake_src(root, pin):
                                     "    ml.get_key(LLM_KV_EMBEDDING_LENGTH,        hparams.n_embd);\n"
                                     "    ml.get_key(LLM_KV_BLOCK_COUNT,             hparams.n_layer_all);\n"
                                     "    ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,    hparams.n_layer_nextn,   false);\n"
+                                    # an optional call in an if condition followed by a statement that ends in ");"
+                                    # (src/llama-model.cpp:1350-1351@79e2e74): not a required key
+                                    "    if (ml.get_key(LLM_KV_CLASSIFIER_ACTIVATION, act_cls, false)) {\n"
+                                    "        const auto it = LLM_CLS_ACT_TYPES_FROM_STRING.find(act_cls);\n    }\n"
                                     "    if (arch == LLM_ARCH_WAVTOKENIZER_DEC) {\n"
                                     "        ml.get_key(LLM_KV_FEATURES_LENGTH,  hparams.n_embd);\n    }\n"
                                     "    load_arch_hparams(ml);\n}\n",
@@ -1086,6 +1090,15 @@ class N18Analyzer(HubCase):
             self.assertEqual(res["MiMoB"]["required_keys"][pin]["missing"], ["mimo2.attention.sliding_window"])
         self.assertIn("keys read without a default", out)
         self.assertIn('{"ffn_down_exps": {"MXFP4": 3}', out)
+        # the other side of the labels: NextN layer 5 without fused qkv and without ffn_gate, no value scale
+        b, off = make_gguf(mimo2_kv(drop=("mimo2.attention.value_scale",)),
+                           [x for x in t if x[0] not in ("blk.5.attn_qkv.weight", "blk.5.ffn_gate.weight")])
+        mc = A.Model([G.summarize(G.parse(b[:off]), b[:off])])
+        brc = {x["id"]: x["real"] for x in A.section_branches(mc, "mimo2", None, {})}
+        self.assertEqual(brc["mimo.mtp_block"], ["MTP layer with a dense FFN", "MTP layer with fused attn_qkv",
+                                                 "MTP layer without a dense FFN (graph_mtp asserts)",
+                                                 "MTP layer without fused attn_qkv (graph_mtp asserts)"])
+        self.assertEqual(brc["mimo.value_scale"], ["no value scale"])
 
     @unittest.skipUnless(GGUF_PY and HAVE_NUMPY, "set LLAMA_CPP_GGUF_PY=<llama.cpp>/gguf-py (and install numpy)")
     def test_mimo2_tiny_exercises_its_own_branches(self):
