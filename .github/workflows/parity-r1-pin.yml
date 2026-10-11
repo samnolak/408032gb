@@ -6,21 +6,24 @@
 # (tests/test_glm5next_decode_parity.py, tests/test_glm5next_mtp_parity.py). N10: the same runs at the R1 default
 # precision of the KV cache and the attention (-ctk f16 -ctv f16 -fa on), tools/tinygen/run_parity_f16fa.sh, and
 # quantized weights (Q8_0, Q4_K_M by the pin's own llama-quantize), tools/tinygen/run_parity_quant.sh.
+# N12 (gap 5): the second GLM engine of R1, ik_llama.cpp at its pin, on the same tiny model written as "glm5next"
+# (job ik-glm5next, in parallel; tools/tinygen/run_parity_ik_glm5next.sh: CPU build of ik + dump tool about 5.5 min on
+# 4 cores, runs and tests about 15 s, measured in the N12 sandbox).
 # CPU only, tiny random-weight models.
 name: parity-r1-pin
 on:
   workflow_dispatch:
   push:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
-            tests/test_glm5next_*.py,
+            tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py,
             tests/f16fa.py, tests/test_fattn_ref.py, tests/test_quant_ref.py,
-            tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/engines/pins.json,
+            tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/ik/**, tools/engines/pins.json,
             .github/workflows/parity-r1-pin.yml]
   pull_request:
     paths: [ref/**, tests/test_glm_tiny_parity.py, tests/test_mimo_tiny_parity.py, tests/test_qwen4exp_*.py,
-            tests/test_glm5next_*.py,
+            tests/test_glm5next_*.py, tests/test_ik_glm5next_parity.py,
             tests/f16fa.py, tests/test_fattn_ref.py, tests/test_quant_ref.py,
-            tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/engines/pins.json,
+            tools/tinygen/**, tools/dump/**, tools/g0/CMakeLists.txt, tools/ik/**, tools/engines/pins.json,
             .github/workflows/parity-r1-pin.yml]
 concurrency:
   group: parity-r1-pin-${{ github.event.pull_request.number || github.ref }}
@@ -54,3 +57,26 @@ jobs:
         run: tools/tinygen/run_parity_f16fa.sh ../llama.cpp ../build-tools
       - name: N10 quantized weights (Q8_0, Q4_K_M by the R1 pin's llama-quantize), qwen4exp and glm5-next products (CPU)
         run: tools/tinygen/run_parity_quant.sh ../llama.cpp ../build-tools
+  ik-glm5next:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: pip install numpy pyyaml
+      - name: llama.cpp at the R1 engine pin (its gguf-py writes and reads the tiny GGUF)
+        run: |
+          SHA=$(python3 -c "import json; print(json.load(open('tools/engines/pins.json'))['engines']['llama.cpp']['sha'])")
+          git init -q ../llama.cpp
+          git -C ../llama.cpp fetch -q --depth 1 https://github.com/ggml-org/llama.cpp "$SHA"
+          git -C ../llama.cpp checkout -q FETCH_HEAD
+          git -C ../llama.cpp rev-parse HEAD
+      - name: ik_llama.cpp at its R1 engine pin (tools/engines/pins.json)
+        run: |
+          SHA=$(python3 -c "import json; print(json.load(open('tools/engines/pins.json'))['engines']['ik_llama.cpp']['sha'])")
+          git init -q ../ik_llama.cpp
+          git -C ../ik_llama.cpp fetch -q --depth 1 https://github.com/ikawrakow/ik_llama.cpp "$SHA"
+          git -C ../ik_llama.cpp checkout -q FETCH_HEAD
+          git -C ../ik_llama.cpp rev-parse HEAD
+      - name: N12 ik_llama.cpp glm5next parity on CPU (prefill, ubatches, decode, dense, f16 indexer cache, -fa on f16)
+        run: LLAMA_CPP_GGUF_PY=../llama.cpp/gguf-py tools/tinygen/run_parity_ik_glm5next.sh ../ik_llama.cpp ../build-ik
