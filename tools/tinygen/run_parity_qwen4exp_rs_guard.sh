@@ -11,6 +11,10 @@
 #   tests.test_qwen4exp_multiseq_ref, tests.test_qwen4exp_rs_guard_ref   the oracle's own properties (numpy only)
 # QWEN4EXP_RS_GUARD_MODE=upstream builds against the checkout as given (it must not carry the patch) and runs the same
 # plans and tests without QWEN4EXP_RS_GUARD: the tests then expect the pin's own (silently wrong) behaviour.
+# QWEN4EXP_RS_GUARD_MODE=combined builds against the checkout as given, which must be at the pin (HEAD) and carry the N20
+# patch AND every patch named in QWEN4EXP_RS_GUARD_EXTRA_PATCHES (space-separated paths, e.g. the N21
+# patches/llama.cpp/0001-mtp-heads-slot-replay.patch), checked with `git apply --reverse --check`; plans and tests as in
+# patched mode (CI job n20-n21-combined of parity-r1-pin.yml: N20 and N21 on one copy).
 # Usage:
 #   tools/tinygen/run_parity_qwen4exp_rs_guard.sh <llama.cpp checkout @ec7630a or @79e2e74> [build dir]
 # One build dir per mode (the patched copy and the checkout are different llama.cpp source trees).
@@ -29,13 +33,19 @@ case "$MODE" in
     LLAMA=${QWEN4EXP_RS_GUARD_SRC:-$BUILD-src}
     bash "$ROOT/patches/llama.cpp/apply.sh" "$SRC" "$LLAMA"
     GUARD=1 ;;
+  combined)
+    for P in "$PATCH" ${QWEN4EXP_RS_GUARD_EXTRA_PATCHES:-}; do
+      git -C "$SRC" apply --reverse --check "$P" || { echo "combined mode: $SRC does not carry $P" >&2; exit 1; }
+    done
+    LLAMA=$SRC
+    GUARD=1 ;;
   upstream)
     if git -C "$SRC" apply --reverse --check "$PATCH" 2>/dev/null; then
       echo "QWEN4EXP_RS_GUARD_MODE=upstream: $SRC carries the N20 patch" >&2; exit 1
     fi
     LLAMA=$SRC
     GUARD=0 ;;
-  *) echo "QWEN4EXP_RS_GUARD_MODE must be patched or upstream" >&2; exit 1 ;;
+  *) echo "QWEN4EXP_RS_GUARD_MODE must be patched, combined or upstream" >&2; exit 1 ;;
 esac
 echo "mode $MODE: llama.cpp $SHA, sources $LLAMA ($(git -C "$LLAMA" diff --stat | tail -n 1 | sed 's/^ *//'))"
 cmake -S "$ROOT/tools/g0" -B "$BUILD" -DLLAMA_CPP_DIR="$LLAMA" -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF >/dev/null
