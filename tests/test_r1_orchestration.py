@@ -217,7 +217,9 @@ class Plans(unittest.TestCase):
                ("owned-flag", lambda c: c["steps"]["matrix"]["runs"][0]["args"].extend(["--url", "x"]), "--url"),
                ("stop-disabled", lambda c: c["steps"].update(engine_stop={"enabled": False}), "engine_stop"),
                ("bad-mode", lambda c: c["mode"].update(overlap="maybe"), "mode.overlap"),
-               ("typo-key", lambda c: c.update(stpes={}), "stpes")]
+               ("typo-key", lambda c: c.update(stpes={}), "stpes"),
+               ("help-codes", lambda c: c["engine"].update(help_ok_codes=[]), "engine.help_ok_codes"),
+               ("help-code-type", lambda c: c["engine"].update(help_ok_codes=["one"]), "engine.help_ok_codes[0]")]
         for name, edit, needle in bad:
             with self.subTest(case=name):
                 code, out = run_main(["--config", write_config(self.tmp, name, edit), "--out", self.root, "--plan"])
@@ -418,6 +420,25 @@ class FailurePaths(unittest.TestCase):
         self.assertEqual((rj["status"], rj["exit_code"]), ("completed_with_failures", 1))
         self.assertEqual(rj["step_states"]["weights_verify"], "failed")
         self.assertNotEqual(rj["pack"]["overall"], "PASS")
+
+    def test_help_exit_code_is_checked_against_help_ok_codes(self):
+        # ik_llama.cpp's llama-server prints its usage to stdout and exits 1 on --help (common/common.cpp:2716-2719 and
+        # 1016-1019, examples/server/server.cpp:480-482 @5194a9e; N12): its template lists 1 in engine.help_ok_codes
+        help1 = [PY, "-c", "import sys; print('usage: llama-server [options]'); print('  --port N'); sys.exit(1)"]
+        for codes, want in ((None, "failed"), ([0, 1], "ok")):
+            with self.subTest(help_ok_codes=codes):
+                def edit(c):
+                    c["engine"]["help_argv"] = help1
+                    if codes is not None:
+                        c["engine"]["help_ok_codes"] = codes
+                self.root = os.path.join(self.tmp, "runs-%s" % want)
+                code, out, e = self.run_cfg(write_config(self.tmp, "help-%s" % want, edit), "--only", "engine_version")
+                self.assertEqual(e["engine_version[help]"]["status"], want, out)
+                self.assertEqual(e["engine_version[help]"]["exit_code"], 1)
+                self.assertEqual(code, 1 if want == "failed" else 0, out)
+                with open(os.path.join(self.run_dir, "artifacts", "engine", "help.txt")) as f:
+                    self.assertIn("usage: llama-server", f.read())
+                self.run_dir = None
 
     def test_health_timeout_fails_cleanly_and_kills_a_stubborn_engine(self):
         def edit(c):

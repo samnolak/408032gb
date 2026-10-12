@@ -1,5 +1,5 @@
 {
-  "_label": "PROVISIONAL template, NOT RUN on the 4x4080 server. ik_llama.cpp llama-server, GLM-5.3-Flash UD-Q4_K_XL (architecture string glm5next, which ik_llama loads: docs/reassessment/research/R2-engines.md:137). Flags are those of the command that ran on the 3x3090 host (scripts/run-glm-3090-1gpu.sh:29-34; PROBLEMS.md:105, pp 166.8 / tg 15.0 tok/s on 1x3090 there, REPORTED), changed for 4 GPUs: -sm layer and -ts instead of -sm none, -t/--threads-batch for the 48-core EPYC 7H43, KV f16 (ADR-012 D5) instead of q8_0. ik_llama's -sm graph does not support glm5next (R2-engines.md:116). Check every flag against `llama-server --help` of the ik_llama build on the server (artifacts/engine/flags_check.json); whether /tokenize, ignore_eos/n_predict and /slots match mainline is UNKNOWN (BENCH_PROTOCOL.md section 6).",
+  "_label": "PROVISIONAL template, NOT RUN on the 4x4080 server. ik_llama.cpp llama-server, GLM-5.3-Flash UD-Q4_K_XL (architecture string glm5next, which ik_llama loads: docs/reassessment/research/R2-engines.md:137). Flags are those of the command that ran on the 3x3090 host (scripts/run-glm-3090-1gpu.sh:29-34; PROBLEMS.md:105, pp 166.8 / tg 15.0 tok/s on 1x3090 there, REPORTED), changed for 4 GPUs: -sm layer and -ts instead of -sm none, -t/--threads-batch for the 48-core EPYC 7H43, KV f16 (ADR-012 D5) instead of q8_0. ik_llama's -sm graph does not support glm5next (R2-engines.md:116). Check every flag against `llama-server --help` of the ik_llama build on the server (artifacts/engine/flags_check.json); N12 ran this pin's CPU build with a tiny glm5next GGUF (CONFIRMED there, docs/evidence/2026-10-11-n12-ik-glm5next-cpu.md on branch claude/n12-ik-glm5next-cpu; not re-run here): /tokenize gives llama.cpp's ids but ignores with_pieces; ignore_eos and n_predict work; /v1/completions logprobs use llama.cpp's layout (what logprob_compare reads), /completion n_probs the old one; on a CPU build -ngl/-sm/-ts are absent from --help and -ts fails with one device (irrelevant on the GPU server). --help prints the usage to stdout and exits 1 (common/common.cpp:2716-2719 and 1016-1019, examples/server/server.cpp:480-482 @5194a9e, read here), hence help_ok_codes [0, 1]. For B1: ik does not compute the same function as llama.cpp's glm5-next (SwiGLU clamp after vs before SiLU, DSA tail slots padded with cell 0, indexer LayerNorm eps, expert_group_count not read for glm5next; N12), so differences between the two engines are expected even with correct kernels.",
   "_notes": {
     "experiment": "B1 row 'ik_llama.cpp, the same GGUF' (docs/reassessment/EXPERIMENTS.md); ik_llama pin 5194a9e (R2-engines.md:66)",
     "IK_BIN": "bin/ of the ik_llama.cpp build of scripts/engines/build_engine.py (/srv/llm/engines/current-ik_llama -> /srv/llm/engines-build/ik_llama.cpp); the commit is engine.pin = tools/engines/pins.json[ik_llama.cpp] (5194a9e14); step engine_build_check compares ${IK_BIN}/../build-info.json with the pin (sha, sm_89 cubins, sha256 of every built file) and does not start the engine on a mismatch. Build: python3 scripts/engines/build_engine.py --engine ik_llama.cpp --arch 89 --src-root /srv/llm/engines-src --build-root /srv/llm/engines-build",
@@ -9,7 +9,8 @@
     "bpw": "experts 4.89 / dense 8.04 (PROVISIONAL, docs/reassessment/ROOFLINE.md table 2 for GLM UD-Q4_K_XL); replace with this run's quant_audit.json",
     "mode": "overlap no (as llama.cpp: tools/roofline.py decode() docstring), miss cpu (-ncmoe: the CPU computes its layers' experts)",
     "THREADS": "PROVISIONAL: 48 physical cores of the EPYC 7H43 (AGENTS.md); the 3090 host used -t 96 --threads-batch 90 on its own CPU",
-    "supports_slots": "false: ik_llama's /slots save/restore API is UNKNOWN (R2-engines.md:116 lists slot checkpoints flushed to disk); set true after checking --help and the API"
+    "supports_slots": "false: on the CPU build /slots save and restore work once --slot-save-path is given, and restoring the save of an EMPTY slot crashes the server (GGML_ASSERT src/llama.cpp:11739 @5194a9e; N12, reproduced twice there); slot_persist saves only after a completion. Add --slot-save-path ${SLOT_DIR} and set true after a check on the GPU build",
+    "INDEXER_KV_TYPE": "the DSA indexer K-cache has its own type (-ictk, default f16 whatever -ctk is: common/common.h:495, common/common.cpp:2035-2037 @5194a9e); set it with KV_TYPE when K2 is meant to cover the indexer cache"
   },
   "name": "ik-llamacpp-glm53f",
   "vars": {
@@ -18,6 +19,7 @@
     "CTX": "262144",
     "TENSOR_SPLIT": "1,1,1,1",
     "KV_TYPE": "f16",
+    "INDEXER_KV_TYPE": "f16",
     "NCMOE": "17",
     "THREADS": "48",
     "THREADS_BATCH": "48",
@@ -35,10 +37,11 @@
     "build_info": "${IK_BIN}/../build-info.json",
     "argv": ["${IK_BIN}/llama-server", "-m", "${MODEL}", "--host", "${HOST}", "--port", "${PORT}",
              "--ctx-size", "${CTX}", "--parallel", "1", "--jinja", "-ngl", "999", "-sm", "layer", "-ts", "${TENSOR_SPLIT}",
-             "-ncmoe", "${NCMOE}", "-fa", "on", "--dsa", "-ctk", "${KV_TYPE}", "-ctv", "${KV_TYPE}",
+             "-ncmoe", "${NCMOE}", "-fa", "on", "--dsa", "-ctk", "${KV_TYPE}", "-ctv", "${KV_TYPE}", "-ictk", "${INDEXER_KV_TYPE}",
              "-t", "${THREADS}", "--threads-batch", "${THREADS_BATCH}", "-b", "2048", "-ub", "1024", "-muge"],
     "version_argv": ["${IK_BIN}/llama-server", "--version"],
     "help_argv": ["${IK_BIN}/llama-server", "--help"],
+    "help_ok_codes": [0, 1],
     "env": {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
     "health": {"url": "http://${HOST}:${PORT}/health", "timeout_s": "${HEALTH_TIMEOUT_S}", "interval_s": 5,
                "expect_status": 200},
