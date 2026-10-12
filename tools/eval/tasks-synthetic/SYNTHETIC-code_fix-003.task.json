@@ -1,0 +1,17 @@
+{
+  "id": "SYNTHETIC-code_fix-003",
+  "category": "code_fix",
+  "synthetic": true,
+  "description": "SYNTHETIC: package layout with tests/ directory; reference diff has an off line number in the hunk header.",
+  "messages": [
+    {"role": "system", "content": "You are a careful software engineer working in a Python repository."},
+    {"role": "user", "content": "Bug report: Stock.remove lets a caller take more units than are in stock. Fix it.\n\nRepository files:\n{{fixture_tree}}\n\ninventory/stock.py:\n```python\n{{file:inventory/stock.py}}```\n\ntests/test_stock.py:\n```python\n{{file:tests/test_stock.py}}```\n\n{{answer_protocol}}"}
+  ],
+  "fixture": "fixtures/inventory",
+  "check": {
+    "type": "code_tests",
+    "command": ["{python}", "-m", "unittest", "discover", "-s", "tests", "-t", ".", "-q"],
+    "timeout_s": 30
+  },
+  "reference_answer": {"file": "reference/SYNTHETIC-code_fix-003.md"}
+}

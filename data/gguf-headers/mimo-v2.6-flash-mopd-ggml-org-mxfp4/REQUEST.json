@@ -1,0 +1,14 @@
+{
+ "_doc": "N18 (b): the mimo2 GGUF of ggml-org for llama.cpp mainline, MXFP4 (2 shards: metadata-only 00001 of 5948640 B, tensors 00002 of 167363516512 B). Names and revision come from the committed listing third_party/gguf-headers/discover-mimo/LISTING.json:420, 428, 433 (ggml-org/MiMo-V2.6-Flash-MOPD-GGUF @e6d4bced739310a721eefad4c247ec7e0247c89d). The MOPD variant matches the vendored config (data/gguf-headers/mimo-v2.6-flash-config/, copy of bot commit 1ce4d32). Headers only, by Range reads (scripts/gguf_headers_fetch.py). docs/reassessment/CORRECTNESS.md gap 9.",
+ "repo": "ggml-org/MiMo-V2.6-Flash-MOPD-GGUF",
+ "revision": "e6d4bced739310a721eefad4c247ec7e0247c89d",
+ "files": ["MiMo-V2.6-Flash-MOPD-MXFP4-0000?-of-00002.gguf"],
+ "expect_count": 2,
+ "max_header_bytes": 33554432,
+ "initial_bytes": 262144,
+ "analysis": {
+  "graph": "mimo2",
+  "tiny": "mimo2",
+  "hf_config": "data/gguf-headers/mimo-v2.6-flash-config/config.json"
+ }
+}

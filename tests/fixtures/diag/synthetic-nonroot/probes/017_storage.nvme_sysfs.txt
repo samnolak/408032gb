@@ -1,0 +1,17 @@
+===== PROBE =====
+name: storage.nvme_sysfs
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: not-run
+requires: /sys/class/nvme
+timeout_s: 120
+runner: (not run)
+===== COMMAND =====
+bash /synthetic/scripts/diag/probes_sysfs.sh nvme
+===== STDOUT =====
+===== STDERR =====
+===== RESULT =====
+exit_code: not-run
+duration_s: 0.010
+status: not-available
+note: not found: /sys/class/nvme

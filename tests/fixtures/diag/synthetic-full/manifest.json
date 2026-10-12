@@ -1,0 +1,760 @@
+{
+ "kit": "408032gb scripts/diag",
+ "kit_version": 1,
+ "schema": 1,
+ "synthetic": true,
+ "synthetic_note": "SYNTHETIC TEST FIXTURE - NOT EVIDENCE; see tests/fixtures/diag/README.md",
+ "run_state": "completed",
+ "hostname": "synthetic-fixture-synthetic-full",
+ "started_utc": "2026-01-01T00:00:00Z",
+ "finished_utc": "2026-01-01T00:00:00Z",
+ "argv": "scripts/diag/collect.sh",
+ "uid": 0,
+ "user": "root",
+ "is_root": true,
+ "assume_nonroot_test_hook": false,
+ "sudo": "not-requested",
+ "net_check": false,
+ "timeout_s": 120,
+ "have_timeout_cmd": true,
+ "path": "/usr/bin:/bin",
+ "kit_dir": "/synthetic/scripts/diag",
+ "counts": {
+  "ok": 42,
+  "failed": 0,
+  "not-available": 0,
+  "needs-root": 0,
+  "skipped": 1
+ },
+ "probes": [
+  {
+   "seq": 1,
+   "name": "meta.kit_git",
+   "category": "meta",
+   "command": "git -C /synthetic log -1 --format='%H %cI %s' && git -C /synthetic status --short -- .",
+   "requires": [
+    "git"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/001_meta.kit_git.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 2,
+   "name": "system.uname",
+   "category": "system",
+   "command": "uname -a",
+   "requires": [
+    "uname"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/002_system.uname.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 3,
+   "name": "system.os_release",
+   "category": "system",
+   "command": "cat /etc/os-release",
+   "requires": [
+    "/etc/os-release"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/003_system.os_release.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 4,
+   "name": "system.virt",
+   "category": "system",
+   "command": "systemd-detect-virt || [ $? -eq 1 ]",
+   "requires": [
+    "systemd-detect-virt"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/004_system.virt.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 5,
+   "name": "system.cpuinfo_hypervisor_flag",
+   "category": "system",
+   "command": "grep -m1 -c -w hypervisor /proc/cpuinfo || [ $? -eq 1 ]",
+   "requires": [
+    "/proc/cpuinfo"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/005_system.cpuinfo_hypervisor_flag.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 6,
+   "name": "system.dmesg_filtered",
+   "category": "system",
+   "command": "out=$(dmesg -T) || exit $?\n...",
+   "requires": [
+    "dmesg"
+   ],
+   "root_mode": "partial",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/006_system.dmesg_filtered.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 7,
+   "name": "system.proxmox_pveversion",
+   "category": "system",
+   "command": "pveversion -v",
+   "requires": [
+    "pveversion"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/007_system.proxmox_pveversion.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 8,
+   "name": "system.proxmox_qm_config",
+   "category": "system",
+   "command": "for id in $(qm list | awk 'NR > 1 {print $1}'); do echo \"== VM $id\"; qm config \"$id\"; done",
+   "requires": [
+    "qm"
+   ],
+   "root_mode": "root",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/008_system.proxmox_qm_config.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 9,
+   "name": "cpu.lscpu",
+   "category": "cpu",
+   "command": "lscpu",
+   "requires": [
+    "lscpu"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/009_cpu.lscpu.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 10,
+   "name": "cpu.lscpu_parse",
+   "category": "cpu",
+   "command": "lscpu -p=CPU,CORE,SOCKET,NODE",
+   "requires": [
+    "lscpu"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/010_cpu.lscpu_parse.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 11,
+   "name": "cpu.flags",
+   "category": "cpu",
+   "command": "flags=$(grep -m1 -E '^flags' /proc/cpuinfo)\n...",
+   "requires": [
+    "/proc/cpuinfo"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/011_cpu.flags.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 12,
+   "name": "cpu.numactl_hardware",
+   "category": "cpu",
+   "command": "numactl -H",
+   "requires": [
+    "numactl"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/012_cpu.numactl_hardware.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 13,
+   "name": "cpu.cpufreq_sysfs",
+   "category": "cpu",
+   "command": "bash /synthetic/scripts/diag/probes_sysfs.sh cpufreq",
+   "requires": [
+    "/sys/devices/system/cpu"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/013_cpu.cpufreq_sysfs.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 14,
+   "name": "memory.meminfo",
+   "category": "memory",
+   "command": "cat /proc/meminfo",
+   "requires": [
+    "/proc/meminfo"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/014_memory.meminfo.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 15,
+   "name": "memory.hugepages",
+   "category": "memory",
+   "command": "bash /synthetic/scripts/diag/probes_sysfs.sh hugepages",
+   "requires": [
+    "/sys/kernel/mm"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/015_memory.hugepages.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 16,
+   "name": "memory.ulimit_l",
+   "category": "memory",
+   "command": "ulimit -l",
+   "requires": [],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/016_memory.ulimit_l.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 17,
+   "name": "memory.dmidecode_16_17",
+   "category": "memory",
+   "command": "dmidecode -t 16,17",
+   "requires": [
+    "dmidecode"
+   ],
+   "root_mode": "root",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/017_memory.dmidecode_16_17.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 18,
+   "name": "board.dmidecode_0_1_2_3",
+   "category": "board",
+   "command": "dmidecode -t 0,1,2,3",
+   "requires": [
+    "dmidecode"
+   ],
+   "root_mode": "root",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/018_board.dmidecode_0_1_2_3.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 19,
+   "name": "board.dmidecode_38_ipmi",
+   "category": "board",
+   "command": "dmidecode -t 38",
+   "requires": [
+    "dmidecode"
+   ],
+   "root_mode": "root",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/019_board.dmidecode_38_ipmi.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 20,
+   "name": "bmc.ipmitool_mc_info",
+   "category": "bmc",
+   "command": "ipmitool -I open mc info",
+   "requires": [
+    "ipmitool",
+    "/dev/ipmi0|/dev/ipmi/0|/dev/ipmidev/0"
+   ],
+   "root_mode": "root",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/020_bmc.ipmitool_mc_info.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 21,
+   "name": "bmc.ipmitool_sdr",
+   "category": "bmc",
+   "command": "ipmitool -I open sdr list",
+   "requires": [
+    "ipmitool",
+    "/dev/ipmi0|/dev/ipmi/0|/dev/ipmidev/0"
+   ],
+   "root_mode": "root",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/021_bmc.ipmitool_sdr.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 22,
+   "name": "bmc.ipmitool_sel",
+   "category": "bmc",
+   "command": "ipmitool -I open sel list",
+   "requires": [
+    "ipmitool",
+    "/dev/ipmi0|/dev/ipmi/0|/dev/ipmidev/0"
+   ],
+   "root_mode": "root",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/022_bmc.ipmitool_sel.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 23,
+   "name": "pcie.sysfs_links",
+   "category": "pcie",
+   "command": "bash /synthetic/scripts/diag/probes_sysfs.sh pci-links",
+   "requires": [
+    "/sys/bus/pci/devices"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/023_pcie.sysfs_links.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 24,
+   "name": "pcie.iommu_groups",
+   "category": "pcie",
+   "command": "bash /synthetic/scripts/diag/probes_sysfs.sh iommu",
+   "requires": [
+    "/sys/kernel/iommu_groups"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/024_pcie.iommu_groups.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 25,
+   "name": "pcie.iommu_cmdline",
+   "category": "pcie",
+   "command": "grep -oE '...' /proc/cmdline || [ $? -eq 1 ]",
+   "requires": [
+    "/proc/cmdline"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/025_pcie.iommu_cmdline.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 26,
+   "name": "pcie.lspci_vvv_all",
+   "category": "pcie",
+   "command": "lspci -vvv -nn",
+   "requires": [
+    "lspci"
+   ],
+   "root_mode": "partial",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/026_pcie.lspci_vvv_all.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 27,
+   "name": "gpu.nvidia_smi",
+   "category": "gpu",
+   "command": "nvidia-smi",
+   "requires": [
+    "nvidia-smi"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/027_gpu.nvidia_smi.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 28,
+   "name": "gpu.topo_matrix",
+   "category": "gpu",
+   "command": "nvidia-smi topo -m",
+   "requires": [
+    "nvidia-smi"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/028_gpu.topo_matrix.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 29,
+   "name": "gpu.topo_p2p_r",
+   "category": "gpu",
+   "command": "nvidia-smi topo -p2p r",
+   "requires": [
+    "nvidia-smi"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/029_gpu.topo_p2p_r.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 30,
+   "name": "gpu.topo_p2p_w",
+   "category": "gpu",
+   "command": "nvidia-smi topo -p2p w",
+   "requires": [
+    "nvidia-smi"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/030_gpu.topo_p2p_w.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 31,
+   "name": "gpu.query_csv",
+   "category": "gpu",
+   "command": "nvidia-smi --query-gpu=index,name,pci.bus_id,memory.total,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current,pcie.link.width.max,clocks.max.memory,power.limit,temperature.gpu,vbios_version --format=csv",
+   "requires": [
+    "nvidia-smi"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/031_gpu.query_csv.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 32,
+   "name": "gpu.q_memory",
+   "category": "gpu",
+   "command": "nvidia-smi -q -d MEMORY",
+   "requires": [
+    "nvidia-smi"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/032_gpu.q_memory.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 33,
+   "name": "gpu.compute_apps",
+   "category": "gpu",
+   "command": "nvidia-smi --query-compute-apps=pid,process_name,used_memory,gpu_bus_id --format=csv",
+   "requires": [
+    "nvidia-smi"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/033_gpu.compute_apps.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 34,
+   "name": "gpu.proc_driver_nvidia",
+   "category": "gpu",
+   "command": "bash /synthetic/scripts/diag/probes_sysfs.sh nvidia-proc",
+   "requires": [
+    "/proc/driver/nvidia"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/034_gpu.proc_driver_nvidia.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 35,
+   "name": "storage.nvme_sysfs",
+   "category": "storage",
+   "command": "bash /synthetic/scripts/diag/probes_sysfs.sh nvme",
+   "requires": [
+    "/sys/class/nvme"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/035_storage.nvme_sysfs.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 36,
+   "name": "storage.nvme_smart_log.nvme0",
+   "category": "storage",
+   "command": "nvme smart-log /dev/nvme0",
+   "requires": [
+    "nvme",
+    "/dev/nvme0"
+   ],
+   "root_mode": "root",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/036_storage.nvme_smart_log.nvme0.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 37,
+   "name": "storage.block_queues",
+   "category": "storage",
+   "command": "bash /synthetic/scripts/diag/probes_sysfs.sh block",
+   "requires": [
+    "/sys/block"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/037_storage.block_queues.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 38,
+   "name": "storage.mdstat",
+   "category": "storage",
+   "command": "cat /proc/mdstat",
+   "requires": [
+    "/proc/mdstat"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/038_storage.mdstat.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 39,
+   "name": "software.nvcc",
+   "category": "software",
+   "command": "nvcc --version",
+   "requires": [
+    "nvcc"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/039_software.nvcc.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 40,
+   "name": "software.gcc",
+   "category": "software",
+   "command": "gcc --version",
+   "requires": [
+    "gcc"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/040_software.gcc.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 41,
+   "name": "software.cuda_libraries",
+   "category": "software",
+   "command": "ldconfig -p | grep -E '...' || [ $? -eq 1 ]",
+   "requires": [
+    "ldconfig"
+   ],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/041_software.cuda_libraries.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 42,
+   "name": "software.llm_tools",
+   "category": "software",
+   "command": "for b in ...; do ...; done",
+   "requires": [],
+   "root_mode": "none",
+   "run_as": "root",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/042_software.llm_tools.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 43,
+   "name": "network.internet_check",
+   "category": "network",
+   "command": "curl ...",
+   "requires": [],
+   "root_mode": "none",
+   "run_as": "not-run",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": null,
+   "duration_s": 0.01,
+   "output_file": "probes/043_network.internet_check.txt",
+   "status": "skipped",
+   "note": "off by default; enable with --net-check"
+  }
+ ]
+}

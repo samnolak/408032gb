@@ -1,0 +1,33 @@
+{
+ "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+ "revision": "38bb39ee97821de2c9009abb7e93950eec396e66",
+ "glob": "UD-Q4_K_XL/*",
+ "files": [
+  {
+   "path": "UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+   "size": 10946624,
+   "sha256": "4448186216b3af4cc558bbce2c3213f01608f8f8b2e5267a9767971dd3ec8082",
+   "git_oid": null
+  },
+  {
+   "path": "UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf",
+   "size": 49859583136,
+   "sha256": "3f342f1c1580473f1ee94ddd5b28206e8c07a70fa1a366f59d1d6c922919a6c9",
+   "git_oid": null
+  },
+  {
+   "path": "UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf",
+   "size": 49376141504,
+   "sha256": "56758f40269cad5cd9b0d3d6fbae0f40f6d5be6de49e4ab392dbe83157d9cbd3",
+   "git_oid": null
+  },
+  {
+   "path": "UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf",
+   "size": 12087983520,
+   "sha256": "753bda48b98ba4f1636134a90a967de1b2d3908a236c026e464777342e53510a",
+   "git_oid": null
+  }
+ ],
+ "total_bytes": 111334654784,
+ "_label": "PROVISIONAL: sizes and sha256 transcribed from Strata docs/UNSLOTH_Q4.md:50-57 @fb58e0dbc8399662c0e47c76578c6e878b14f6cf (not from the HF API); regenerate with `weights.py manifest` on a machine with internet before trusting"
+}

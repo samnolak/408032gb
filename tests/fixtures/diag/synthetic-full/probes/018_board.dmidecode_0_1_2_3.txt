@@ -1,0 +1,46 @@
+===== PROBE =====
+name: board.dmidecode_0_1_2_3
+started_utc: 2026-01-01T00:00:00Z
+root_mode: root
+run_as: root
+requires: dmidecode
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+dmidecode -t 0,1,2,3
+===== STDOUT =====
+# dmidecode 3.4
+Getting SMBIOS data from sysfs.
+SMBIOS 3.3.0 present.
+
+Handle 0x0000, DMI type 0, 26 bytes
+BIOS Information
+	Vendor: SYNTHETIC BIOS VENDOR
+	Version: SYNTH-0.1
+	Release Date: 01/01/2026
+	ROM Size: 32 MB
+
+Handle 0x0001, DMI type 1, 27 bytes
+System Information
+	Manufacturer: SYNTHETIC
+	Product Name: SYNTHETIC-SYSTEM
+	Version: 0.0
+	Serial Number: SYNTH-SN
+
+Handle 0x0002, DMI type 2, 15 bytes
+Base Board Information
+	Manufacturer: SYNTHETIC
+	Product Name: SYNTHETIC-BOARD
+	Version: 0.0
+	Serial Number: SYNTH-BOARD-SN
+
+Handle 0x0003, DMI type 3, 22 bytes
+Chassis Information
+	Manufacturer: SYNTHETIC
+	Type: Rack Mount Chassis
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

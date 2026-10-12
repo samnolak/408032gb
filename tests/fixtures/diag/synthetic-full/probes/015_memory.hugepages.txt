@@ -1,0 +1,22 @@
+===== PROBE =====
+name: memory.hugepages
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: /sys/kernel/mm
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+bash /synthetic/scripts/diag/probes_sysfs.sh hugepages
+===== STDOUT =====
+scope	size	nr_hugepages	free_hugepages	resv_hugepages	surplus_hugepages
+global	1048576kB	0	0	0	0
+global	2048kB	0	0	0	0
+thp_enabled: always [madvise] never
+thp_defrag: always defer defer+madvise [madvise] never
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

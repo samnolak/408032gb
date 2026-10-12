@@ -1,0 +1,959 @@
+# CORRECTNESS — инвентарь инфраструктуры проверки корректности (2026-10-10)
+
+Роль: parity-qa (deliverable F). Документ перечисляет **все** существующие сегодня проверки по шести уровням, которые задал
+заказчик, — что именно сравнивается, с каким допуском, на какой архитектуре, в какой ветке и каков текущий статус с
+доказательством; затем — проверки, ждущие GPU/сервер, и пробелы, которые можно закрыть на CPU уже сейчас.
+Метки — по `AGENTS.md` «Evidence rules»: **CONFIRMED** (файл:строка@коммит или литеральный вывод из раздела 4), **PROVISIONAL**
+(как получено), **UNKNOWN**, **NOT RUN**. Ничего не исполнялось на GPU.
+
+## 0. Источники и как проверялось
+
+| ветка | рабочее дерево | HEAD при проверке | что в ней сверх других |
+|---|---|---|---|
+| `claude/research-landscape` | `/home/user/wt-research` | `a2c1815` (первый прогон набора — на `7e534c9` + тогда ещё не закоммиченный `tests/test_merge_matrix.py`; второй и шаги `cpu-parity` — на `a2c1815`) | всё PR #1 + исследования, `tools/ceilings/`, `scripts/traces/smoke_tiny.sh` (шаг CI с qwen3moe), `tools/research/` |
+| `claude/n7-server-hybrid-cpu` | `/home/user/408032gb` | `090ca71` (первый прогон набора — на `986519a`, до слияния PR #1) | N7: `tools/srvcheck/`, `.github/workflows/server-cpu.yml`, `glm5next_tiny.py --mtp` |
+| `claude/n8-session-store` | `/home/user/wt-n8` | `43c2171` (первый прогон набора и шаги `server-cpu` — на `ebecad4`; затем влиты N7 и PR #1) | N7 + N8: `tools/kv/session_store.py`, `slot_corruption_probe.py`, шаг N8 в `server-cpu` |
+
+Общая база research и n7/n8 — `b6f4fe3` (коммит PR #1); n7 и n8 во время инвентаризации влили голову PR #1 `259081e`, которой в
+research нет (CONFIRMED: `git merge-base`, `git merge-base --is-ancestor`, раздел 4.1).
+Ссылки вида `ci.yml:NN` — на `.github/workflows/ci.yml`@a2c1815 (на n7/n8 файл тот же, кроме шага qwen3moe, `ci.yml:36-39`);
+`server-cpu.yml` есть только на n7/n8, ссылки — @ebecad4.
+
+Статусы CI взяты из GitHub API (`gh run list`, `gh run view --json jobs`, аннотации check-run; литерально — 4.2). Логи заданий
+через прокси песочницы недоступны (`failed to get run log: … Forbidden`), поэтому из CI цитируются только статусы шагов и аннотации.
+Локальные прогоны (4.3–4.5) — песочница: Intel Xeon 4 ядра (AVX2 и AVX-512 есть, сборка ggml с `GGML_NATIVE=OFF` даёт путь AVX2
+без AVX-512), Python 3.13.16, numpy 2.5.3, без GPU, без nvcc, без torch.
+
+**Итог по уровням** (число проверок — строк таблиц раздела 1; одна строка = один шаг CI или один ручной инструмент):
+
+| уровень | проверок | из них исполняются в CI | исполнено на целевом железе | статус |
+|---|---|---|---|---|
+| 1. математика (оракулы против эталона) | 12 | 11 (1 — ручной эталон DeepSeek) | — | CI зелёный; повторено локально 10 из 11 автоматических (L1-11 — частично, без torch) |
+| 2. CPU-функциональные (настоящий граф/движок на CPU) | 9 | 9 (L2-3 — workflow `traces-real`, последний завершённый прогон — failure, повтор идёт) | — | CI зелёный, кроме L2-3; повторено локально L2-1, L2-2, L2-4, L2-5 |
+| 3. компиляция CUDA | 6 | 5 (L3-1 пустой по построению; L3-5 в CI пропускается) | — | CI зелёный |
+| 4. исполнение CUDA | 0 | 0 | 0 | **NOT RUN** (GPU нет нигде, где мы исполняем) |
+| 5. производительность GPU | 0 | 0 | 0 | **NOT RUN** |
+| 6. производительность на целевой машине | 0 | 0 | 0 | **NOT RUN** (R0 не начат) |
+
+Плюс опорные тесты инструментов (mock/синтетика, не уровень). Полный набор `unittest` на HEAD при написании: research 522, n7 461,
+n8 479 — везде OK, по 86 пропусков (76 — тесты паритета без дампов, их гоняют отдельные шаги; причины — 4.3).
+
+**Главное.**
+1. Проверки уровней 1–3 в CI зелёные (кроме `traces-real`, L2-3); автоматические проверки уровня 1 и L2-1, L2-2, L2-4, L2-5
+   повторены здесь же на CPU с теми же числами, что в evidence (CONFIRMED, 4.3–4.5).
+   Уровни 4–6 — **NOT RUN**: GPU нет ни в песочнице, ни на раннерах, к серверу доступа нет; собственного GPU-кода у проекта нет
+   (шаг `cuda-compile` пуст по построению).
+2. Все сверки оракулов с графом llama.cpp сделаны на пине `ec7630a`, а продукт пойдёт на `79e2e74`. Проба этой инвентаризации:
+   на `79e2e74` G1/MiMo/N2 проходят, N6 — 52/54 (падают только сравнения строк-заполнителей индексера; всё значимое совпадает)
+   (CONFIRMED, 4.7). На момент инвентаризации в CI такой проверки не было — пробел 1; закрыт в тот же день (workflow
+   `parity-r1-pin.yml`, N6 54/54 на `79e2e74`, `docs/evidence/2026-10-10-parity-r1-pin.md`).
+3. Ни одна проверка не касается квантованных весов, KV f16 и flash attention — а именно так будет работать сервер (пробелы 2–3);
+   для GLM нет сверки декода, отката и MTP (пробел 4; закрыт на CPU в N9, статус ниже).
+
+## 1. Шесть уровней проверки
+
+Обозначения: «CI» — последний прогон GitHub Actions, который виден через `gh run list`/`gh run view` (раздел 4.2); «локально» —
+прогон этой инвентаризации в песочнице (раздел 4.3–4.5). Числа тестов — `def test_` в файле (статический подсчёт на research `a2c1815` и n8 `ebecad4`; CONFIRMED `grep -cE '^\s+def test_'`),
+если не сказано иначе. Метрика паритета во всех тестах G1/N2/N6 —
+нормированная относительная ошибка `max|got − want| / max|want|` по тензору (`tests/test_glm_tiny_parity.py:68`@a2c1815,
+`tests/test_mimo_tiny_parity.py:32`@a2c1815, `TOL = 1e-4` в `tests/test_qwen4exp_tiny_parity.py:38`@a2c1815). Эталонный
+прогон llama.cpp — всегда f32-веса, f32-кэши, flash attention выключен (`-fa off -ctk f32 -ctv f32`:
+`tools/tinygen/run_parity.sh:16`, `run_parity_mimo.sh:13`, `run_parity_qwen4exp.sh:17`@a2c1815).
+
+Последние прогоны CI, на которые ссылаются колонки «статус» (CONFIRMED: `gh run list`/`gh run view`, раздел 4.2; «in_progress» —
+на момент проверки 2026-10-10T20:16Z):
+
+| ветка / workflow | `ci` | `server-cpu` | прочее |
+|---|---|---|---|
+| research `a2c1815` | 38081953672 (push) и 38081957679 (PR) — success, все 6 джобов и все шаги success | — (workflow в ветке нет) | `traces-real`: 38076798213 (`8981351`) — failure; 38079738013 (`7a0bf02`) — in_progress (шаг 8 из 9) |
+| n7 `986519a` → `090ca71` | 38076450758 (`986519a`) и 38082292627 (`090ca71`, после слияния PR #1) — success | 38076450727 (`986519a`, push) и 38082295327 (`090ca71`, PR) — success | — |
+| n8 `ebecad4` → `43c2171` | 38081791581 (`ebecad4`) и 38082626725 (`43c2171`) — success | 38081791575 (`ebecad4`, push; job `n7` 114300045445: все шаги success) и 38082629418 (`43c2171`, PR) — success; 38082585007 (`750fe3d`, PR) — cancelled (вытеснен следующим push) | — |
+| `engines-sm89` | — | — | последний: 38080354794 (`claude/relaxed-dijkstra-1d7i5o` = голова PR #1 `259081e`) — success, 4 из 4 движков; перед ним 38076515851 (`ca1d2a7`) — success |
+
+### Уровень 1 — математическая корректность (оракулы numpy/torch против эталона)
+
+| id | проверка | файл / CI (workflow → job → step) | что с чем сравнивается, допуск | архитектура | ветки | статус |
+|---|---|---|---|---|---|---|
+| L1-1 | свойства оракула KDA/GDN | `tests/test_kda.py` (7); `ci` → `cpu-parity` → `unit tests` (`ci.yml:17-18`) | `ref/kda.py` против частных случаев: KDA с постоянным по каналам гейтом = скалярный GDN, разрез последовательности с переносом состояния = целая, матричная форма, ассоциативная память, плиточное отображение голов `h % H_k`, l2-норма = форма llama.cpp; rtol 1e-12…1e-6 | KDA (glm5-next), GDN (qwen4exp) | все три | CI зелёный; локально в составе полного набора (4.3) |
+| L1-2 | оракул KDA против **настоящей** операции ggml | `tests/test_kda_vs_ggml.py` (3) + `tests/ggml_parity/gdn_harness.c`; `ci` → `cpu-parity` → `ggml delta-net parity (CPU)` (`ci.yml:19-25`) | выход и конечное состояние `ggml_gated_delta_net` (CPU, llama.cpp `ec7630a`) против `ref/kda.py`: гейт по каналам, скалярный гейт, геометрия голов GLM; `rtol 1e-4, atol 1e-5` (`tests/test_kda_vs_ggml.py:54-55`) | KDA/GDN | все три | CI зелёный; локально 18/18 OK (вместе с `test_fitplan`, 4.4) |
+| L1-3 | свойства роутера, SwiGLU-clamp, mHC | `tests/test_router_mhc.py` (6); `unit tests` | bias только выбирает, но не взвешивает; сумма весов = 2.5; clamp до активации; Sinkhorn: по src точно (1e-5), по dst ≤ 0.05 | glm5-next | все три | CI зелёный; локально (4.3) |
+| L1-4 | **G1 GLM**: оракулы против дампов графа `glm5-next` | `tests/test_glm_tiny_parity.py` (8) ← `tools/tinygen/run_parity.sh`; `ci` → `cpu-parity` → `G1 tiny-model parity against the real glm5-next graph (CPU)` (`ci.yml:26-27`) | крошечная модель 12 слоёв (KDA на 9, DSA на 3, MoE на 11, 8 экспертов top-2, clamp 0.5), 64 токена, **один ubatch префилла**. Тензоры (имена `cb()`): `hc_post`, `hc_comb`, `hc_attn_pre`, `hc_attn_post` (1e-5); `kda_g1`, `kda_{q,k,v}_conv` (1e-5); `kda_scan_out` (1e-4); `indexer_k`, `indexer_pool_k_new`, `indexer_q`, `indexer_score` (1e-4); `kq_mask_dsa` — выбор с допуском ничьих; `q_resid`, `q_absorbed`, `kv_cmpr` (1e-5); `kqv_out`, `attn_out` (1e-4); `ffn_moe_topk` (равенство множеств), `ffn_moe_weights_scaled` (Δ ≤ 1e-5, `:137`), `ffn_moe_swiglu_limited` (1e-5, clamp срабатывает). Сквозных логитов, общего эксперта, `ffn_out`, выхода — нет | glm5-next @ec7630a | все три | CI зелёный; локально 8/8 OK; тест ошибок не печатает — сняты вспомогательным скриптом: худшая rel 5.323e-07 (`hc_comb`, слой 10), все ≥ 18× внутри допусков (4.4) |
+| L1-5 | **G1 MiMo**: оракулы против графа `mimo2` | `tests/test_mimo_tiny_parity.py` (5) ← `run_parity_mimo.sh`; `ci` → `cpu-parity` → `MiMo G1 tiny-model parity against the real mimo2 graph (CPU)` (`ci.yml:28-29`) | 6 слоёв (глобальные 0 и 5, SWA 1–4 с окном 8), 40 токенов: `Qcur`/`Kcur` до и после частичного NEOX RoPE (1e-5); `kqv_out`, `attn_out` со SWA + sinks + GQA (1e-5); страж «без sinks ошибка > 1e-3»; `ffn_moe_topk`, `ffn_moe_weights_norm` (Δ ≤ 1e-5); `ffn_moe_swiglu` (1e-5) | mimo2 @ec7630a | все три | CI зелёный; локально 5/5 OK (4.4) |
+| L1-6 | свойства оракула qwen4exp | `tests/test_qwen4exp_ref.py` (16); `unit tests` | сведение к известным случаям и алгебраические тождества (`ref/qwen4exp.py`) | qwen4exp | все три | CI зелёный; локально (4.3) |
+| L1-7 | **N2 qwen4exp**: компоненты + сквозной прогон | `tests/test_qwen4exp_tiny_parity.py` (17) ← `run_parity_qwen4exp.sh`; `ci` → `cpu-parity` → `N2 qwen4exp (candidate 1) tiny-model parity …` (`ci.yml:30-31`) | 8 слоёв (GDN 0–2, 4–6; PLE на 1; QSA 3; плотное внимание 7; MoE + общий эксперт везде), 64 токена с EOS; каждый компонент из дампов + оракул от id токенов: `l_last` всех слоёв, `result_norm`, логиты; TOL 1e-4, копии (эмбеддинг, строки PLE) и id — точно; таблица max abs/rel по слоям печатается | qwen4exp @ec7630a | все три | CI зелёный; локально 17/17 OK, худшая — логиты 7.439e-07 (4.4) |
+| L1-8 | инкрементальный путь оракула qwen4exp | `tests/test_qwen4exp_chunked_ref.py` (8); `unit tests` и шаг N6 | куски (несколько ubatch, по одному токену) = целая последовательность; откат `cache_truncate` = состояние префикса; допуск 1e-10 | qwen4exp | все три | CI зелёный; локально (4.3, 4.4) |
+| L1-9 | **N6 qwen4exp**: несколько ubatch, декод, откат | `tests/test_qwen4exp_decode_parity.py` (10 × 4 прогона = 40) ← `run_parity_qwen4exp_decode.sh`; `ci` → `cpu-parity` → `N6 qwen4exp several ubatches, token-by-token decode, rollback and MTP …` (`ci.yml:32-33`) | прогоны `ub16`, `ub10`, `decode` (48 + 16×1), `rollback` (`n_rs_seq` 3, черновик 4, откат 2); каждая строка каждого графа против полного оракула [full] и инкрементального [chunk], плюс переносимое состояние: `conv_state_at`, `state_predelta`, `new_state`, `indexer_k`; TOL 1e-4 | qwen4exp @ec7630a | все три | CI зелёный; локально 54/54 OK (вместе с L1-8, L1-10), худшая 5.422e-06 (`rollback final_output`, 4.4) |
+| L1-10 | **N6 MTP-блок** | `tests/test_qwen4exp_mtp_parity.py` (6), тот же шаг | MTP-контекст (`nextn_predict_layers` = 1) как в `common/speculative.cpp` против `mtp_forward_chunk`; цепочка черновика = argmax оракула; TOL 1e-4 | qwen4exp @ec7630a | все три | CI зелёный; локально OK, худшая 1.577e-06 (`hc_inject`, 4.4) |
+| L1-11 | **DFlash2**: оракул против исполняемого кода vLLM | `tests/test_dflash2_ref.py` (7: 5 по определению + 2 против vLLM); `ci` → `ref-torch-cpu` → `DFlash2 oracle against the vendored vLLM functions` (`ci.yml:42-58`; шаг падает, если тесты пропущены, `:57`) | `grouped_conv`, `score_edges` против `_grouped_conv`, `_score_edges` из `third_party/vllm-dflash2` (vLLM `bc21cba`), torch на CPU, 1e-12; `selector_walk`, `context_kv` — только против своего определения (PROVISIONAL, `docs/evidence/2026-10-03-dflash2-oracle.md:46-47`) | драфтер DFlash2 для GLM | все три | CI зелёный (аннотация `Ran 7 tests … OK torch 2.14.1+cpu`, 4.2); локально 2 из 7 пропущены — torch в песочнице нет |
+| L1-12 | эталон DeepSeek-V4.1 на CPU | `tools/ds41/run_reference.py`, `check_decode_consistency.py`; теста в `tests/` и шага CI **нет** | неизменённый `model.py` (HF `2cba9e4`) на крошечной модели с CPU-оверлеем ядер; numpy-оракул `ref/ds41.py` НЕ НАПИСАН | deepseek-v4.1 | все три (файлы) | разовый ручной прогон 2026-10-02 (`docs/evidence/2026-10-02-deepseek-ref-cpu.md`); сейчас NOT RUN (нет torch) |
+
+### Уровень 2 — CPU-функциональные проверки (настоящий граф llama.cpp или движок на CPU)
+
+Прогоны L1-2, L1-4, L1-5, L1-7, L1-9, L1-10 тоже исполняют настоящий граф llama.cpp на CPU, но их критерий — числа оракула,
+поэтому они учтены на уровне 1.
+
+| id | проверка | файл / CI | что проверяется, критерий | архитектура | ветки | статус |
+|---|---|---|---|---|---|---|
+| L2-1 | трассировщик маршрутизации + симулятор кэша | `tools/g0/run_trace_smoke.sh`; `ci` → `cpu-parity` → `G0 per-token routing tracer + cache simulator on the tiny glm5-next model (CPU smoke)` (`ci.yml:34-35`) | 5 промптов × 300 id + 40 сгенерированных; часть трассы для промпта = трасса без генерации; `cachesim.py` отрабатывает | glm5-next @ec7630a | все три | CI зелёный; локально `trace checks OK: 5 files …` (4.4) |
+| L2-2 | трассировка и проба на qwen3moe | `scripts/traces/smoke_tiny.sh`; `ci` → `cpu-parity` → `G0 trace + probe on a tiny qwen3moe …` (`ci.yml:36-39`); `traces-real` → step 7 | промпты длиннее батча; самопроверки `predict_eval`: логиты роутера пересчитаны из GGUF, правило выбора, строки пробы = строки трассы; маршрутизация `-b 64` = `-b 1` на ≥ 99% строк | qwen3moe @ec7630a | только research | CI зелёный (`ci` на research); локально `router_logits_max_rel_err` 2.7e-4, `-b 64 vs -b 1: 2334/2340` (4.4) |
+| L2-3 | трассы реальных прокси-моделей на CPU | `.github/workflows/traces-real.yml`, `scripts/traces/run_real_traces.sh` | трассы и пробы для GGUF Qwen3-Coder-30B-A3B и GLM-4.7-Flash (sha256 против LFS-хэша HF); функциональная, не числовая проверка | qwen3moe, deepseek2 | research | run 38076798213 — failure (трасса не записана; причина и исправление — `docs/evidence/2026-10-10-traces-real-fix.md`); run 38079738013 — in_progress на момент проверки (шаг 7 smoke — success, шаг 8 — идёт) |
+| L2-4 | **N7: настоящий llama-server пина R1** | `tools/srvcheck/run_n7.sh` → `hybrid_server_checks.py`; `server-cpu` → `n7` → `N7 llama-server checks on tiny qwen4exp and glm5-next (CPU)` (`server-cpu.yml:34-35`@ebecad4) | llama.cpp `79e2e74`, CPU; крошечные qwen4exp и glm5-next (+ MTP-блок): детерминизм, продолжение промпта, расхождение внутри кэша, `--cache-reuse`, сохранение/восстановление слота (+ рестарт), два слота одновременно (сервер сообщает оба занятыми), MTP = обычный жадный декод; PASS = те же токены и \|Δ log-prob\| ≤ 1e-3 по общим top-5 (`--tol`, `hybrid_server_checks.py:386`@ebecad4). Гейт (f32, FA off) обязан пройти; прогон с настройками по умолчанию — характеризация | qwen4exp, glm5-next @79e2e74 | n7, n8 | CI зелёный (n8 `ebecad4`, n7 `986519a`); локально воспроизведено (4.5): гейт `all_pass: true` на обеих архитектурах; с настройками по умолчанию glm5-next — `all_pass: false` (`prefix_extend` 0.0267, `isolation` 1.1e-3/1.9e-3 при тех же токенах), как в evidence N7 находка 7 |
+| L2-5 | **N8: повреждённые файлы слотов** | `tools/kv/slot_corruption_probe.py`; `server-cpu` → `n7` → `N8 corrupted slot files - raw llama-server vs tools/kv/session_store.py (CPU)` (`server-cpu.yml:36-42`@ebecad4) | 13 повреждений на модель (флип бита в байте / в экспоненте f32, обрезка): сырой restore против `session_store.py`; ожидание — хранилище отвергает каждый повреждённый файл и после отказа даёт эталонные токены | qwen4exp, glm5-next @79e2e74 | n8 | CI зелёный (`ebecad4`); локально воспроизведено (4.5): сырой сервер принял 26/26, у 5 изменились токены (у одного log-prob = null), хранилище отвергло 26/26 (24 по sha256, 2 по размеру) и после отказа дало эталонные токены |
+| L2-6 | дисковый ярус базы A на Linux | `tests/strata_glm/run_diskreader_test.sh`; `ci` → `strata-glm-sm89` → `Linux disk tier (patch 0003) functional test, CPU` (`ci.yml:99-101`) | `DiskReader` (патч 0003, O_DIRECT) на настоящих файлах | база A (strata-glm) | все три | CI зелёный (оба arch); локально NOT RUN (нет исходников strata-glm в песочнице) |
+| L2-7 | бинарник базы A (sm_89) стартует без GPU и проверяет флаги | `ci` → `strata-glm-sm89` → `new flags are validated before any CUDA call (no GPU needed)` (`ci.yml:138-152`) | 4 неверных сочетания `--layer-split`/`--gpus`/неизвестный флаг → код 2 и сообщение до первого вызова CUDA | база A | все три | CI зелёный (аннотации `ok: … -> 2`, 4.2) |
+| L2-8 | CPU-тесты базы B | `ci` → `lt-strata-sm89` → `CPU-only tests of the fork (GGUF reader, model description)` (`ci.yml:209-223`) | `gguf_reader_test`, `model_test` форка | база B (lt-Strata) | все три | CI зелёный (аннотации `100% tests passed`, 4.2) |
+| L2-9 | открывает ли база B нашу крошечную GLM-GGUF | `ci` → `lt-strata-sm89` → `probe - does base B open our tiny GLM GGUF …` (`ci.yml:224-241`, никогда не роняет джоб) | `strata-model-inspect` на `glm5next`/`glm5-next` | glm5next, glm5-next | все три | CI: exit 1 для обоих диалектов (`missing or invalid integer glm5next.expert_group_count`, `unsupported architecture glm5-next`) — несовместимость задокументирована, проверкой корректности не является |
+
+### Уровень 3 — компиляция CUDA
+
+| id | проверка | файл / CI | что проверяется | ветки | статус |
+|---|---|---|---|---|---|
+| L3-1 | свои ядра под sm_89 | `ci` → `cuda-compile` → `compile kernels for sm_89` (`ci.yml:59-72`) | `nvcc -arch=sm_89 -c kernels/*.cu`; каталога `kernels/` нет → `no kernels yet`, exit 0 (`ci.yml:70-71`) — **зелёный по построению**, своего GPU-кода нет | все три | CI зелёный (пусто) |
+| L3-2 | база A: strata-glm `ed37419` + патчи 0001–0006 | `ci` → `strata-glm-sm89` (матрица 89, 86; `ci.yml:73-137`) | конфигурация, сборка, `cuobjdump --list-elf` содержит `sm_89`/`sm_86` | все три | CI зелёный: `strata-glm build OK, 69 CUDA objects`, `cubin archs: 26 sm_89` (4.2) |
+| L3-3 | база B: lighttransport/Strata `e486a95` | `ci` → `lt-strata-sm89` (`ci.yml:154-208`) | сборка `strata-glm-decode` и тестов, cubin sm_89 | все три | CI зелёный: `lt-strata build OK, 62 CUDA objects`, `cubin archs: 18 sm_89` (4.2) |
+| L3-4 | движки R1 по пинам | `engines-sm89` → `build` (матрица `llama.cpp`, `ik_llama.cpp`, `strata`, `exllamav3`; `engines-sm89.yml:20-64`) | `scripts/engines/build_engine.py --arch 89`, проверка cubin sm_89, `build-info.json` | запускается только на PR/`main` при изменении путей движков (`engines-sm89.yml:8-14`) — на ветках research/n7/n8 не запускался | последний зелёный: run 38080354794 (`claude/relaxed-dijkstra-1d7i5o`, `259081e`): `llama.cpp 79e2e74eb110 sm_89 ok`, `ik_llama.cpp 5194a9e1451b sm_89 ok`, `strata fb58e0dbc839 sm_89 ok`, `exllamav3 151539c77abc sm_89 ok` (4.2) |
+| L3-5 | CUDA-программы диагностики R0 | `tests/test_diag_kit.py` `CudaCompile.test_compile_sm89` (`:557`) | `nvcc -arch=sm_89` для `scripts/diag/gpu_p2p_matrix.cu`, `gpu_vram_check.cu` | все три | **пропускается** без nvcc: в джобе `cpu-parity` nvcc нет, в песочнице тоже; последний литеральный `ok` — nvcc 13.4 (`docs/evidence/2026-10-09-tool-mutations.md`, раздел «scripts/diag: сборка CUDA-программ») |
+| L3-6 | ручные сборки в песочнице | evidence | llama.cpp `79e2e74`, CUDA 13.4, 144 cubin sm_89 (`docs/evidence/2026-10-10-engines-build.md`); ExLlamaV3 из офлайн-набора, 167 cubin sm_89 (`docs/evidence/2026-10-10-offline-engine-kit.md:120-125`); `src/glm/*.cu` базы A, nvcc 13.4 (`docs/evidence/2026-10-02-strata-glm-sm89.md:5-16`) | — | CONFIRMED по evidence; сейчас не повторялось (nvcc в песочнице нет) |
+
+### Уровень 4 — исполнение CUDA: NOT RUN
+
+Ни одна проверка не исполнялась на sm_89: GPU нет ни в песочнице (`/dev/nvidia*` отсутствует, `nvidia-smi`/`nvcc` не найдены —
+раздел 4.6), ни на раннерах GitHub (во всех workflow — «no GPU on the runner», например `ci.yml:63`, `engines-sm89.yml:2-3`), а
+доступа к серверу из облака нет (`PROJECT_STATE.md:27`@a2c1815). Единственные исполнения на GPU — у оператора стенда
+3×RTX 3090 (sm_86): strata-glm на синтетическом паке, `--layer-split 14,25,35 --gpus 0,0,0,0` побайтно равен единому движку,
+ярус RAM побайтно равен дисковому, ik_llama.cpp на реальном UD-Q4_K_XL — **PROVISIONAL** (замеры чужого хоста, не повторены;
+`docs/evidence/2026-10-03-3090-review.md:23-31`); к целевым картам и к нашим проверкам отношения не имеют. Что готово для уровня 4 —
+раздел 2.2.
+
+### Уровень 5 — производительность GPU: NOT RUN
+
+Своих замеров скорости на GPU нет. Числа 3090-стенда (декод 19.7 tok/s на синтетическом паке, ik_llama.cpp tg 15.0 / pp 166.8,
+база A 13.89 tok/s) — PROVISIONAL/REPORTED (`docs/evidence/2026-10-03-3090-review.md:30-31`, `EVIDENCE_MATRIX.md` E29, E32);
+синтетический пак как ориентир снят (E54). Инструменты (`tools/bench/`, `tools/roofline.py`, `vs_roofline.py`) проверены только на
+mock — ниже, «Опорные тесты».
+
+### Уровень 6 — производительность на целевой машине: NOT RUN
+
+R0–R6 на сервере не начинались: ни одна строка `ROADMAP.md:15-70`@a2c1815 не выполнена на сервере (статусы — NOT RUN, «сделано на mock / в песочнице», «ожидает»),
+`HARDWARE_FACTS.md` F1–F20 — UNKNOWN, verification pack не собран (`VERIFICATION_PACK.md:3`). Что нужно запустить — раздел 2.1 и 2.3.
+
+### Опорные тесты инструментов (не проверяют модель; mock, заглушки, синтетика)
+
+Эти тесты гарантируют, что измерительные и эксплуатационные инструменты уровней 5–6 сами не врут (в том числе мутационными
+проверками в `docs/evidence/2026-10-09-tool-mutations.md` и последующих), но ни один из них не исполнял настоящий движок на GPU.
+Все входят в шаг `unit tests` (`ci.yml:17-18`); тесты N7/N8 — ещё и в `server-cpu` → `harness tests against a stand-in server`
+(`server-cpu.yml:26-27`@ebecad4).
+
+| область | файлы (число `def test_`) | против чего |
+|---|---|---|
+| стенд бенчмарков, пробы 262K, замер vs граница | `test_bench` (38), `test_vs_roofline` (3) | `tools/bench/mock_server.py` |
+| сравнение распределений токена, слоты | `test_logprob_compare` (6), `test_slot_persist` (5) | заглушки OpenAI / llama-server |
+| стенд N7 и хранилище сессий N8 | `test_srvcheck` (18 на n7, 19 на n8), `test_n7_report` (3, n7/n8), `test_session_store` (17 на `ebecad4`, n8) | `tests/fixtures/srvcheck/stub_llama_server.py` с внесёнными неисправностями |
+| шлюз, оценочный стенд | `test_gateway` (29), `test_eval` (34), `test_eval_via_gateway` (3) | mock-сервер, скриптованный агент |
+| оркестрация R1, verification pack | `test_r1_orchestration` (23), `test_verify_pack` (19) | mock-движок, синтетические артефакты (вердикт mock = NOT RUN) |
+| модели скорости и ёмкости | `test_roofline` (26), `test_fitplan` (15), `test_tier_cost` (26, только research), `test_arch_ceilings` (30, только research) | опубликованные размеры, свойства формул |
+| маршрутизация и кэш (инструменты) | `test_cachesim` (14), `test_g0_analyze` (4), `test_predict_eval` (12, только research) | синтетические трассы |
+| веса, движки, диагностика | `test_gguf_quant_audit` (7), `test_offline_weights` (5), `test_offline_engines` (9 на research, 10 на n7/n8), `test_engines_build` (13), `test_diag_kit` (33) | заголовки GGUF, локальный Range-сервер, фейковые репозитории, заглушки системных утилит |
+| процесс | `test_hooks` (21), `test_team_config` (5), `test_merge_matrix` (19, только research), `test_repo_backup` (4, n7/n8 после слияния PR #1) | временные репозитории, файлы `.claude/` |
+
+## 2. Проверки, которые ждут GPU или сервер
+
+Ниже — всё, что нельзя выполнить без целевых карт или самого сервера (диск, RAM, драйвер, веса на NVMe). Колонка «инструмент»
+называет только то, что лежит в репозитории; где его нет — «tool missing». Все строки — **NOT RUN** (на сервере не запускалось
+ничего: `ROADMAP.md:16-18`, `PROJECT_STATE.md:27`@a2c1815 — CONFIRMED чтением). Пороги взяты из документов-источников; их метки
+(CONFIRMED / PROVISIONAL) — как в источнике.
+
+### 2.1 Факты о железе (R0) — уровень 6
+
+| # | что проверит | готовый инструмент / команда | входы | критерий PASS | гейт / строка |
+|---|---|---|---|---|---|
+| B1 | F1–F20: CPU/AVX, NUMA, DIMM, PCIe, GPU, NVMe, ПО, сеть | `scripts/diag/collect.sh --sudo` → `scripts/diag/summarize.py --json` | доступ к серверу, `sudo -n` | каждая строка `HARDWARE_FACTS.md` CONFIRMED или UNKNOWN с причиной; в pack: `synthetic=false`, обязательные факты `tools/verify/criteria.default.json` `hw_required_facts` (V8) | R0.2, R0.3 (`ROADMAP.md:16-17`); H1, H8 (`EXPERIMENTS.md:30,37`) |
+| B2 | каналы DDR4 и полоса RAM | `scripts/diag/bench_mem.sh` (`membw.c`) через `bench_all.sh` | — | факт; ожидание 8 каналов ≈ 140–170 ГБ/с triad, < 90 ГБ/с → 4 канала или NPS (PROVISIONAL, `EXPERIMENTS.md:31`) | H2; E3, E43 |
+| B3 | реальные 32 GB VRAM на каждой карте | `scripts/diag/bench_gpu.sh --run --vram-check` (`gpu_vram_check.cu`) | 4 GPU без нагрузки | 0 ошибок шаблонов на 4 картах (`EXPERIMENTS.md:32`) | H3; F10 |
+| B4 | полоса памяти карты (D2D) | `bench_gpu.sh --run` (`gpu_p2p_matrix.cu`) | — | ожидание ≥ 600 ГБ/с (PROVISIONAL, `EXPERIMENTS.md:33`) | H4; F11 |
+| B5 | PCIe Gen/ширина, H2D/D2H по одной и всем картам сразу | `bench_gpu.sh --run [--numa-node N]` + опрос `nvidia-smi` | — | x16 Gen4 ≈ 24–26 ГБ/с; одновременная H2D 4 карт падает ≤ 20% (`EXPERIMENTS.md:34`) | H5; F12, F13 |
+| B6 | P2P: разрешён ли, полоса и латентность D2D | `gpu_p2p_matrix` (`cudaDeviceCanAccessPeer`, `enable_peer`, `d2d_*`, `lat_d2d_peer`) | — | факт (есть/нет); без P2P — цена host-staged обмена (`EXPERIMENTS.md:35`) | H6; F14; условие R4.1 |
+| B7 | NVMe: модель, SMART, линк, p99 4K QD1, IOPS QD32, ГБ/с, масштаб 1→4 | `scripts/diag/bench_nvme.sh` (fio, O_DIRECT, только чтение) | тестовый каталог на каждом NVMe | факт (`EXPERIMENTS.md:36`) | H7; F15, F16 |
+| B8 | настройки BIOS по шагам с повтором F4–F6, F9, F12–F14 | tool missing (только `BIOS_PLAN.md`, ручной журнал) | физический доступ | журнал «до/после» | R0.4 (`ROADMAP.md:18`) |
+| B9 | all-reduce 8–64 КБ на 4 картах, с P2P и без | tool missing (в репозитории нет NCCL-теста; колесо `nvidia-nccl-cu13` есть только в офлайн-наборе ExLlamaV3, `scripts/offline/engines.py:38`) | — | латентность p50/p99; гипотеза «≤ 30 мкс на слой» (`EXPERIMENTS.md:90`) | R4.1 (`ROADMAP.md:52`); P2 |
+
+### 2.2 Движок на GPU: запуск и корректность (уровень 4)
+
+| # | что проверит | готовый инструмент / команда | входы | критерий PASS | гейт / строка |
+|---|---|---|---|---|---|
+| B10 | движки собираются **на сервере** его драйвером и стартуют | `python3 scripts/offline/engines.py verify <kit>`; `python3 scripts/engines/build_engine.py --engine <e> --arch 89 --offline-kit <kit>`; `<bin> --version` | офлайн-набор (`docs/evidence/2026-10-10-offline-engine-kit.md`) | `build-info.json` sha = `tools/engines/pins.json`, cubin sm_89, бинарник запускается с драйвером сервера (совместимость CUDA 13 с драйвером — UNKNOWN, `HW_DIAG_RUNBOOK.md:224-226`) | R1.4 (`ROADMAP.md:27`); DEPLOY P2 |
+| B11 | функциональные проверки N7 на CUDA-сборке llama-server: детерминизм, префикс, чекпойнты, `--cache-reuse`, слоты с рестартом, два слота, MTP = обычный декод; падение первого MTP-графа (N6 находка 12) на GPU | `python3 tools/srvcheck/hybrid_server_checks.py --server <CUDA llama-server> --model … --mtp-model … --extra "<флаги> -ngl 999"` (`hybrid_server_checks.py:379-389`@ebecad4 принимает любой бинарник и флаги); драйвер `run_n7.sh` собирает только CPU-версию — GPU-вариант драйвера missing | крошечные GGUF из `tools/tinygen` | гейт N7: те же токены и \|Δ log-prob\| ≤ 1e-3 по общим top-5 при f32-кэшах и FA off; MTP без падения | R1.4/R1.5 (предусловие); S1; `docs/evidence/2026-10-10-n7-server-hybrid-cpu.md` «Not covered» |
+| B12 | оракулы `ref/` против дампов **CUDA-бэкенда** (тензоры `cb(…)` как в G1/N2/N6) | `tools/dump/dump_tensors.cpp` (параметры через `common_params_parse`, `-ngl` работает: `dump_tensors.cpp:219`) + сборка `tools/g0` с `-DGGML_CUDA=ON` (`tools/g0/CMakeLists.txt:2-3`); скрипты `run_parity*.sh` конфигурируют только CPU, допуски для CUDA (f16/bf16-аккумуляция, ничьи top-k: G1 находка 5) не заданы — tool partially missing | крошечные GGUF | допуск на GPU — UNKNOWN, задать до прогона; выбор DSA/QSA — «любой допустимый top-k» | нет строки в ROADMAP (старые G2/G3, `docs/PLAN.md:13-14`) — пробел, см. разд. 3 |
+| B13 | шум «тот же GGUF: CPU против GPU» в llama.cpp — калибровка порога точной маршрутизации | `python3 tools/quality/logprob_compare.py --ref <CPU llama-server> --cand <GPU llama-server> --corpus … --prefixes 200 --top-k 20` | реальный GGUF, корпус | заменяет PROVISIONAL порог top-1 ≥ 0.97 измеренным (`criteria.default.json` `_notes.top1_agreement_min`) | V6; R2.1 |
+| B14 | ядра базы A (strata-glm `src/glm/*.cu`) против эталонов и FP32-эталона автора `tools/glm_ref.py` | tool missing у нас (`scripts/gpu_day.sh` check1–check3 сравнивает только токены 1 GPU / 4 стадии / 4 GPU; помечен SUPERSEDE: `LEGACY_AUDIT.md:35`, NVFP4-чекпойнт отменён ADR-010, шаг build требует интернет) | NVFP4-пак (конвертера GGUF→pack нет) | токены `--layer-split 14,25,35 --gpus 0,1,2,3` = единый движок; логиты — UNKNOWN | B1a (`EXPERIMENTS.md:45`); база A заморожена с условием разморозки (ADR-012 D4) |
+| B15 | GPU-тесты базы B (`glm_parity`, `glm_prefill_parity` форка) | ctest форка; в CI собираются только CPU-тесты (`ci.yml:193`) | GPU + модель | по тестам форка | база B заморожена (E30) — справочно |
+| B16 | ExLlamaV3 `151539c` грузится и считает на sm_89 | колесо из `engines-sm89` / офлайн-набора; шаблона R1 для ExLlamaV3/TabbyAPI нет — tool missing | EXL3 ≥ 4.0 bpw (квантование на сервере) | см. B5 эксперимента | B5 (`EXPERIMENTS.md:49`) |
+
+### 2.3 Измерения R1–R5 на сервере (уровни 5–6) и сдача (R6)
+
+| # | что проверит | готовый инструмент / команда | входы | критерий PASS | гейт / строка |
+|---|---|---|---|---|---|
+| B17 | целостность весов | `scripts/offline/weights.py verify <manifest> --dest <nvme>` | веса шорт-листа на NVMe | sha256 и размер каждого файла = манифест ревизии (V2) | R1.3 (`ROADMAP.md:26`) |
+| B18 | ≥ 4 бит у экспертов и прочих матриц | `python3 tools/gguf_quant_audit.py --json <shard-1>` | реальные GGUF | ни одного тензора < 4.0 bpw, нет неизвестных типов (V1) | R1.2 (`ROADMAP.md:25`); Q1 |
+| B19 | ячейка R1 одной командой (старт движка, матрица, пробы, аудит, pack, стоп) | `python3 scripts/r1/run_r1.py --config scripts/r1/configs/{llamacpp-server,llamacpp-server-moecache,ik-llamacpp-server,strata-serve-qwen38fn}.json --out …` (все шаблоны PROVISIONAL, NOT RUN); шаблонов для `-sm tensor`/ik `-sm graph`/ExLlamaV3/базы A нет — tool missing | движок по пину, веса | вердикт pack по V1–V9 | R1.5 (`ROADMAP.md:28`); B0, B1, B1a, B5 |
+| B20 | декод single-stream при заполненном 262K ≥ 50 tok/s (цель 80–100+) | `tools/bench/run_matrix.py --inputs 262144 --length-mode total --outputs 512,2048 --states cold,warm --concurrency 1 --repeats 3` | сервер движка | p50 ≥ 50, 0 отказов, ≥ 3 повтора (V4, `BENCH_PROTOCOL.md:126-128`) | R1.5; критерий заказчика (ADR-012 D1) |
+| B21 | 262K реально используемых токенов | `tools/bench/probes.py --contexts 262144 --length-mode total` | сервер | needle ≥ 0.8; multihop, codeqa ≥ 0.75 (PROVISIONAL); tools/json = 1.0; промпт не обрезан (V3) | R1.6; K1 |
+| B22 | кэш префиксов и agent loop | `run_matrix.py --states cold,warm` + `--scenarios agent` | сервер | warm TTFT p50 ≤ 10% cold; agent loop до ≥ 100K без отказов (V5) | B3; V5 |
+| B23 | замер против границы roofline | `tools/roofline.py` (предсказание до замера) + `tools/bench/vs_roofline.py --json` | каталоги прогона | файл обязателен; отношение > 1 → NOT RUN (входы границы неверны) (V9) | R1.5 |
+| B24 | качество кванта: KLD/top-1 к Q8_0 | `tools/quality/logprob_compare.py --ref <Q8_0> --cand <4-бит>` | оба GGUF, корпус 50–100K токенов | формат с KLD в пределах 1.5× лучшего (`EXPERIMENTS.md:82`) | R2.1; Q1 |
+| B25 | KV f16 против q8_0/fp8 на 128K/262K | `probes.py` при разных `-ctk/-ctv`; обёртки для PPL нет — tool missing | сервер | Δ needle ≤ 2 п.п., ΔPPL ≤ 1% (`EXPERIMENTS.md:66`) | R2.3; K2 |
+| B26 | агентный набор заказчика | `tools/eval/` (+ через `tools/gateway/`) | 30–100 задач заказчика (ждут материалов) | доля решённых | R2.2 |
+| B27 | сохранение/восстановление 262K-состояния с NVMe | `tools/kv/slot_persist.py`; восстановление — только через `tools/kv/session_store.py` (N8) | сервер с `--slot-save-path` на NVMe | ≥ 3 повтора, продолжение совпадает, restore + тёплый префилл ≤ 25% холодного (V7) | R5.2; K3 |
+| B28 | спекуляция MTP / n-gram | `run_matrix.py` с/без; `roofline.py --spec-k` | движок с MTP | выигрыш ≥ 1.1× или выключено | R4.4; S1, S2 |
+| B29 | GPU-кэш экспертов `--moe-cache-mib` и политики D1 | шаблон `llamacpp-server-moecache.json`; патча D1 нет (дизайн, NOT RUN) | GLM UD-Q4_K_XL | для политик «только место чтения» — бит-экзактность логитов; для счёта промахов на CPU — top-1 ≥ 0.99 (`ROADMAP.md:46`) | R3.3 |
+| B30 | промах на CPU против копии по PCIe | tool missing (микробенчмарка нет; только режимы движков) | — | мс на промах | R3.4; M4 |
+| B31 | трассы маршрутизации реальной модели и политики кэша | `tools/g0/expert_trace.cpp` (`g0-expert-trace`), `tools/g0/cachesim.py` | реальный GGUF, корпус заказчика | кривая попаданий held-out | R3.1, R3.2; M1, M2 |
+| B32 | TP/EP в готовых движках | шаблонов нет — tool missing | R4.1 | выигрыш к PP при batch=1 на 262K | R4.2 |
+| B33 | P2P-патч драйвера — **не делается** (ADR-012.2, ADR-012.3); вместо него штатная диагностика P2P | `nvidia-smi topo -m` / `-p2p r`, `bench_gpu.sh`, nccl-tests с `NCCL_P2P_DISABLE=1` и без | сервер (R0) | матрица P2P + R4.1 | R4.3 ОТКЛОНЕНО; диагностика — R0 F14 |
+| B34 | эксплуатационные отказы F1–F8 | ручной сценарий `DEPLOY.md` §6 (`DEPLOY.md:144-151`); на mock проверены только F1/F2 шлюза | сервер | матрица pass/fail с логами (V10, ручной) | R5.3 |
+| B35 | шаги runbook | `DEPLOY.md` (черновик) | сервер | каждый шаг с литеральным выводом | R5.4 |
+| B36 | verification pack | `scripts/verify_pack.sh --runs <dir> --out docs/evidence/verification-pack-<date>`; `--check` | артефакты B1–B35 | общий PASS только если все обязательные критерии PASS | R6.2 |
+| B37 | DFlash2 на цели: принятие | движка нет — tool missing (оракул `ref/dflash2.py` есть) | драфтер canada-quant | принятие ≥ 50%, < 40% → отказ | S3 (заморожено) |
+
+## 3. Пробелы: что можно проверять на CPU уже сейчас, но не проверяется
+
+Порядок — по риску для развёртывания на 4×4080 (первый кандидат — Qwen3.8-Flash-Next, граф `qwen4exp`; GLM-5.3-Flash —
+`glm5-next`/`glm5next` через llama.cpp/ik_llama.cpp; веса — 4-битные k-quant GGUF; KV f16 и flash attention по умолчанию в
+шаблонах R1). Оценка риска — PROVISIONAL (суждение parity-qa по составу проверок выше); факты внутри пунктов помечены отдельно.
+
+| # | пробел (операция / архитектура / путь) | почему это риск | что сделать на CPU (без GPU) |
+|---|---|---|---|
+| 1 | **Паритет оракулов на пине движка R1.** Все сверки с дампами (G1 GLM, MiMo, N2, N6) в CI идут на llama.cpp `ec7630a` (`ci.yml:13`), а R1 и сервер N7 — на `79e2e74` (`tools/engines/pins.json`). Между пинами изменились `src/models/glm5-next.cpp` (312 строк diff), `src/models/qwen4exp.cpp` (140), `src/llama-graph.cpp` (321), `src/llama-memory-hybrid-idx.cpp` (184), `ggml/src/ggml-cpu/ops.cpp` (37), `src/models/mimo2.cpp` (29); `delta-net-base.cpp` — 0 (CONFIRMED: `diff` двух деревьев, 4.6). **Проба этой инвентаризации (4.7):** те же скрипты на `79e2e74` — G1 GLM 8/8, MiMo 5/5, N2 17/17 OK; N6 — 52/54: оба падения только в сравнении строк-заполнителей `indexer_pool_k_new` (на `79e2e74` в них другое содержимое); если это одно сравнение не утверждать, k-pool кэш, оценки, выбор QSA (0 повторов ничьих) и логиты совпадают с оракулом (2/2 OK) (CONFIRMED, 4.7) | доказательства корректности относятся не к тому бинарнику, который будет обслуживать заказчика; тест N6 привязан к детали реализации пина `ec7630a` и при обновлении пина падает не по существу, а существенное расхождение на другом пине никто бы не увидел | шаг CI с теми же `run_parity*.sh` на коммите из `tools/engines/pins.json` (сборка `dump-tensors` ≈ 2.5 мин на 4 ядрах, 4.7); сравнение заполнителей сделать зависящим от пина или убрать — по комментарию теста их слоты не читаются (`tests/test_qwen4exp_decode_parity.py:365-367`@a2c1815); безвредность на `79e2e74` — PROVISIONAL: всё, что могло бы их читать, совпало |
+| 2 | **Квантованные веса.** Все крошечные модели — f32 (`docs/evidence/2026-10-10-qwen4exp-tiny-parity.md:165`); ни одна проверка не сравнивает матричное умножение llama.cpp с Q4_K/Q5_K/Q6_K/Q8_0 (состав UD-Q4_K_XL), IQ4_XS или MXFP4 (MiMo, DeepSeek) с эталоном на **деквантованных** весах; CPU-ядра k-quant на AVX2 (путь экспертов в RAM для GLM: `-ot`/`--n-cpu-moe`) не проверены вовсе | реальные файлы — именно эти форматы; ошибка раскладки блока или масштаба не видна на f32 | `llama-quantize` крошечных `glm5-next`/`qwen4exp` в Q4_K_M и Q8_0 (+ MXFP4 для `mimo2`), дамп `ffn_moe_*`/`attn_*`, эталон — `gguf.quants.dequantize` из gguf-py пина; допуск с учётом квантования активаций (q8_K на CPU) — задать и обосновать; сборка с `GGML_NATIVE=OFF` уже даёт AVX2-путь без AVX-512 (CONFIRMED: `GGML_AVX2=ON`, `GGML_AVX512=OFF` в CMakeCache сборки, 4.6); деквантование всех этих форматов в gguf-py пина есть (CONFIRMED: `gguf-py/gguf/quants.py:68` `dequantize`, классы `Q8_0` :379, `Q4_K` :476, `Q5_K` :526, `Q6_K` :553, `MXFP4` :657, `IQ4_XS` :1352 @ec7630a, 4.6) |
+| 3 | **Точность по умолчанию: KV f16 + flash attention.** Паритет оракулов — только при `-ctk f32 -ctv f32 -fa off` (`run_parity.sh:16`, `run_parity_qwen4exp.sh:17`); шаблоны R1 запускают `-fa on` и `-ctk/-ctv ${KV_TYPE}` = `f16` (`scripts/r1/configs/llamacpp-server.json:21,36-37`@a2c1815; на голове PR #1 `259081e` `-fa on` — строка 37). N7: у крошечной glm5-next при настройках по умолчанию тёплый и холодный ответы расходятся до 0.027 в log-prob, а отклонение от f32-ответа — 0.416 уже на первом шаге и другой токен к шагу 3 (CONFIRMED, `docs/evidence/2026-10-10-n7-server-hybrid-cpu.md`, находка 7; уточнение N10: 0.416 — разница ответов на два разных промпта, на одном промпте 1.5e-3 (обе — top-5 метрика N7); другой токен к шагу 3 — тоже между разными промптами; на одном 256-токенном промпте жадные токены совпадают все 32 шага, на общем 200-токенном первый другой токен — шаг 13; см. «Статус пробела 3») | у GLM вероятная причина — переключение выбора DSA k-pool на почти-ничьих (PROVISIONAL, не трассировано); уточнение N10: трасса прогона N7 на 79e2e74 — первый другой токен совпадает с переворотом MoE слоя 8 (зазор 1.4e-5); DSA различается только в последнем слое (строка 45 промпта, влияние только на эту строку); причинность PROVISIONAL; на реальных весах — UNKNOWN | вариант `run_parity.sh`/`run_parity_qwen4exp.sh` с `-ctk f16 -ctv f16 -fa on`; оракул с округлением q/latent/вероятностей до f16 (G1 находка 4 уже воспроизвела это до 6.4e-8 при FA off, `docs/evidence/2026-10-02-g1-parity.md:38-40`, но как тест не закреплено); счёт «сколько токенов меняют выбор DSA/QSA» |
+| 4 | **GLM (`glm5-next`) кроме одного префилла.** Для GLM нет аналога N6: нет сверки декода по одному токену, нескольких ubatch, отката (`n_rs_seq`), переноса состояния KDA и истории свёрток, k-pool кэша индексера DSA между ubatch, латентного кэша MLA при декоде и MTP-блока `nextn` (генератор `glm5next_tiny.py --mtp` уже есть с N7). Нет и сквозной сверки логитов GLM: общий эксперт, `ffn_out`, `hc_head`, финальная норма и выход не проверяются (тесты `tests/test_glm_tiny_parity.py` — только по операциям) | GLM — второй кандидат и единственный с DSA; ошибка в переносе состояния видна только при декоде | перенести метод N6 (`DUMP_PER_GRAPH`, `DUMP_CALLS`, `DUMP_N_RS_SEQ`, `DUMP_MTP` в `tools/dump/dump_tensors.cpp` уже есть) на `glm5-next`: `ref/` для инкрементального пути KDA/DSA/MLA + `mtp_forward_chunk` GLM; сквозной прогон оракула от id токенов |
+| 5 | **Диалект `glm5next` и ik_llama.cpp.** Реальные файлы Unsloth — архитектура `glm5next` (`AGENTS.md` «Weights on host epyc-ai»), шаблон R1 ik_llama.cpp рассчитан на них (`scripts/r1/configs/ik-llamacpp-server.json:2`); наш генератор пишет `glm5-next`, схемы метаданных различаются не только именем (CONFIRMED: `glm5next.expert_group_count`, `docs/evidence/2026-10-03-lighttransport-fork.md:92-105`). ik_llama.cpp `5194a9e` ни разу не запускался ни на одной модели — только сборка | вторая строка матрицы R1 для GLM не проверена даже на CPU | CPU-сборка ik_llama.cpp; писатель крошечного `glm5next`-GGUF (ключи — из заголовка реального файла или `include/strata/core/model.hpp` форка); те же дампы/оракулы и проверки N7 через его сервер |
+| 6 | **Шаблоны чата, токенизатор, вызовы инструментов.** Крошечные модели — минимальный словарь, запросы — списки id (N7, «Method»). Как llama-server расставляет чекпойнты при перерисовке истории настоящим шаблоном GLM-5.3/Qwen3.8 — UNKNOWN (N7, находка 4); разбор tool calls (`--jinja`) на этих шаблонах не проверялся | продукт — агентные сессии с tool calls; B3 зависит от того, что шаблон делает со старыми ходами | забрать `tokenizer.json`/`chat_template` через `vendor-hf` (`third_party/hf/*/REQUEST.json`); GGUF только со словарём; прогон `/v1/chat/completions` и пробы B3 на CPU-сервере N7 |
+| 7 | **Измерительные инструменты против настоящего сервера.** `tools/bench/` (`run_matrix.py`, `probes.py`, диалекты `/tokenize`), `tools/quality/logprob_compare.py`, `tools/gateway/`, `scripts/r1/run_r1.py` проверены только на mock/заглушках (`BENCH_PROTOCOL.md` §8: «Против реальных llama.cpp … NOT RUN»); на настоящем llama-server работали только `slot_persist.py` и `session_store.py` (N7/N8) | ошибка формата всплывёт в первый день на сервере и съест время на GPU; вердикты pack при этом безопасны (ошибки → NOT RUN) | CPU-сервер N7 + крошечная модель: `run_r1.py` с `llamacpp-server.json` (пути переопределить `--set`), `probes.py` на коротких длинах, `logprob_compare.py` между `-fa off` и `-fa on`, шлюз перед сервером; ожидаемый вердикт pack — NOT RUN |
+| 8 | **Нефьюзные ветви графа.** CPU всегда берёт фьюзные операции (чанковая/авторегрессионная delta net, нефьюзный HC); эти ветви не исполнялись (`docs/evidence/2026-10-10-qwen4exp-tiny-parity.md:164`, «NOT EXERCISED») | бэкенд без фьюзной операции (возможно, часть CUDA-путей — UNKNOWN) пойдёт по непроверенной ветви | выяснить, можно ли выключить фьюзные операции на CPU (UNKNOWN); если да — повторить N2/N6 на нефьюзном пути |
+| 9 | **Гиперпараметры реальных моделей.** Крошечные конфиги соблюдают только ограничения загрузчика; реальные (число hc, головы, секции IMRoPE, PLE, шаблон слоёв) — UNKNOWN (`docs/evidence/2026-10-10-qwen4exp-tiny-parity.md:167`). Аудит битности V1 на настоящих заголовках не запускался | ветви графа, включаемые только реальной геометрией, не проверены; «4-битный» файл с 3-битными тензорами обнаружится только после скачивания 100–200 GB | на раннере с доступом к HF (как `traces-real`) читать только заголовки GGUF (HTTP Range), гонять `tools/gguf_quant_audit.py` и строить крошечные модели с реальными соотношениями |
+| 10 | **Несколько последовательностей и края отката (qwen4exp).** Не покрыты: общие ячейки (`cache_safe` = false), `seq_rm`, оставляющий «устаревший» полный пул, откат длиннее `n_rs_seq`, откат внутри многобатчевого вызова (`docs/evidence/2026-10-10-qwen4exp-decode-parity.md:436-442`); MTP с откатом в MTP-контексте — тоже | R1 с `-np 1` риск снижает; два слота проверены только на уровне сервера (N7) | расширить `DUMP_CALLS` на `seq_cp`/`seq_add` и длинный откат |
+| 11 | **Ложнозелёные сигналы CI.** (а) шаги паритета проходят при пропуске тестов: только `ref-torch-cpu` падает на `skipped` (`ci.yml:57`); (б) `cuda-compile` зелёный по построению — каталога `kernels/` нет (`ci.yml:70-71`); (в) сборка `scripts/diag/*.cu` под sm_89 в CI пропускается: в `cpu-parity` нет nvcc (`tests/test_diag_kit.py:557`); (г) докстринг `tests/test_srvcheck.py:5`@ebecad4 ссылается на несуществующий `tests/test_srvcheck_llama.py` (CONFIRMED: файла нет ни в одной ветке, раздел 4.6) | зелёный CI может скрыть невыполненную проверку; программы R0 впервые соберутся на сервере | в шагах паритета — `grep skipped` как в `ref-torch-cpu`; убрать или наполнить `cuda-compile`; добавить `cuda-nvcc-13-0` в джоб с `test_diag_kit`; поправить докстринг |
+| 12 | **MiMo (`mimo2`).** Проверены только внимание (SWA, sinks, GQA, частичный RoPE) и роутер на одном префилле; нет декода, сквозных логитов, MTP и MXFP4-экспертов | вторая модель шорт-листа, MXFP4 — отдельный формат | метод N2/N6 на `mimo2`; MXFP4 — вместе с п. 2 |
+| 13 | **DeepSeek-V4.1-Flash.** Эталонная модель исполнялась на CPU вручную (2026-10-02), numpy-оракул `ref/ds41.py` не написан, теста и шага CI нет | третья цель; в 4 битах не помещается (E17) — риск для текущего развёртывания низкий | `ref/ds41.py` по префилл-семантике (находка A) и тест против `tools/ds41/run_reference.py` в джобе с torch |
+| 14 | **Отчёт об ошибке по слоям.** Тесты GLM и MiMo только утверждают допуск; максимум abs/rel по слоям не печатается (контракт parity-oracle) — в отличие от N2/N6 | при регрессии не видно, насколько близко к порогу | печать таблицы как в `tests/test_qwen4exp_tiny_parity.py` |
+
+**Статус пробела 1 (после инвентаризации, тот же день):** закрыт на CPU. Проверка заполнителей `indexer_pool_k_new` в N6 теперь учитывает пин: на `79e2e74` каждая заполняющая запись берёт свою ячейку, не являющуюся представителем пула. Workflow `parity-r1-pin.yml` гоняет G1/MiMo/N2/N6 на пине `pins.json`; локально на `79e2e74` N6 — 54/54. Подробности и литеральный вывод — `docs/evidence/2026-10-10-parity-r1-pin.md` (CONFIRMED).
+
+**Статус пробела 9 (N15, 2026-10-11):** закрыт без скачивания весов, ветка `claude/n15-gguf-headers`. Workflow `gguf-headers` (`scripts/gguf_headers_fetch.py`: только HTTP Range, не больше 64 MiB на файл, проверка лимитов до загрузки) прочитал заголовки всех шардов UD-Q4_K_XL обеих моделей (прогон 38136140582, коммит бота `6cce416`): GLM-5.3-Flash — `unsloth/GLM-5.3-Flash-GGUF`@`a38483c` (6 файлов, 199 707 321 472 B), Qwen3.8-Flash-Next — `unsloth/Qwen3.8-Flash-Next-GGUF`@`38bb39e` (4 файла, 111 334 654 784 B). Скачано 10 740 704 B и 11 733 056 B: первые шарды — только метаданные (0 тензоров), они прочитаны целиком, из шардов с тензорами — по одному Range в 256 KiB; в репозиторий легло 2.8 MB и 3.3 MB. Целостность у всех 10 файлов — CONFIRMED: sha256 заголовков, побайтная пересборка сводок, etag хаба = LFS sha256. Найдено: (1) у текущей ревизии GLM строка архитектуры `glm5-next`, а не `glm5next` — при тех же 185.983 GiB, что указаны для файлов хоста с `glm5next`: 185.983 GiB (AGENTS.md:23, без bpw) и 185.983 GiB (4.981 BPW) (PROBLEMS.md:21) (CONFIRMED по заголовку). Что на хосте лежит более ранняя выгрузка той же квантизации — PROVISIONAL. Проверка на epyc-ai (UNKNOWN до прогона): `head -c 9429956 <шард 1> | sha256sum` (или `sha256sum` всего шарда 1 против LFS sha256 `b59c0300…`: закоммиченный заголовок плюс 28 нулевых байт и есть весь шард 1) и `sha256sum` шардов 2–6 против PIN.json; (2) `expert_group_count` = 1, `expert_group_used_count` = 1 — шага групп нет ни на одном пине (`src/llama-graph.cpp:2105`@ec7630a, `:2145`@79e2e74), так что «седьмое отличие» N12 на этом файле не возникает. Это закрывает UNKNOWN N12/N14 (CONFIRMED); (3) токенизаторы: у GLM `gpt2`/`glm4`, 154 880 токенов, у Qwen `gpt2`/`qwen35`, 248 320. Обе архитектуры (`glm5-next`, `qwen4exp`) и оба pre-токенизатора известны обоим пинам и ik `5194a9e`; `glm5next` не знает ни один пин llama.cpp (CONFIRMED, file:line в доказательстве). Что оба файла загрузятся на обоих пинах — PROVISIONAL: все обязательные ключи есть, имена тензоров по слоям — как у крошечных моделей, плюс один необязательный тензор; (4) встроенные в GGUF шаблоны чата **не совпадают** побайтно с вендорными. Это закрывает UNKNOWN N14. R1 с Qwen запускает именно встроенный шаблон этого файла (`--jinja` без `--chat-template-file`, `scripts/r1/configs/llamacpp-server.json:38,51`, CONFIRMED по конфигу). У GLM на входах N14 изменения не меняют вывода (`.0`→`[0]`, `~`→`+`, убраны 4 `{% break %}`, `elif content is not none`→`else`); вне входов N14 эффект удаления `break`/`else` — UNKNOWN. Блок `{% set reasoning_content %}` внутри цикла сообщений сохранён, поэтому утечка рассуждения N14 1(a) в llama-server 79e2e74 воспроизводится и со встроенным шаблоном (CONFIRMED живым прогоном); конфиг R1 для GLM (`scripts/r1/configs/llamacpp-server-moecache.json:40`, `--jinja`) оставляет GGUF неизвестным (`:52`), так что утечка касается прогонов R1 с GLM, если они идут на этом файле unsloth (PROVISIONAL). У Qwen правки Unsloth: `reasoning_effort: "high"` → `xhigh` (HTTP 500 из N14 исчез), system/developer сливаются, разговор из одного system больше не отвергается. Результаты B3 из N14 с обоими встроенными шаблонами не меняются; (5) все ключи, общие с `config.json`, совпадают (GLM — 33 из 34, Qwen — 27 из 28). Отсутствуют `kpool_select_tail` (по умолчанию true) и `mtp_num_hidden_layers` (в модели он есть: `third_party/hf/qwen3.8-flash-next-chat/config.json:96`) — **у Qwen UD-Q4_K_XL нет MTP-блока**; та же ревизия `38bb39e` содержит отдельные MTP-файлы `MTP/mtp-Qwen3.8-Flash-Next-{BF16,Q4_K_M,Q8_0}.gguf` и варианты `-shared-` (CONFIRMED, `third_party/gguf-headers/qwen3.8-flash-next-ud-q4_k_xl/PIN.json:77-102`; их заголовки не читались, загрузит ли их qwen4exp на пинах — UNKNOWN). Ветви графа, которые проходит только реальная геометрия (CONFIRMED пробами, file:line на обоих пинах): GLM: eps LayerNorm ключа индексатора 1e-6 (у всех крошечных моделей 0); собственная `nextn.shared_head_norm` MTP-блока (`glm5-next.cpp:647`@79e2e74); собственный ключ clamp общего эксперта (то же значение 10); Qwen: схема слоёв по `full_attention_interval` — массива `recurrent_layers` нет (`qwen4exp.cpp:149`); ключ image-токена PLE (используется только для изображений); (6) ADR-012 D5 выполнен (CONFIRMED, `tools/gguf_quant_audit.py` на заголовках). GLM: эксперты 4.874 bpw (Q4_K/Q5_K/Q6_K), всё остальное Q8_0, кроме F32: роутер, indexer.proj, indexer_compressor_ape, свёртки KDA. Qwen: эксперты 5.101 bpw (Q4_K, Q5_1, Q8_0, Q5_K); таблица PLE в IQ4_NL занимает 26.8 GiB из 103.7 GiB. Минимум у обоих 4.5 bpw. Список репозиториев (только листинг): glm5-next GGUF для mainline есть — сам `unsloth/GLM-5.3-Flash-GGUF` и `ggml-org/GLM-5.3-Flash-GGUF`@`c259a9f` (Q4_K 168.9 GiB, отдельные MTP-файлы). Для MiMo-V2.6-Flash найдено 28 репозиториев `mimo2`, в том числе `ggml-org/MiMo-V2.6-Flash-MOPD-GGUF`. На уровне токенов (llama-tokenize 79e2e74 на словарях из заголовков; проверена только функция токенизатора, путь сервера и семплирование не проверены): у GLM стабильность префикса на всех 24 парах запросов совпадает с байтовой, все теги шаблона — одиночные токены. У Qwen совпадение на 23 из 24: после пустого рассуждения `\n` в конце промпта и `\n` в начале хода сливаются в один токен `ĊĊ`, и переиспользование обрывается на токене 1058 из 1117 (CONFIRMED для токенизатора). Тесты: `tests/test_gguf_headers.py` (32) и `tests/test_gguf_headers_committed.py` (8, по закоммиченным заголовкам); мутационная проверка 19/19. CONFIRMED, `docs/evidence/2026-10-11-n15-gguf-headers.md`. NOT RUN: загрузка файлов, проверка на хосте, заголовки других GGUF из списка. **N18 (2026-10-11):** ветка `claude/n18-gguf-headers-mtp-mimo`, те же workflow и анализатор: прогон 38145613553 → бот `df9bea1`, прогон 38147482333 → бот `6161763`; скачано 143 909 824 B и 31 376 608 B, только заголовки; целостность всех 15 файлов — CONFIRMED. (1) Отдельные MTP-файлы Qwen (`unsloth/Qwen3.8-Flash-Next-GGUF`@`38bb39e`, папка `MTP/`, 6 файлов; CONFIRMED по заголовкам): `qwen4exp`, `block_count` 49, `nextn_predict_layers` 1, только слой 48 (32 тензора, имена как у крошечной `qwen4exp --mtp`), полный токенизатор, встроен вендорный HF-шаблон (`c3cf9e34…`), а не шаблон Unsloth из UD-Q4_K_XL. Это переводит UNKNOWN N15 о загрузке в PROVISIONAL (по чтению загрузчиков, ничего не загружалось). Обычные BF16/Q4_K_M/Q8_0 загружаются отдельной MTP-моделью на обоих пинах (`-md FILE --spec-type draft-mtp`). Три файла `-shared-` не загружаются ни на одном пине: в них нет `token_embd` и `output`, а `token_embd` создаётся с флагами 0 (`src/models/qwen4exp.cpp:183`@ec7630a, `:182`@79e2e74). Оба вердикта PROVISIONAL: по чтению кода, ничего не загружалось. Их ключ `qwen4exp.nextn_shared_target_tensors` не читает ни один чекаут (ec7630a, 79e2e74, ik `5194a9e`) (CONFIRMED, grep, доказательство разд. 4). Новое: во всех 6 файлах `attention.compress_ratios[48] = 0` (CONFIRMED), хотя конвертер llama.cpp пишет коэффициент QSA для каждого MTP-слоя (`conversion/qwen4exp.py:85-89` на обоих пинах). Поэтому на пинах MTP-слой этих файлов идёт плотным полным вниманием вместо QSA (PROVISIONAL, `src/models/qwen4exp.cpp:942`@ec7630a / `:939`@79e2e74). Влияние на черновики — UNKNOWN; оно возможно только когда видимых ячеек больше, чем оставляет выбор QSA: `qwen4exp.attention.indexer.top_k` = 2048 во всех 6 заголовках (CONFIRMED, доказательство разд. 4), при коэффициенте сжатия ствола 4 это не больше 4 × 512 + 3 = 2051 ячейки на токен (`src/models/qwen4exp.cpp:728`@ec7630a / `:722`@79e2e74; PROVISIONAL, по чтению). `-hf … --mtp` (`find_best_sibling`) берёт `mtp-`-файл только из каталога модели или родительского, поэтому папку `MTP/` для модели в `UD-Q4_K_XL/` не найдёт (PROVISIONAL). D5 — PASS у всех 6 (CONFIRMED, прил. A). (2) ggml-org GLM-5.3-Flash Q4_K (`ggml-org/GLM-5.3-Flash-GGUF`@`c259a9f`, CONFIRMED): `glm5-next`, 45 слоёв, NextN-слоя нет (1383 тензора); параметров ровно на `blk.45` unsloth меньше, чем у UD-Q4_K_XL. Встроенный шаблон побайтно равен вендорному HF-шаблону (`0c4099f3…`), то есть несёт тот же блок `{% set reasoning_content %}` (N14 1(a)). Сверка с config — 33 из 34: нет только `num_nextn_predict_layers`. D5 — PASS: эксперты 100 % Q4_K (4.500 bpw), 168.91 GiB при 4.631 bpw. (3) mtp-GLM того же репозитория (`mtp-GLM-5.3-Flash-{Q4_0,Q8_0}.gguf`, CONFIRMED): `block_count` 46, `nextn_predict_layers` 1, только `blk.45` — 29 тензоров. Их имена и формы равны `blk.45` unsloth, включая `nextn.shared_head_norm`. Ещё в файле `token_embd`, `output_norm`, `output`, токенизатор и HF-шаблон. На ec7630a файл **не загружается**: нет обработки файла «только MTP» (`glm5-next.cpp:68`), граф MTP бросает исключение (`:190`). На 79e2e74 загружается (`glm5-next.cpp:67`, `src/llama-model.cpp:3491`, граф `:188`). Оба вердикта PROVISIONAL, по чтению. D5 — PASS (CONFIRMED, прил. A). (4) MiMo-V2.6-Flash-MOPD. Прочитаны заголовки ggml-org MXFP4 `e6d4bce` с его `mtp-…-Q8_0`, QuantaPlanta MXFP4 `ac33b37` и kernelpool MXFP4 `44d9191`. Поиск нашёл 30 GGUF-репозиториев; оба имени unsloth отвечают HTTP 401 (CONFIRMED, `third_party/gguf-headers/discover-mimo/LISTING.json:50,632,640`; отсутствует репозиторий или приватный — UNKNOWN). Гиперпараметры всех четырёх файлов совпадают с вендорным `config.json` (CONFIRMED; копия бота `1ce4d32` лежит в `data/gguf-headers/mimo-v2.6-flash-config/`). Окно 128; слои полного внимания 0, 5, 11, 17, 23, 29, 35, 41, 47, остальные 39 — SWA. KV-головы 4 (полные слои) / 8 (SWA), 64 головы запроса; K 192 / V 128; RoPE на 64 измерениях, базы 1e7 / 1e4; value scale 0.707. Синки есть на 39 SWA-слоях ствола и на 3 NextN-слоях, ни на одном слое полного внимания. `nextn_predict_layers` 3; NextN-слои — SWA с 8 KV-головами. Сверка с config: ствол ggml-org 21 из 22 (нет `nextn_predict_layers`), `mtp-` и QuantaPlanta 22 из 22, kernelpool 20 из 22 (CONFIRMED, прил. B). У kernelpool нет ключей групп экспертов, но n_group = topk_group = 1, так что шага групп нет в любом случае. Маршрутизируемые эксперты во всех трёх MXFP4-файлах — MXFP4 во всех 47 MoE-слоях (CONFIRMED). Ровно так их пишет конвертер llama.cpp (`conversion/mimo.py:243`@ec7630a (идентично на 79e2e74), `raw_dtype=MXFP4`; тип файла `MOSTLY_MXFP4_MOE` = 38), и так же их даёт `llama-quantize … MXFP4_MOE`. D5 — PASS у всех четырёх: эксперты 4.25 bpw. Остальные матрицы: ggml-org — Q8_0 (155.87 GiB, 4.336 bpw); QuantaPlanta — BF16 (162.89 GiB, 4.517 bpw); kernelpool — Q8_0, но `token_embd` BF16 (157.39 GiB, 4.365 bpw); `mtp-` — Q8_0 (2.214 GiB) (CONFIRMED, прил. B). У трёх файлов совпадают имена и формы тензоров ствола, а также токены и merges (CONFIRMED, разд. 14). QuantaPlanta и kernelpool дополнительно содержат 3 NextN-слоя `blk.48`–`50`; это и есть их +987 820 224 параметра (CONFIRMED). `mtp-` ggml-org содержит те же три слоя. Чей это вывод конвертера (PROVISIONAL, по метаданным, конвертер не запускался): QuantaPlanta — `convert_hf_to_gguf.py` с BF16. ggml-org — та же раскладка с Q8_0 (`--outtype q8_0` или `llama-quantize MXFP4_MOE`), NextN-слои вынесены в `mtp-`-файлы. kernelpool — **не** конвертер llama.cpp: в нём нет `general.file_type`, зато есть свои ключи (`mimo2.qkv_chunks` = 4, `mimo2.quantization`, `vocab_size`, `leading_dense_block_count`, `expert_weights_*`). Его `general.source.revision` = `2479e2d…`, а не вендорная `b12f557`. Норма MTP-головы лежит в `nextn.shared_head_norm`, 6 FIM-токенов помечены USER_DEFINED вместо CONTROL. Ни один из лишних ключей kernelpool mimo2 на пинах не читает (CONFIRMED, grep `src/models/mimo2.cpp` на обоих пинах, разд. 14). Риск — UNKNOWN: `qkv_chunks = 4` намекает, что строки слитого `attn_qkv` лежат 4 TP-чанками. llama.cpp режет этот тензор как один `[Q | K | V]` (`src/models/mimo2.cpp:134-142`@ec7630a), а его конвертер TP-чанки перегруппировывает (`conversion/mimo.py:35-98`@ec7630a (идентично на 79e2e74)). Если kernelpool не перегруппировал, Q/K/V на этом файле будут неверны. Подтвердит сравнение байтов Q8_0 нескольких строк `blk.0.attn_qkv` у ggml-org и kernelpool; это чтение данных, а не заголовка. Загрузчик (PROVISIONAL, по чтению): все тензоры всех четырёх файлов создаёт `load_arch_tensors` обоих пинов, обязательные тензоры на месте, 8 ключей без значения по умолчанию есть везде. Ствол ggml-org — обычная модель без MTP. QuantaPlanta и kernelpool — ствол и NextN в одном файле: MTP идёт по собственным NextN-слоям, `--spec-type draft-mtp` без `-md`. `mtp-` ggml-org — отдельная MTP-модель на обоих пинах (`-md`); `-hf …:MXFP4 --mtp` выбрал бы `mtp-…-Q4_0`. Ветви графа (CONFIRMED пробами против крошечных моделей N16 `0b0eace` и N17 `0352df4`, собранных их же генератором): все ветви ствола крошечные модели проходят. Это слитый qkv, синки только на SWA, value scale, K ≠ V, частичный RoPE с двумя базами, плотный слой 0 и сигмоидный MoE. Не проходят норму головы `nextn.shared_head_norm` (kernelpool) и раскладку «только MTP» (`mtp-`-файл). N16 покрывает MXFP4-экспертов с Q8_0-матрицами (раскладка ggml-org), слитый qkv, синки только на SWA, value scale и одну MTP-голову. N17 покрывает 3 MTP-головы, f16 KV + flash attention с синками и головы K 192 / V 128. Это PROVISIONAL: по их доказательствам, здесь не перезапускалось. Не покрыты ни N16, ни N17: реальные размеры (окно 128, 64/4/8 голов, 256 экспертов top-8, 48 слоёв), BF16-матрицы QuantaPlanta, BF16 `token_embd` kernelpool и квантованный (Q8_0) MTP-блок (PROVISIONAL, пробы прил. B и разд. 14, разд. 5 доказательств N16/N17). Встроенный шаблон чата у всех четырёх — вендорный шаблон MOPD (`11ea52e1…`, CONFIRMED). Тесты: `tests/test_gguf_headers.py` (39), `tests/test_gguf_headers_committed.py` (18), весь набор — 917 OK (skipped=358), мутационная проверка N18 — 21/21. CONFIRMED, `docs/evidence/2026-10-11-n18-gguf-headers-mtp-mimo.md`. NOT RUN: загрузка любого из файлов, приём черновиков MTP, чтение строк `attn_qkv` kernelpool, численная проверка BF16-матриц и Q8_0-MTP-блока; прогоны паритета N16/N17 здесь не повторялись.
+
+**Статус пробела 4 (N9, 2026-10-10):** закрыт на CPU, ветка `claude/n9-glm-decode-parity`. Оракул всей модели `ref/glm5next.py` (из `ref/mhc.py`, `ref/kda.py`, `ref/dsa.py`, `ref/router.py`) с инкрементальным путём (`forward_chunk`/`cache_truncate`: история свёрток и состояние KDA, латентный кэш MLA, строки и пулы индексера) и MTP-блоком; сквозная сверка префилла G1 (`GlmTinyWholeModel`); 5 прогонов на настоящем графе `glm5-next` — `ub16`, `ub10`, `ub18`, декод 48 + 16×1, откат (`n_rs_seq` 3) — сверяются граф за графом с полным и инкрементальным оракулом: на `ec7630a` 45/45, худшая 4.431e-05; на `79e2e74` 45/45 + MTP 6/6, худшая 3.605e-05 (CONFIRMED, `docs/evidence/2026-10-10-glm5next-decode-parity.md`). Расхождений llama.cpp с оракулом нет. На `ec7630a` у DSA есть второй путь для ubatch ≤ 16 токенов (сбор выбранных латентов), на `79e2e74` его нет; MTP-граф GLM есть только на `79e2e74` (на `ec7630a` — исключение) (CONFIRMED, там же, находки 2 и 5). Шаги CI добавлены в `ci.yml` (`cpu-parity`) и `parity-r1-pin.yml`; в GitHub Actions зелёные на `010a714` (Draft PR #5; CONFIRMED, там же, раздел «CI»).
+
+**Статус пробела 3 (N10, 2026-10-10):** закрыт на CPU, ветка `claude/n10-quant-fa-parity`. Что округляет llama.cpp на
+CPU при `-ctk f16 -ctv f16 -fa on` (код одинаков на `ec7630a` и `79e2e74`): запись в KV-кэш, в латентный кэш MLA и в
+кэши индексатора (k-pool: сырые ключи, ключ | гейт, пулы — тип кэша индексатора тоже берётся из `-ctk`) — f16 с
+округлением к ближайшему чётному; flash attention на CPU идёт двумя путями: меньше 64 строк запроса (каждый шаг декода,
+малые ubatch) — one_chunk, где q округляется до f16, а аккумулятор V хранится в f16 и округляется на каждой ячейке; от
+64 строк — tiled, f32 поверх f16 K/V; при `-fa on` и f32-кэше K/V всё равно приводятся к f16; рекуррентные состояния
+остаются f32. Оракулы `ref/qwen4exp.py`, `ref/glm5next.py` получили `prec=` (эмуляция — `ref/fattn.py`); тесты N6/N9
+повторяются на f16-дампах (`tests/test_qwen4exp_f16fa_parity.py`, `tests/test_glm5next_f16fa_parity.py`, драйвер
+`tools/tinygen/run_parity_f16fa.sh`): 170/170 на обоих пинах, во всех четырёх сочетаниях `-ctk`/`-fa`. Допуск после
+первого внимания 16·2^-11 = 7.8e-3 (шум f16-аккумулятора в несколько шагов f16 плюс рост по слоям; измеренный максимум
+2.95e-3), до него — прежний 1e-4; запись в кэш проверяется точно, flash attention на входах самой llama.cpp — с
+точностью до одного шага f16. На прогонах N10 без перевёрнутых дискретных выборов f16/FA меняет log-softmax не более чем
+на 1.15e-2 (glm5-next) и 2.8e-4 (qwen4exp); на `ec7630a` (ub16/ub10) один переворот выбора экспертов MoE на почти-ничьей
+(слой 7, позиция 60; зазор 7.720e-5 у f32-оракула и 2.907e-6 у оракула с точностью) даёт 0.60 по log-prob; выбор DSA/QSA
+сам по себе не перевернулся ни разу (CONFIRMED, `docs/evidence/2026-10-10-quant-fa-parity.md`, часть A, находка 5); в
+прогоне N7 выбор DSA слоя 11 различается в строке 45 промпта (0.396 там, 1.9e-3 в соседних; точная или почти-ничья —
+UNKNOWN). Для находки 7 N7 это вероятное объяснение (PROVISIONAL: механизм нужного размера показан на `ec7630a` на
+последовательности N10; на прогоне N7 он наблюдается, но причинность не доказана повтором с навязанным набором
+экспертов). Трасса прогона N7 на `79e2e74` (dump-tensors с моделью, токенами, флагами и планом вызовов сервера N7;
+log-prob сервера воспроизведены до 6.2e-7): числа N7 0.416 и 0.86 сравнивают ответы на два разных 256-токенных промпта —
+в каждый входит собственный первый ответ конфигурации, а первые ответы расходятся с 13-го токена (0.416 — между
+собственными промптами конфигураций, где различаются и промпт, и точность; при одной точности — 0.415); на одном промпте
+разница 1.5e-3 (обе — top-5 метрика N7; по всему log-softmax 2.2e-3), жадные токены совпадают; на общем 200-токенном
+промпте первый другой токен (шаг 13) приходится на переворот набора экспертов MoE слоя 8 на этой позиции при зазоре
+1.4e-5 в собственных f32-оценках llama.cpp (наблюдения трассы — CONFIRMED её выводом, там же, раздел «Audit of
+bd715da»). Оценка числа переворотов на 288 токенов N7 (PROVISIONAL: зазоры у нуля распределены равномерно, плотность и
+сдвиги зазоров — как в прогонах N10): по медиане сдвига 0.68–1.32 у glm5-next и 0.055–0.12 у qwen4exp, по среднему
+уменьшению зазора 0.59–1.56 и 0.057–0.12; для настоящих весов — UNKNOWN. Мутационная проверка: 14/14 на `ec7630a`, 13/14
+на `79e2e74` (пропуск — механизм, которого прогоны на этом пине не задействуют). Не проверено: split-KV-путь (n_kv ≥
+512), `-t` > 1, MTP при f16, CUDA (NOT RUN).
+
+**Статус пробела 2 (N10, 2026-10-10):** закрыт на CPU для qwen4exp и glm5-next в Q8_0 и Q4_K_M, ветка
+`claude/n10-quant-fa-parity`. Что делает llama.cpp на CPU с квантованными весами (код одинаков на `ec7630a` и
+`79e2e74`): перед каждым матричным умножением с квантованным или F16-весом строки активаций переводятся в `vec_dot_type`
+типа веса — в f16 для F16, в Q8_0 (блоки по 32, масштаб в f16; на AVX2 своя функция с округлением к чётному, не
+скалярная эталонная) для Q8_0/Q4_0/Q5_0/MXFP4, в Q8_K (блоки по 256) для k-quant; результат равен скалярному
+произведению деквантованного веса и деквантованной активации с точностью до f32-округлений; переупакованный путь Q4_K
+(AVX2) и обычный (`--no-repack`) дают те же значения в пределах TOL_OP (кроме 4 строк `hc_gate` в pf64, где f16-вход
+ложится по другую сторону границы округления, — в пределах допуска на один шаг f16); F32-веса (роутеры, проекции
+индексатора) активации не трогают. Оракул `ref/quant.py` (деквантование `gguf.quants.dequantize` из gguf-py пина плюс
+эмуляция квантования активаций); тесты `tests/test_qwen4exp_quant_parity.py`, `tests/test_glm5next_quant_parity.py`
+сверяют каждое матричное умножение каждого графа (prefill 64, ubatch 10, декод 48 + 16×1, для Q4_K_M ещё без
+переупаковки) с дампом, считая от собственного входа llama.cpp: 99/99 на обоих пинах; худшая ошибка, отнесённая к сумме
+модулей слагаемых, — 2.4e-7 (по норме 3.8e-6) при допуске 1e-5; сборы строк из квантованных таблиц точны. Без эмуляции
+квантования активаций те же произведения расходятся на 2.6e-4–5.8e-2: эталона «только деквантованные веса»,
+предложенного в этом пункте, недостаточно (CONFIRMED, `docs/evidence/2026-10-10-quant-fa-parity.md`, часть B). Сквозная
+сверка всей модели от id токенов на квантованных весах с допуском 1e-4 невозможна в принципе (PROVISIONAL: показано
+только на крошечных моделях со случайными весами): разница в одно f32-округление на входе перебрасывает 8-битное
+квантование активации на целый шаг, и такие шаги растут по слоям (до 3.8e-2 к последнему слою при совпадении каждой
+операции до 2.4e-7; CONFIRMED там же) — паритет нашего движка на квантованных весах надо проверять по операциям от
+входов из дампа или статистикой (KLD/top-1, B24) (PROVISIONAL вывод). Находка: `llama-quantize` обоих пинов квантует
+двумерные гаммы PLE `ple_norm_{key,query,conv}.weight` у qwen4exp (их имена не попадают под исключение `_norm.weight`),
+после чего llama.cpp на CPU падает на первом графе (`binary_op: unsupported types ... src1: q8_0`); драйвер оставляет их
+F32 (`--tensor-type ple_norm=f32`); затронет ли это настоящий GGUF — UNKNOWN (зависит от формы этих тензоров в файле).
+Мутационная проверка: 18/18 на `ec7630a` и 18/18 на `79e2e74`. Шаги CI: `cpu-parity` и `parity-r1-pin.yml`, примерно
++1–1.5 мин к каждому (PROVISIONAL, по локальному времени: драйвер 57 с – 1 мин 21 с, конфигурация и сборка цели
+`llama-quantize` поверх `dump-tensors` 0.3 + 3.7 с). Не проверено (NOT RUN): MXFP4/mimo2, IQ4_XS и другие IQ, Q4_1/Q5_1
+(активации Q8_1 не эмулируются), смесь UD-Q4_K_XL, imatrix, `-t` > 1, квантованные MTP-блоки и KV-кэш, GPU, настоящие
+веса.
+
+**Статус пробела 10 (N19, 2026-10-11):** закрыт на CPU, ветка `claude/n19-qwen4exp-multiseq`. Инструмент дампов получил
+шаги нескольких последовательностей (`DUMP_CALLS`: части `n@s` через `+`, `r<n>@<s>`, `c<a>:<b>`, `x<s>`;
+`DUMP_KV_UNIFIED`), старые планы пишут те же файлы байт в байт; к `ref/qwen4exp.py` добавлена модель ячеек llama.cpp
+(KV-кэш с одним потоком или потоком на последовательность, рекуррентный кэш со снимками отката и префиксом токенов
+каждой строки, раскладка k-pool обоих пинов), каждая последовательность считается своим `forward_chunk`. Девять прогонов
+крошечной модели (`tools/tinygen/run_parity_qwen4exp_multiseq.sh`: три последовательности в одном ubatch с `kv_unified`
+и без, `seq_cp` с продолжением обеих и удалением копий, откаты при `n_rs_seq` 3, в том числе внутри вызова из двух
+ubatch) — 72/72 на `ec7630a` и на `79e2e74`, худшая ошибка 1.3e-5 при допуске 1e-4; утечки между последовательностями
+нет: вероятности внимания ровно 0 на чужих ячейках, оценки индексатора конечны только на своих пулах, выбор QSA — свои
+позиции, рекуррентное состояние — своё (CONFIRMED, `docs/evidence/2026-10-11-n19-qwen4exp-multiseq.md`). Что делает
+llama.cpp: откат длиннее `n_rs_seq` и второй откат до декода отклоняются (`seq_rm` возвращает `false`, ничего не
+меняется, `src/llama-memory-recurrent.cpp:200-215`@ec7630a, :200-219@79e2e74), при `n_rs_seq` 0 отклоняется любой
+частичный `seq_rm`; откат внутри многобатчевого вызова точен (сплит держит последние `n_rs_seq` + 1 токенов в одном
+ubatch); `seq_cp` рекуррентный кэш не копирует, а разделяет ячейку (копия при записи на следующем ubatch,
+`src/llama-memory-recurrent.cpp:261-296`@ec7630a (= :265-300@79e2e74), на обоих пинах); на `ec7630a` общие ячейки делают
+`cache_safe` = false — каждый ubatch перепулирует все пулы, а удаление последней разделяющей последовательности помечает
+все пулы устаревшими, и следующий ubatch их перепулирует (это и есть «устаревший полный пул» после `seq_rm`; значения
+совпали), на `79e2e74` пул пулируется один раз на ячейку-представителя (CONFIRMED, evidence N19, находки 3-4;
+`src/llama-memory-hybrid-idx.cpp:728-733`@ec7630a, `:653-662`@79e2e74). **Молча неверно на обоих пинах** (CONFIRMED:
+клеточный оракул совпадает с llama.cpp, оракул «каждая последовательность отдельно» — нет, логиты расходятся до 1.17
+отн.): (1) откат глубже последнего ubatch последовательности принимается, но снимок состояния delta-rule есть только для
+последних min(n, 1 + `n_rs_seq`) токенов этого ubatch (`ggml/src/ggml-cpu/ops.cpp:11184-11185`@ec7630a =
+:11183-11184@79e2e74) — откат после декода по одному токену или через границу вызова читает устаревший снимок своей
+ячейки (другого префикса токенов); (2) `seq_cp` при незавершённом откате источника даёт копии состояние до отката.
+Только на `ec7630a`: откат одной из двух последовательностей с общей рекуррентной ячейкой принимается и уменьшает
+`llama_memory_seq_pos_max` другой (на `79e2e74` отклоняется) (CONFIRMED, находка 7,
+`src/llama-memory-recurrent.cpp:207-213`@ec7630a, `:202-205`@79e2e74). Следствие для MTP и n-gram (PROVISIONAL, из
+кода): откат на r точен, только если последний вызов `llama_process` дал этой последовательности не меньше r + 1
+токенов; `seq_cp` — только после декода источника; `false` от `seq_rm` обрабатывать чекпойнтом, как сервер. Токены сразу
+нескольких последовательностей (общий промпт) с PLE qwen4exp невозможны: abort на `src/models/qwen4exp.cpp:1248`@ec7630a
+(CONFIRMED, проба coupled_uni; :1246@79e2e74). Шаг CI `n19-qwen4exp-multiseq` в `ci.yml` и `parity-r1-pin.yml` через
+`tools/ci/check_unittest.py` (Ran 72 без пропусков на обоих пинах; в GitHub — NOT RUN). Мутационная проверка: 22/24 на
+`ec7630a`, 23/24 на `79e2e74`, выживают только мутанты правил другого пина (CONFIRMED, раздел «Mutation check»). Не
+проверено (NOT RUN): откат в MTP-контексте, `seq_add`/K-shift (у qwen4exp сдвиг невозможен), `seq_keep`, вырезание не с
+хвоста, частичный `seq_cp`, f16/FA/квантование, GPU, настоящая модель.
+
+
+**Статус пробела 7 (N11, 2026-10-11):** закрыт на CPU, ветка `claude/n11-r1-tools-cpu-server`. Инструменты замеров прогнаны против настоящего llama-server пина R1 (`79e2e74`, сборка на CPU) на крошечной модели со словарём для текста (`tools/tinygen/*_tiny.py --text-vocab`): `prompts.py`/диалекты `/tokenize`, `run_matrix.py`, `probes.py`, `logprob_compare.py` (`-fa off` против `-fa on`, 200 префиксов на qwen4exp и glm5-next), шлюз с сессией, `slot_persist.py`, `run_r1.py` с `llamacpp-server.json` (как есть, пути через `--set`) и с выведенной из него CPU-конфигурацией. Найдено и исправлено (у каждого — тест, падающий до исправления): `logprob_compare` не читал формат logprobs llama-server (все префиксы — ошибка) и путал разные токены с одинаковым текстом (`026b0e9`, `2d59d65`); «холодные» промпты `run_matrix` повторялись между прогонами и брались из кэша сервера (`92e3886`); `run_r1` не создавал `artifacts/quality/`, и V6 через оркестратор не получался никогда (`0f23aa6`); `slot_persist` сравнивал текст, а не токены (`ffec637`). Ограничения сервера и модели (не исправляются инструментом): llama-server не отдаёт logprobs для токена, кончающегося неполным UTF-8, — на случайной модели 30–34 из 200 префиксов, pack тогда даёт V6 NOT RUN; pack не отличает синтетическую модель на настоящем сервере от настоящей (вердикт FAIL по agent_api_probes, а не NOT RUN). Смоук всех инструментов — в `server-cpu.yml` (`tools/srvcheck/run_n11.sh`, 23 проверки, 34 с на CPU песочницы). CONFIRMED, `docs/evidence/2026-10-11-n11-r1-tools-cpu-server.md`. GPU, 262K, настоящие шаблоны и токенизаторы — NOT RUN.
+
+
+**Статус пробела 5 (N12, 2026-10-11):** закрыт на CPU, ветка `claude/n12-ik-glm5next-cpu`. ik_llama.cpp на пине `5194a9e` собирается на CPU флагами `pins.json` без CUDA (AVX2 вкл., AVX-512 выкл.) и загружает крошечную GLM под обоими именами — `glm5next` (`tools/tinygen/glm5next_tiny.py --dialect ik`: имя файлов Unsloth и ключ `expert_group_count` = 1; что ключ есть в настоящем файле — PROVISIONAL (его требует база B, `docs/evidence/2026-10-03-lighttransport-fork.md:92-105`), его значение — UNKNOWN) и `glm5-next` (псевдоним ik) — с побитно одинаковыми логитами; ни одного обязательного для ik ключа наш файл не упускает, имена и формы всех тензоров совпадают (загрузчик ik отвергает лишние и несовпадающие). Считает ik **не ту же функцию**, что граф glm5-next llama.cpp: шесть отличий, каждое процитировано по исходникам пина и воспроизведено оракулом `ref/glm5next_ik.py` (надстройка над `ref/glm5next.py`, сам он не менялся) на собственных входах ik до 3.3e-7 (flash attention в однотокенных графах — 1.0e-5): (1) clamp SwiGLU после SiLU — `min(silu(g), L)` вместо `silu(min(g, L))` llama.cpp и эталона DeepSeek-V4.1; у GLM-5.3-Flash (L = 10) множитель-гейт различается не больше чем на L·σ(−L) = 4.5e-4, выход SwiGLU — не больше чем на L²·σ(−L) = 4.5e-3, у крошечной модели (L = 0.5) отличие главное; собственный комментарий ik (src/llama-hparams.cpp:2505) утверждает обратное своим ядрам; с каким вариантом обучена сама модель — UNKNOWN; (2) eps LayerNorm ключа индексатора = RMS eps, если ключа нет (у llama.cpp 0); (3) eps L2-нормы KDA (неразличимо, 1e-7); (4) отбор DSA включается только `--dsa` (иначе плотное MLA), а пустые слоты хвоста заполнены ячейкой 0 — позиция 0 добавляется к отбору почти половины (90 из 192 строк-слоёв) (у GLM-5.3-Flash это сказывается лишь после ≈2048 токенов, PROVISIONAL); (5) при `-fa off` и `-mla 2/3` (по умолчанию 3) латентный кэш MLA берёт тип `-ctv`, а `-ctv f32` без FA запрещён, при `-fa on` f32-кэш роняет ядро iqk; с `-mla 1 -fa off` K-кэш латенты может быть f32, но транспонированная V-копия — в типе `-ctv` (f16/bf16), так что K и V латенты вместе в f32 на CPU не держит ни одна конфигурация (численно `-mla 1` — NOT RUN); лог пишет «c^KV (f32)» и тогда, когда кэш f16; кэш индексатора — свой тип `-ictk`, по умолчанию f16, а пулы ключей ik пересчитывает в каждом графе и не округляет; хвост выбирается всегда (`kpool_select_tail` не читается); (6) flash attention на CPU совпадает с эмуляцией `fa_chunk` (`ref/fattn.py`) до 1.6e-7–1.0e-5. С этими поправками `tests/test_ik_glm5next_parity.py` (драйвер `tools/tinygen/run_parity_ik_glm5next.sh`; прогоны: префилл 64, 4 ubatch, декод 48 + 16×1, без `--dsa`, `-ictk f16`, точность шаблона R1 `-fa on` f16 префиллом и декодом, псевдоним) — 43/43: по операциям от входов ik не хуже 3.3e-7 (flash attention в однотокенных графах — 1.0e-5), цепочкой от id токенов не хуже 3.2e-3 при допуске N10, логиты 1.3e-4 (`-fa off`) и 5.3e-4 (точность шаблона), argmax 64/64; против оракула с семантикой llama.cpp — 0.905 и argmax 19/64. Мутационная проверка 13/14 (выживает только eps L2 — ожидаемо). llama-server ik с флагами `scripts/r1/configs/ik-llamacpp-server.json`: argv как есть на CPU-сборке не стартует (`-ts`), без `-ngl/-sm/-ts` стартует; `/completion` с `n_probs` отдаёт старую раскладку (`probs`/`tok_str`/`prob`, без id, без `stop_type` и `tokens`), `/v1/completions` — раскладку llama.cpp; `/tokenize` даёт те же id, что llama.cpp, `with_pieces` игнорирует; `ignore_eos` и `n_predict` работают; `/slots` save/restore работает с `--slot-save-path`, а восстановление сохранения пустого слота роняет сервер (GGML_ASSERT); `--help` завершается с кодом 1; жадное продолжение сервера совпадает с движком и проходит тест. Инструменты N11 против ik: `prompts.py` и `logprob_compare.py` работают, `slot_persist.py` сравнивает по тексту (ik не отдаёт `tokens`); у `hybrid_server_checks.py` N7 против ik `compare()` прошёл бы впустую (`None == None`), но весь прогон падает в prefix_extend на `None` и записывается с all_pass False (PROVISIONAL, по коду). Ключ `expert_group_count` llama.cpp читает для любой архитектуры и при значении > 1 ограничил бы маршрутизацию glm5-next лучшими группами, ik для glm5next его не читает: если в настоящем файле значение > 1 (UNKNOWN), это возможное седьмое отличие маршрутизации (UNKNOWN). CI: задание `ik-glm5next` в `parity-r1-pin.yml`, локально весь драйвер с чистой сборкой — 353 с на 4 ядрах. CONFIRMED, `docs/evidence/2026-10-11-n12-ik-glm5next-cpu.md`. NOT RUN: MTP ik, несколько последовательностей и откат, квантованные веса, CUDA, настоящий файл UD-Q4_K_XL, сам шаблон через `run_r1.py`. **Уточнение N14 (2026-10-11):** в `config.json` GLM-5.3-Flash (`zai-org/GLM-5.3-Flash`@`eb9eb20`, `third_party/hf/glm-5.3-flash-chat/config.json:234,255`) `n_group` = 1 и `topk_group` = 1 (CONFIRMED); конвертер llama.cpp пина R1 поднимает `text_config` в корень и пишет `expert_group_count` = `n_group`, `expert_group_used_count` = `topk_group` (`conversion/base.py:1353-1355,1524-1529`@79e2e74; `Glm5NextModel`, `conversion/glm.py:407-411`, их не переопределяет — CONFIRMED чтением; сам конвертер NOT RUN: в песочнице нет torch), так что сконвертированный llama.cpp GGUF несёт 1/1 (PROVISIONAL, по коду и конфигу), а маршрутизация по группам включается только при `n_expert_groups` > 1 (`src/llama-model.cpp:1394`, `src/llama-graph.cpp:2145`@79e2e74): на таком файле «возможное седьмое отличие» не возникает. Значение ключа в файлах Unsloth `glm5next` (другой конвертер) по-прежнему UNKNOWN — до чтения их заголовка (пробел 9). Подробности — `docs/evidence/2026-10-11-n14-chat-templates.md`, находка 11.
+
+**Статус пробела 11 (а) (N13, 2026-10-11):** закрыт, ветка `claude/n13-ci-no-silent-skips`. Все 17 шагов паритета — `ci.yml` (`cpu-parity`: ggml delta-net, G1, MiMo, N2, N6, N9, N10 f16fa, N10 quant, аудит GGUF) и `parity-r1-pin.yml` (`parity` — 7 драйверов, `ik-glm5next`) — запускаются через `tools/ci/check_unittest.py`: шаг зелёный, только если прогон unittest — OK ровно с тем `Ran N` и ровно с теми пропусками (id теста и причина), которые `tools/ci/parity_expectations.json` задаёт для шага на полном коммите checkout, из которого взяты дампы (`--checkout`; перед запуском проверка сверяет с этим коммитом каталог, на котором идёт команда, — первый аргумент драйвера, а у встроенных шагов checkout, где лежит `LLAMA_CPP_GGUF_PY`; при расхождении шаг падает, ничего не запустив. Драйверы экспортируют `PARITY_LLAMA_COMMIT`/`PARITY_IK_COMMIT` только своему процессу unittest; проверка видит такую переменную, только если она задана в окружении самого шага, и тогда расхождение с `--checkout` — тоже ошибка. Исправлено после аудита `19d09d2` (FAIL 1): прежняя формулировка утверждала, что проверка видит переменную драйверов, а `--checkout` одного коммита вокруг драйвера, запущенного на checkout другого, проходил; сверку добавил `60272fb`); коммит без записи роняет шаг, а `tests/test_check_unittest.py` падает ещё в шаге `unit tests`, если для пина workflow записи нет. Единственный законный пропуск — класс MTP glm5-next на `ec7630a` (графа MTP там нет); на `79e2e74` тот же пропуск роняет шаг. Тесты, драйверы, оракулы и допуски не менялись. Локально: все 17 шагов проходят с ожидаемыми числами на `ec7630a`, `79e2e74` и ik `5194a9e`; из 34 прогонов с испорченным окружением (переменная дампа убрана или указывает на пустой каталог; каждый шаг, на обоих пинах, где он идёт на обоих) 26 без проверки были зелёными, с проверкой падают все 34; `tests/test_check_unittest.py` — 33 теста без дампов (каждый шаг трёх заданий либо обёрнут, либо в явном списке исключений с причиной), мутационная проверка 13/13 и 6/6 для исправлений аудита. CONFIRMED, `docs/evidence/2026-10-11-n13-ci-no-silent-skips.md`. NOT RUN: прогон в GitHub Actions. Пункты (б), (в), (г) не тронуты; шаг `unit tests` (`discover`) не обёрнут — его пропуски задуманы (тесты на дампах там всегда пропускаются), и пропуск сборки диагностики без nvcc (`tests/test_diag_kit.py:557`@`5730cc4`, пункт (в)) остаётся в нём молчаливым. Ссылка в строке пробела устарела: проверка пропусков `ref-torch-cpu` — `ci.yml:63`@`5730cc4` (не `:57`).
+
+**Статус пробела 6 (N14, 2026-10-11):** закрыт на CPU на уровне байтов, ветка `claude/n14-chat-templates`; токенизаторы — UNKNOWN. Настоящие шаблоны (`third_party/hf/glm-5.3-flash-chat`@`eb9eb20`, `third_party/hf/qwen3.8-flash-next-chat`@`de4b8e4`) прогнаны через Jinja-движок и код чата llama-server пина R1 (`79e2e74`, CPU, крошечные гибридные модели со словарём «один байт — один токен», `tools/chattmpl/`): (1) `/apply-template` совпадает побайтно с jinja2 в настройке transformers 5.16.0 на всех разговорах (system, многоходовые, tool calls и их результаты, список tools, `reasoning_content`, с подсказкой генерации и без, все переключатели рассуждений — `reasoning_effort`, `enable_thinking`, `clear_thinking`/`preserve_thinking`; `add_vision_id` и изображения/видео — NOT RUN), кроме трёх известных случаев: ошибка движка llama.cpp — `{% set %}` в теле `{% for %}` переживает итерацию (`common/jinja/runtime.cpp:485,601-618`), и шаблон GLM подставляет ходу ассистента без рассуждения (или с пустым — сервер его отбрасывает) рассуждение **предыдущего** хода; продолжение последнего сообщения ассистента (`--prefill-assistant`); `reasoning_effort: "high"` у Qwen — исключение в обоих движках (HTTP 500); (2) B3: с настройками сервера по умолчанию (`preserve_reasoning=true`, `common/arg.cpp:964-966`) оба шаблона стабильны по префиксу на всей агентной сессии, и живой сервер переиспользует всё, что держит слот (`cache_n` = удерживаемому на всех 6 границах у каждого шаблона); при выключенном сохранении рассуждений (`--no-reasoning-preserve` или `preserve_reasoning: false` в запросе) на каждом новом сообщении пользователя шаблон перерисовывает старые ходы без рассуждений, и сервер переобрабатывает весь предыдущий раунд от ближайшего чекпойнта (GLM — `prompt − 4` первого запроса раунда, Qwen — начало предыдущего сообщения пользователя; не полная переобработка); полная переобработка (`cache_n 0`) — при смене `reasoning_effort` (оба шаблона) и при добавлении инструмента у Qwen; у GLM в этой короткой сессии восстановлен чекпойнт 1420 (`prompt − 4 − n_ubatch`, он раньше блока tools), полная переобработка на длинном системном промпте — PROVISIONAL; пустое рассуждение у GLM ломает префикс и подсовывает модели чужое рассуждение; (3) разбор: Qwen — специализированный `Qwen3-Coder`, GLM — дифференциальный автопарсер, оба `peg-native`; tool calls в формате шаблона разбираются в структурные `tool_calls` (параллельные тоже) и перерисовываются в те же байты; у GLM аргумент `null` приходит строкой `"null"`, вызов неизвестного инструмента у GLM — ошибка разбора, у Qwen — молча пропадает; (4) GLM не читает `enable_thinking` (`--reasoning off` и `reasoning_effort: "none"` промпт не меняют — прогон после аудита, `same_as_server_default`, раздел 12 доказательства), даты шаблоны не вставляют. Тесты `tests/test_chat_templates.py` (14; 11 без сборки, 3 со сборкой пропускаются чисто), драйвер `tools/chattmpl/run_n14.sh`, мутационная проверка 8/9 (выживает эквивалентная). CONFIRMED, `docs/evidence/2026-10-11-n14-chat-templates.md`. UNKNOWN/NOT RUN: эффекты на уровне токенов (нужен `tokenizer.json`, запрос на изменение workflow — там же, раздел 8), шаблон, встроенный в GGUF Unsloth (R1 запускает `--jinja` без `--chat-template-file`), поведение настоящих моделей, ik_llama.cpp, потоковый разбор.
+
+**Статус пробела 12 (N16, 2026-10-11):** закрыт на CPU, ветка `claude/n16-mimo-decode-parity`. Оракул всей модели `ref/mimo2.py` (из `ref/mimo.py` и `ref/router.py`, оба не менялись) с инкрементальным путём по клеточной модели iSWA-кэшей llama.cpp (`find_slot`/`apply_ubatch`/`seq_rm`/n_kv; SWA-кэш — кольцо из `pad(min(n_ctx, n_swa + n_ubatch), 256)` ячеек, `src/llama-kv-cache-iswa.cpp:73`@ec7630a) и MTP-блоком (граф `graph_mtp` есть на обоих пинах, `src/models/mimo2.cpp:272-407`@ec7630a, `:263-398`@79e2e74); MXFP4 — дописано в `ref/quant.py` (масштаб E8M0 = 2^(e−128), раскладка блока, деквантование, vec_dot с активациями Q8_0; на AVX2 эксперты переупаковываются в mxfp4_8x8 — проверены оба пути). Прогоны настоящего графа `mimo2` (крошечная модель `tools/tinygen/mimo2_tiny.py`, новые опции `--fused-qkv --sinks swa --value-scale --mtp`; выход по умолчанию побайтно прежний, G1 MiMo по-прежнему 5/5): префилл ubatch 64, 13 и 5 на 300 позиций (SWA-кэш из 256 ячеек заворачивается), декод 240 + 60×1, откаты на 2 (внутри окна) и на 10 (больше окна), модель G1 с раздельными q/k/v, MTP с 4 шагами черновика, MXFP4_MOE через llama-quantize пина — сверяются граф за графом с полным и инкрементальным оракулом, кэш — через `kq` на всех n_kv ячейках (и устаревших, и пустых) и точные нули `kq_soft_max` на скрытых: 92/92 на `ec7630a` и на `79e2e74`, худшая 2.44e-06 (`Qcur` после RoPE), MTP 1.13e-06, произведения MXFP4 — 1.9e-08 по масштабированной ошибке при допуске 1e-5 (без квантования активаций 1.2e-03–1.1e-02); дампы двух пинов побайтно одинаковы (кроме имени `h_nextn` у последнего `l_out` на `79e2e74`). Таблица ошибок по слоям печатается (пробел 14 — для новых тестов). Расхождений llama.cpp с оракулом нет. Находка: откат `llama_memory_seq_rm` глубже, чем держит SWA-кэш (позиция 20 после префилла 280, кэш держит 24..279), принимается (возвращает true) и молча меняет результат: позиция 20 видит в SWA-слоях только себя, логиты отходят от полного оракула на 0.10–1.03 и через глобальные слои остаются сдвинутыми дальше (клеточный оракул совпадает); llama-server защищён проверкой `seq_pos_min` (`tools/server/server-context.cpp:3674-3677, 3726`@79e2e74), движок со своим откатом (MTP, n-gram) должен держать глубину отката ≤ C − n_swa + 1 (PROVISIONAL, вывод из правила размещения; для MiMo-V2.6 при окне 128 и ubatch 512 C = 768 (одна последовательность, n_ctx ≥ 640), окно — PROVISIONAL по `research/R1-models.md:41`). `mimo2` не читает `expert_weights_scale` (`src/models/mimo2.cpp:3-23`@ec7630a, те же строки на 79e2e74): вопрос находки 4 G1 для llama.cpp снят. Мутационная проверка 19/19 на обоих пинах. Шаг CI `n16-mimo2-decode` — в `ci.yml` (`cpu-parity`) и `parity-r1-pin.yml`, через `tools/ci/check_unittest.py` (Ran 92 без пропусков; без дампов, с пустым или неполным каталогом шаг падает). CONFIRMED, `docs/evidence/2026-10-11-n16-mimo-decode-parity.md`. Запрос настоящего конфига — `data/hf-requests/mimo-v2.6-flash-chat/REQUEST.json` (файлы лягут в `third_party/hf/mimo-v2.6-flash-chat/`) (`XiaomiMiMo/MiMo-V2.6-Flash-MOPD`, рекомендованный в `research/R1-models.md:41, 267`). NOT RUN: f16 KV и flash attention (синки во FA не эмулированы), несколько последовательностей, откат в MTP-контексте, MTP-головы со смещением > 0, квантованный MTP-блок, GitHub Actions. **После аудита (`1ce4d32`):** бот завендорил настоящий `config.json` MiMo-V2.6-Flash-MOPD (`@b12f557`): окно 128 (подтверждает значение для C = 768), синки только у SWA-слоёв, value scale 0.707, fused qkv, K 192 / V 128, KV-головы 4 (полные) и 8 (SWA), 48 слоёв (полные — 0, 5, 11, …, 47), **3 MTP-слоя** (конвертер llama.cpp пишет все три, `conversion/mimo.py:22-24`@79e2e74) — MTP-головы со смещением 1–2 NOT RUN и теперь нужны; в официальном чекпойнте маршрутизируемые эксперты хранятся в MXFP4, и конвертер пишет их как GGML MXFP4 напрямую (`conversion/mimo.py:177-252`), то есть проверенный здесь путь MXFP4 — путь настоящего файла (PROVISIONAL: конвертер не запускался). Значения в настоящем GGUF — UNKNOWN. **N17 (2026-10-11):** обе бреши, которые сделал нужными настоящий конфиг, закрыты на CPU, ветка `claude/n17-mimo-mtp-heads-fa`. (1) Три MTP-головы (`nextn_layer_offset` 0–2) прогоняются так, как их сцепляет `common/speculative.cpp` (`chain_heads`): в process каждая голова берёт h цели после `seq_rm` с первой позиции вызова, шаг k черновика — голова k на всём префиксе черновика с h предыдущих шагов (`common/speculative.cpp:1597-1621, 1700-1708, 1767-1777`@79e2e74, те же строки на 1533-1557, 1623-1631, 1686-1696@ec7630a); оба пина исполняют смещения 1 и 2; инструмент дампа воспроизводит черновики, отказы (`seq_rm` обоих контекстов и pending-строка `accept()`) и `seq_rm` сервера, оракул `ref/mimo2.py` — `mtp_process`/`mtp_draft`; совпадение с клеточным оракулом (худшая 1.32e-06 при f32), какие h берёт каждая голова — проверено побитно на числах llama.cpp; откат в MTP-контексте сделан. Находка: после вызова process, чей ubatch переходит через конец кольца SWA MTP-контекста, голова 0 читает K/V чужих позиций (ячейки общие для слоёв трёх голов, головы 1–2 после `seq_rm` размещают тот же батч с ячейки 0, `src/llama-kv-cache.cpp:428-437`@79e2e74): kqv_out отходит от полного оракула до 2.05, логиты головы 0 — до 0.40 на позициях 257–263; это поведение llama.cpp на обоих пинах (клеточный оракул совпадает до 7.2e-07), влияние на принятие черновиков с настоящими весами — UNKNOWN, наш движок должен размещать вызов один раз для всех голов (PROVISIONAL). (2) Точность R1 по умолчанию (`-ctk f16 -ctv f16 -fa on`) для mimo2: `ref/fattn.py` эмулирует CPU flash attention с синками во всех режимах (one_chunk, tiled, split-KV; `ggml/src/ggml-cpu/ops.cpp:9040-9056, 9332-9349, 9490-9520`@ec7630a, код одинаков на 79e2e74, строки на одну меньше) и головы K ≠ V (24/16 и 192/128, как у MiMo-V2.6-Flash); на собственных входах llama.cpp ни один элемент не дальше половины шага binary16; маска SWA при FA — тот же шаблон, что без FA; вся модель в пределах TOL16 (худшая 2.10e-03). Исправлены две детали эмуляции: масштаб kq в f32 (`1.0f/sqrtf(24)`) и аргумент `expf` в f32 — второе меняет оракул N10 (помечено; шаг N10 по-прежнему 170/170 на обоих пинах). 70/70 через `tools/ci/check_unittest.py` на `ec7630a` и `79e2e74`, дампы двух пинов побайтно одинаковы, N16 по-прежнему 92/92; мутационная проверка 19/19 на обоих пинах; шаг CI `n17-mimo2-mtp-heads-fa` — в `ci.yml` (`cpu-parity`) и `parity-r1-pin.yml`. CONFIRMED, `docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md`. NOT RUN: настоящие веса, сам llama-server, `-t` > 1, GPU, квантованный KV-кэш, одна голова с черновиками и отказами, GitHub Actions.
+
+**Статус пробела 11 (б), (в), (г) и пробела 14 (N22, 2026-10-11):** закрыты, ветка `claude/n22-ci-false-green`
+(`56202c8`), влита в `claude/n25-integration` (`87e10e3`). (б) Задание `cuda-compile` больше не зелёное по построению:
+вместо `kernels/*.cu` и `exit 0` (`ci.yml:93-94@e71b241`) оно ставит nvcc 13.0 и cuobjdump и запускает
+`tests.test_diag_kit.CudaCompile` — каждый `scripts/diag/*.cu` собирается с `-arch=sm_89`, `cuobjdump --list-elf` должен
+показать cubin `sm_89`; пропуск, пустой прогон или ошибка роняют шаг; `CudaSourcesInCi` падает в любом задании, если
+появится отслеживаемый CUDA-исходник, который `CudaCompile` не собирает (сейчас их два — `scripts/diag/gpu_p2p_matrix.cu`
+и `gpu_vram_check.cu`; своего GPU-кода движка у проекта по-прежнему нет). (в) В `cpu-parity` пропуск `CudaCompile`
+остаётся (nvcc там нет), но шаг `unit tests` превращает его в аннотацию `::warning::` с именем задания, где сборка идёт.
+Локально с nvcc 13.0 из pip-колёс NVIDIA — 5/5 OK (CONFIRMED, evidence N22, раздел 3). В GitHub Actions — CONFIRMED после
+push ветки (evidence N22 писалось до него и помечает это NOT RUN): run 38169629204 на `56202c8`, задание `cuda-compile`
+(114559323738) — success с аннотацией `sm_89 CUDA build: gpu_p2p_matrix.cu: nvcc -arch=sm_89 OK, 1075888 bytes
+gpu_vram_check.cu: nvcc -arch=sm_89 OK, 1024920 bytes Ran 5 tests in 7.266s OK`, `cpu-parity` (114559323648) —
+предупреждение `scripts/diag/*.cu NOT compiled in this job (no nvcc here)` (литеральный вывод `gh api` —
+`docs/reassessment/PHASE-CLOSE-2026-10-11.md`, приложение Б). Это **только компиляция** двух диагностических программ R0
+на раннере без GPU: ни исполнения на sm_89, ни работающего движка она не доказывает (уровень 4 по-прежнему NOT RUN).
+Строки L3-1, L3-5 раздела 1 и таблица «Итог по уровням» описывают состояние до N22 и, как и в других статусах, не
+правились. (г) Докстринг `tests/test_srvcheck.py` исправлен коммитом `4f7be84` на `claude/n7-server-hybrid-cpu` (файл есть
+только там и в ветках, вливших N7; на N22 его нет), влит в N8 (`09eb438`) и N11 (`b74efde`) (CONFIRMED: `git merge-base
+--is-ancestor 4f7be84` для обоих). Пробел 14: `tests/test_glm_tiny_parity.py` (G1 и сквозной прогон N9) и
+`tests/test_mimo_tiny_parity.py` печатают таблицу по компонентам и слоям (max abs, rel, допуск, доля допуска) и худшую
+запись слоя; допуски не менялись; хелперы теперь требуют совпадения размеров `got`/`want` (раньше расхождение форм могло
+тихо пройти через broadcast numpy; в прогонах N22 такого не случилось) (`03decf4`); G1 GLM — Ran 9, MiMo — Ran 5 на обоих
+пинах через `tools/ci/check_unittest.py` (CONFIRMED, evidence N22, раздел 4). Аудит: FAIL нет; MINOR 3 — 555 пропусков
+`discover` в разделе 2 N22 включают не только тесты на дампах и `CudaCompile`, но и shellcheck, torch/vLLM,
+`GGML_GDN_HARNESS`, `CHATTMPL_*`, `LLAMA_CPP_FULL_CLONE` (N22, раздел 9). CONFIRMED,
+`docs/evidence/2026-10-11-n22-ci-false-green.md`.
+
+**Статус пробела 10, продолжение (N20, 2026-10-11):** ветка `claude/n20-recurrent-rollback-guard` (`b7d6af1`), влита в N25
+(`63162c3`). Достижимость трёх ошибок N19 — (а) откат глубже последнего ubatch, (б) `seq_cp` при незавершённом откате,
+(в) откат общей ячейки на `ec7630a` — через llama-server `79e2e74` (CONFIRMED чтением кода; строки напечатаны в
+`docs/evidence/2026-10-11-n20-source-lines.txt`; сервер не запускался): в конфигурации R1 (`-np 1`, без `--spec-type` и без
+черновой модели) недостижимы все три — `n_rs_seq` = 0, и ни один частичный откат не принимается; с `--spec-type draft-mtp`
+(а также eagle3/dflash/dspark) (а) недостижима — все откаты сервера лежат внутри его последнего вызова верификации;
+(б) достижима узко при `-np` ≥ 2 — запрос decision с общим префиксом, равным закэшированным токенам слота, чьё прошлое
+завершение кончилось частично отвергнутым черновиком (путь CONFIRMED чтением; что настоящий клиент даёт ровно такой
+префикс — PROVISIONAL); (в) через сервер недостижима. Прогоны N20 нашли ещё три молчаливые ошибки на обоих пинах без патча
+(CONFIRMED прогонами): откат всех токенов последнего вызова читает плоскость, которую этот вызов не писал (`last_call`);
+второй откат после того, как первый применила копия «лишней» строки, читает плоскость 1 строки, где лежит снимок **другой**
+последовательности (`extra_cell`); копия при незавершённом откате читает состояние до отката и тогда, когда декодирует
+раньше источника (`cp_pending_order`). Патч `patches/llama.cpp/{79e2e74,ec7630a}/0001-recurrent-rollback-guard.patch`
+(только `src/llama-memory-recurrent.{h,cpp}`; к копии checkout его применяет `patches/llama.cpp/apply.sh`): счётчик
+записанных плоскостей снимков `rs_n` у ячейки; `seq_rm` отказывает (false и предупреждение) откату `r ≥ rs_n`; `seq_cp`
+передаёт получателю незавершённый индекс источника; `s_copy` сбрасывает индекс всех последовательностей ячейки
+(исправление FAIL 1 аудита); на `ec7630a` — ещё отказ отката общей ячейки, как на `79e2e74`. 13 планов (9 N19 + 4 N20),
+110 тестов — OK на обоих пинах с патчем и без него (без патча — с ожиданиями, утверждающими расхождения); каждый
+отключённый кусок патча ловится, кроме `state_read` (ни один план не восстанавливает состояние всего контекста); проба
+оракула — 0 неверных чтений на 20000 случайных сценариев с защитой и 11590 без неё (CONFIRMED, evidence N20, разделы
+5.1–5.7). Правило R1 без патча (PROVISIONAL, из кода): llama-server со спекуляцией, дающей `n_rs_seq` > 0 (`draft-mtp`,
+`draft-eagle3`, `draft-dflash`, `draft-dspark`), или с черновой моделью без `--spec-type` (тип тогда выводится) — только с
+явным `-np 1` (по умолчанию `-np` auto = 4 слота); проверка — `scripts/r1/rs_rollback_rule.py` (тесты
+`tests/test_r1_rs_rollback_rule.py`, 6); на `93bdfe0` оба шаблона llama.cpp R1 — `ok (spec types none, draft model no,
+slots 1)` (CONFIRMED выводом, `docs/reassessment/PHASE-CLOSE-2026-10-11.md`, приложение Б). Правило не покрывает
+ik_llama.cpp и клиентов C API. В GitHub Actions шаг `n20-qwen4exp-rs-guard` — success на обоих пинах (run 38175409480,
+`cpu-parity`, и 38175409509, `parity`, на `b7d6af1`: `Ran 110, skipped 0 as expected`; evidence N20 писалось до push и
+помечает это NOT RUN). N25: патчи N20 и N21 вместе на одной копии `79e2e74` — 110/110 и 57/57, ожидания N6/N16/N17/N19 не
+изменились (CONFIRMED, `docs/evidence/2026-10-11-n25-integration.md`, раздел 3; задания CI с обоими патчами нет). NOT RUN:
+GPU, настоящая модель, сервер на пути decision, сохранение и восстановление всего контекста, ik_llama.cpp; правило
+плоскостей для других архитектур с откатом — PROVISIONAL (прогнаны только qwen4exp и glm5-next). Опасность
+«последовательность теряет ячейку с незавершённым откатом» (`seq_keep`, `seq_rm(s, 0, p1)`) — PROVISIONAL, патчем не
+закрыта, через сервер для qwen4exp недостижима. CONFIRMED, `docs/evidence/2026-10-11-n20-recurrent-rollback-guard.md`.
+
+**Статус пробела 12, продолжение (N21, 2026-10-11):** ветка `claude/n21-mimo-mtp-heads-fix` (`93a48d6`), влита в N25
+(`fb3ce4e`). Тяжесть находки N17 для R1: **рекомендованная конфигурация не подвержена** — ни один шаблон R1 семейства
+llama.cpp не обслуживает MiMo и не включает спекуляцию (`spec_k` 0, нет `--spec*`/`-md`; CONFIRMED чтением шаблонов и
+`common/arg.cpp`@79e2e74); там, где MTP включён, ошибка меняет **только черновые токены** и никогда — состояние целевой
+модели и распределение выданных токенов (черновики проверяет цель; CONFIRMED по коду), цена — принятие черновиков, то
+есть скорость. Достижимость: вызов process, чьё размещение переходит через конец SWA-кольца MTP-контекста (768 ячеек при
+`-np 1`, 1024 при `-np 4` с единым KV-кэшем — умолчание llama-server), и (новое) вызов из нескольких ubatch (любой промпт
+длиннее 512 токенов) — CONFIRMED на крошечной модели в двух прогонах (`mtp3`, `mtp3b`), обобщение PROVISIONAL. По модели
+размещения `ref/mtp_cells.py` при геометрии MiMo-V2.6-Flash 3.3–15.9 % черновиков при `-np 1` и 3.2–8.4 % при `-np 4`
+получают первый токен от чужих K/V (PROVISIONAL); влияние на принятие с настоящими весами — UNKNOWN. Патч
+`patches/llama.cpp/0001-mtp-heads-slot-replay.patch` (база `79e2e74`, 8 файлов, +142/−1): каждый ubatch целевого батча
+размещается один раз для всех голов (головы 1..H−1 повторяют ячейки головы 0 через новый API
+`llama_memory_set_slot_replay`); `LLAMA_SPEC_MTP_NO_SLOT_REPLAY=1` возвращает порядок upstream для A/B. На крошечной модели
+с тремя головами: ни одна строка не читает чужие K/V или неполное окно, всё MTP — в пределах 1e-4 (f32) и TOL16 (f16/FA) от
+полного оракула, 11 строк головы 0 из N17 совпадают (kqv_out 5.8e-07, логиты 3.6e-07 против 2.05 и 0.40 без патча),
+настоящий `common_speculative` с патчем побитно равен воспроизведению исправленного порядка; мутации 18/18 (P5 пойман после
+аудита) (CONFIRMED, evidence N21, разделы 2.3, 2.4, 7.2). Обходы без патча: MTP выключен (как в R1); `--swa-full` (+6.41 GiB
+KV при 32K, +52.35 GiB при 262K — PROVISIONAL, из конфига); GGUF с одной головой (`tools/gguf_mtp_heads.py --keep 1`, цена в
+принятии UNKNOWN); `--spec-draft-n-max 1` не помогает. Шаги CI: `n21-mimo2-mtp-fix` без патча (32 теста, 6 ожидаемых
+пропусков) в `ci.yml` и `parity-r1-pin.yml` и задание `n21-patched` (копия `79e2e74` с патчем, 57 тестов); в GitHub —
+success (run 38175157541 на `93a48d6`: `n21-mimo2-mtp-fix-patched @ llama.cpp 79e2e74: Ran 57, skipped 0 as expected`;
+evidence N21 писалось до push и помечает это NOT RUN). Эксперимент на железе (A/B принятия на одной сборке с патчем) —
+evidence N21, раздел 4, NOT RUN. К Qwen3.8-Flash-Next не относится: у неё одна MTP-голова (`nextn_predict_layers` 1 во всех
+шести MTP-файлах, CONFIRMED по заголовкам N18), а цепочка голов включается только при числе голов > 1
+(`common/speculative.cpp:1482`@79e2e74, evidence N21, раздел 3). NOT RUN: GPU, бинарник llama-server, настоящие веса MiMo,
+`-np` > 1 с патчем, вероятностные черновики. CONFIRMED, `docs/evidence/2026-10-11-n21-mimo-mtp-heads-fix.md`.
+
+**Статус пробела 6, продолжение (N23, 2026-10-11):** ветка `claude/n23-glm-template-tokenizer` (`7541c4a`), влита в N25
+(`1f35c7a`, `447d7e2`). (1) Исправленный шаблон GLM `templates/glm-5.3-flash/chat_template.jinja` (13 249 B, sha256
+`5d47ac8e…ef5a`) = официальный `zai-org/GLM-5.3-Flash@eb9eb208` + заголовок с MIT-уведомлением upstream + одна вставленная
+строка (`{%- set reasoning_content = none %}`, строка 177) и одна изменённая проверка (`is defined` → `is not none`, строка
+184): переменная присваивается в каждой итерации, и разница областей видимости jinja2 и Jinja-движка llama.cpp `79e2e74`
+больше не проявляется. jinja2 в настройке transformers рендерит наш и официальный шаблоны одинаково — 294/294 (21 разговор ×
+7 переключателей × с подсказкой генерации и без), `render_jinja_template` transformers 5.16.0 — тоже; llama-server `79e2e74`
+с `--chat-template-file` нашего файла совпадает с официальным форматом на 279 из 298 строк (остальные 19 — не эффекты
+шаблона: 7 — `--prefill-assistant` по построению, 12 — HTTP 500 на `reasoning_content: null`), с официальным файлом — на 185
+(ещё 94 строки утечки) (CONFIRMED). Живой B3 на крошечной модели: с нашим шаблоном `cache_n` = всему удерживаемому на каждом
+запросе, кроме задуманного случая `preserve_off` (числа как у официального) (CONFIRMED). (2) Новая находка: llama-server
+`79e2e74` отвечает HTTP 500 на сообщение ассистента с `"reasoning_content": null` при любом шаблоне
+(`common/chat.cpp:422-423@79e2e74`) — ошибка громкая, не молчаливая; клиент должен опускать поле или слать `""`. Пробельное
+рассуждение `" \n "` с официальным шаблоном тоже протекает; наш шаблон это исправляет. (3) `tokenizer.json` закреплены по
+sha256, в git не входят: `scripts/vendor_hf_files.py` с `lfs_files`, `scripts/hf_lfs_fetch.py` (кэш вне дерева, хэш
+проверяется при каждом чтении; после аудита отвергает не-hex sha256 и ревизию); пины GLM @`eb9eb208` (20 217 442 B, MIT) и
+Qwen @`de4b8e4d` (12 809 320 B, Qwen Community License 1.0), sha256 = LFS oid (CONFIRMED, раздел 13.1; разрешение владельца
+брать `tokenizer.json` в CI из закреплённых ревизий). (4) Уровень токенов: GLM — разрывы только там, где рвутся байты
+(отброшенное прошлое рассуждение), все 16 тегов — одиночные токены; Qwen — находка N15 `ĊĊ` подтверждена и шире: каждый ход
+ассистента с пустым, отсутствующим или пробельным рассуждением рвёт переиспользование на последнем токене предыдущего
+промпта (1 из 6 запросов в сессии с пустым рассуждением, 4 из 7 — в смешанной); с `enable_thinking=false` разрыва нет
+(проверено только на уровне токенизатора); токенизатор HF и GGUF-токенизатор llama.cpp дают одинаковые id на всех промптах
+(CONFIRMED на раннере, workflow `token-level`, runs 38169032753 и 38175655900). Живой llama-server с настоящим словарём Qwen
+на крошечной модели восстанавливает чекпойнт за 4 токена до конца прошлого промпта и переобрабатывает 41–62 токена на разрыв
+(Σ prompt_n смешанной сессии 1021 вместо 819); полной переобработки нет (на крошечной модели; для настоящей — PROVISIONAL).
+Это потеря скорости префилла, а не ошибка вывода. Предложение для R1 (не применено: `scripts/r1/configs` ведёт сессия PR #1):
+`"--chat-template-file", "${REPO}/templates/glm-5.3-flash/chat_template.jinja"` после `"--jinja"` в
+`llamacpp-server-moecache.json:40` (для ik — если его `--help` знает этот флаг, UNKNOWN). Тесты:
+`tests/test_glm_template_n23.py` (12), `tests/test_token_level.py` (13), `tests/test_hf_lfs.py` (16); мутации 11/13 (выжили
+две эквивалентные). CONFIRMED, `docs/evidence/2026-10-11-n23-glm-template-tokenizer.md`. NOT RUN / UNKNOWN: шаблон в
+ik_llama.cpp, изображения и видео, `add_vision_id`, какие токены выбирают настоящие модели вокруг пустого блока рассуждения.
+
+**Решения владельца (N24, 2026-10-11), к пробелам 5, 7 и 9:** ветка `claude/n24-owner-decisions` (`76e9d56`), влита в N25
+(`21eac9b`); решения переданы lead-architect в задаче, письменного документа заказчика в репозитории нет (UNKNOWN как
+первоисточник; запись — `docs/DECISIONS.md` ADR-012.2). (1) Вердикт pack FAIL на синтетической модели (N11, прогон B2):
+причина CONFIRMED — единственный FAIL у `agent_api_probes` (пробы `tools` 0.0 и `json` 0.071 при пороге 1.0): движок и API
+отработали, ответы случайной модели — нет. Правило (`tools/verify/pack.py`, `344a55d`, после аудита `6442791`): синтетичность
+объявляется в файле критериев (`"synthetic_run": true`) и применяется, только если у каждого прогона в `model_desc` есть
+маркер `SYNTHETIC` (верхний регистр, целое слово, не после «non-»/«not »); тогда PASS или FAIL по порогу у критериев
+поведения модели (`agent_api_probes`, `context_probes_full_length`, `manual_quality_eval`) становятся NOT RUN с кодом
+причины и сохранённым исходным вердиктом; FAIL с ошибками запросов (в том числе отвергнутый `response_format`) остаётся
+FAIL; объявленный синтетический прогон никогда не PASS. FAIL не переименовывается молча и без причины (решение владельца).
+(2) Допуск почти-ничьих V6 `logprob_tie_tolerance_nats` = 0.025 = 2 × 1.15e-2 — **PROVISIONAL** (наибольшее |Δ log-softmax|
+N10 без смены дискретного выбора; крошечные модели, CPU); шум GPU против CPU на настоящих весах ожидается больше, так что
+0.025 — нижняя граница до замера; план замера на GPU — evidence N24, раздел 2.4 (NOT RUN). (3) Clamp SwiGLU у
+GLM-5.3-Flash: «до SiLU» (`silu(min(g, L))`) считают HF transformers 5.17–5.19 (`modeling_glm5_next.py`; в версии 5.16.0
+из config модели нет), vLLM `bc21cba` (пути Python; CUDA-ядро не прочитано), llama.cpp обоих пинов и fastllm; «после SiLU» —
+ik_llama.cpp `5194a9e` и exllamav3 `151539c` (CONFIRMED чтением). Кода модели в репозитории zai-org нет — **с каким вариантом
+обучена модель, UNKNOWN**; «до» как семантика по умолчанию — PROVISIONAL, выбор не делается произвольно (решение
+владельца). Разница выхода SwiGLU при L = 10 — не больше 4.54e-3 на элемент. Подготовлен эксперимент на настоящих весах:
+`patches/llama.cpp/n24-swiglu-clamp-after-silu.patch` (только для эксперимента; на CPU `ec7630a` с патчем
+`ffn_moe_swiglu_limited` равен формуле «после» до 2.1e-8) и `tools/quality/swiglu_clamp_experiment.sh` (`gate`, `kld`) —
+NOT RUN. (4) Проверка файлов GGUF на epyc-ai только чтением (`tools/hostcheck/glm_gguf_check.sh`, stdlib, без сети):
+размеры и sha256 шардов против пина N15 (`unsloth/GLM-5.3-Flash-GGUF@a38483c8`, архитектура `glm5-next`) и факты
+заголовка (архитектура, `expert_group_count`, шаблон); на заголовках N15 парсер воспроизводит все закреплённые заголовки; на
+хосте — NOT RUN. До этой проверки утверждение `AGENTS.md` о файле хоста (`glm5next`) не подтверждено и расходится с пином HF
+(решение владельца: файлу epyc-ai не доверять до проверки). (5) Документы: `docs/reassessment/R0-HARDWARE-CHECKS.md` (каналы
+DRAM — измерить; P2P — только штатная диагностика после прибытия железа, без патча драйвера; NVMe — план 3 × 1 ТБ (поправка заказчика 2026-10-12); лицензия
+Qwen — только локальная разработка и тесты) и ADR-012.2. Мутации 20/20 (после аудита). CONFIRMED,
+`docs/evidence/2026-10-11-n24-owner-decisions.md`.
+
+
+## 4. Литеральный вывод команд этой инвентаризации
+
+Пути песочницы сокращены: `$S` = `/tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad`.
+Сборки — только в `$S/corr/` (CPU, `GGML_NATIVE=OFF`); llama.cpp `ec7630a` — `$S/llama-ec7630a`, `79e2e74` — `$S/llama.cpp`
+(неглубокие клоны, только чтение). Скрипты-обёртки этой инвентаризации — `$S/corr/run_*.sh` (в репозиторий не входят).
+
+### 4.1 Ветки
+```
+$ git -C /home/user/wt-research rev-parse --abbrev-ref HEAD; git -C /home/user/wt-research log --oneline -n 5; git -C /home/user/wt-research status --short
+claude/research-landscape
+a2c1815 [perf-bench] evidence tier cost: PCIe prefetch pays only when the CPU expert path is compute-bound (follow-up to R11 C24)
+6c20aa1 [lead-architect] research README: index of R5-R12, COVERAGE and MATRIX; corrections to R5-R10 from R11 and the tier cost model
+16bf0a5 [lead-architect] research: coverage audit of the 45 items of the customer's list (deliverable A) and R12 gap-fill
+c95c670 [model-analyst] research: merged engine technology matrix (deliverable B) and tools/research/merge_matrix.py
+7e534c9 [lead-architect] research R11: independent verification of 33 decision-relevant claims of R5-R10 (20 confirmed, 13 corrected)
+(пусто)
+$ git -C /home/user/408032gb rev-parse --abbrev-ref HEAD; git -C /home/user/408032gb log --oneline -n 5; git -C /home/user/408032gb status --short
+claude/n7-server-hybrid-cpu
+090ca71 [parity-qa] N7 after sync with PR #1: --cache-reuse dropped in bf1a72b; N6 finding-12 risk resolved for the server path on CPU
+9a48ed5 [parity-qa] merge claude/relaxed-dijkstra-1d7i5o (PR #1 head 259081e) into N7: ROADMAP conflict resolved
+259081e [infra-ops] evidence: backup bundles were made in a shallow clone; fixed, new bundle restores in an empty directory
+125c9c3 [infra-ops] backup bundles: refuse shallow clones, verify by restoring into an empty directory
+ca1d2a7 [infra-ops] offline kit audit closed: literal outputs, exact sizes, cp312 rationale; verify names left-out engines
+(пусто)
+$ git -C /home/user/wt-n8 rev-parse --abbrev-ref HEAD; git -C /home/user/wt-n8 log --oneline -n 5; git -C /home/user/wt-n8 status --short
+claude/n8-session-store
+43c2171 [parity-qa] evidence N8: server-cpu green on ebecad4 (runs 38081791575, 38081793624); round 4 pinned to 25c61f3
+750fe3d [parity-qa] merge claude/n7-server-hybrid-cpu (090ca71, synced with PR #1) into N8: PROJECT_STATE conflict resolved
+090ca71 [parity-qa] N7 after sync with PR #1: --cache-reuse dropped in bf1a72b; N6 finding-12 risk resolved for the server path on CPU
+9a48ed5 [parity-qa] merge claude/relaxed-dijkstra-1d7i5o (PR #1 head 259081e) into N7: ROADMAP conflict resolved
+ebecad4 [parity-qa] evidence N8 after audit: 24 by sha256 + 2 by size; no checksum but structural checks exist; unsaved timings relabelled
+(пусто)
+$ git -C /home/user/wt-research merge-base HEAD origin/claude/n8-session-store
+b6f4fe3fae4bd83479862a4be26e49386118c88e
+$ git -C /home/user/wt-research merge-base HEAD origin/claude/n7-server-hybrid-cpu
+b6f4fe3fae4bd83479862a4be26e49386118c88e
+$ git -C /home/user/wt-research merge-base --is-ancestor 259081e HEAD && echo yes || echo no
+no
+$ git -C /home/user/wt-n8 merge-base --is-ancestor 259081e HEAD && echo yes || echo no
+yes
+```
+
+### 4.2 CI (GitHub API, только чтение; список прогонов снят 2026-10-10T20:16Z)
+```
+$ gh run list -R samnolak/408032gb --limit 40 --json databaseId,workflowName,headBranch,headSha,status,conclusion,event
+38082629418 server-cpu claude/n8-session-store 43c2171 pull_request completed success
+38082629376 ci claude/n8-session-store 43c2171 pull_request completed success
+38082626725 ci claude/n8-session-store 43c2171 push completed success
+38082585007 server-cpu claude/n8-session-store 750fe3d pull_request completed cancelled
+38082584975 ci claude/n8-session-store 750fe3d pull_request completed success
+38082581829 ci claude/n8-session-store 750fe3d push completed success
+38082295327 server-cpu claude/n7-server-hybrid-cpu 090ca71 pull_request completed success
+38082295320 ci claude/n7-server-hybrid-cpu 090ca71 pull_request completed success
+38082292627 ci claude/n7-server-hybrid-cpu 090ca71 push completed success
+38081957679 ci claude/research-landscape a2c1815 pull_request completed success
+38081953672 ci claude/research-landscape a2c1815 push completed success
+38081816686 ci claude/research-landscape 16bf0a5 pull_request completed success
+38081812884 ci claude/research-landscape 16bf0a5 push completed success
+38081793624 server-cpu claude/n8-session-store ebecad4 pull_request completed success
+38081793592 ci claude/n8-session-store ebecad4 pull_request completed success
+38081791581 ci claude/n8-session-store ebecad4 push completed success
+38081791575 server-cpu claude/n8-session-store ebecad4 push completed success
+38081168135 ci claude/research-landscape ec4008e pull_request completed success
+38081164662 ci claude/research-landscape ec4008e push completed success
+38080702361 ci claude/research-landscape 4d7c852 pull_request completed success
+38080698171 ci claude/research-landscape 4d7c852 push completed success
+38080628252 server-cpu claude/n8-session-store 33cf4e8 pull_request completed success
+38080628233 ci claude/n8-session-store 33cf4e8 pull_request completed success
+38080609883 server-cpu claude/n8-session-store 33cf4e8 push completed success
+38080609846 ci claude/n8-session-store 33cf4e8 push completed success
+38080354799 ci claude/relaxed-dijkstra-1d7i5o 259081e pull_request completed success
+38080354794 engines-sm89 claude/relaxed-dijkstra-1d7i5o 259081e pull_request completed success
+38080352780 ci claude/relaxed-dijkstra-1d7i5o 259081e push completed success
+38079738202 ci claude/research-landscape 7a0bf02 pull_request completed success
+38079738013 traces-real claude/research-landscape 7a0bf02 workflow_dispatch in_progress 
+38079734013 ci claude/research-landscape 7a0bf02 push completed success
+38076816839 ci claude/research-landscape 8981351 pull_request completed success
+38076798213 traces-real claude/research-landscape 8981351 push completed failure
+38076798166 ci claude/research-landscape 8981351 push completed success
+38076515852 ci claude/relaxed-dijkstra-1d7i5o ca1d2a7 pull_request completed success
+38076515851 engines-sm89 claude/relaxed-dijkstra-1d7i5o ca1d2a7 pull_request completed success
+38076512811 ci claude/relaxed-dijkstra-1d7i5o ca1d2a7 push completed success
+38076450758 ci claude/n7-server-hybrid-cpu 986519a push completed success
+38076450727 server-cpu claude/n7-server-hybrid-cpu 986519a push completed success
+38075939074 engines-sm89 claude/relaxed-dijkstra-1d7i5o bf1a72b pull_request completed cancelled
+$ gh run view 38081953672 --json jobs   (ci, claude/research-landscape, a2c1815; шаги кроме служебных)
+38081953672 ci claude/research-landscape a2c1815 success
+  job 114300530685 ref-torch-cpu success
+     deps (CPU torch) -> success
+     DFlash2 oracle against the vendored vLLM functions -> success
+  job 114300530830 lt-strata-sm89 success
+     CUDA 13 toolkit + cuBLAS (no GPU on the runner) -> success
+     lighttransport/Strata at the pinned commit + our patches (patches/lt-strata, ADR-009) -> success
+     configure (sm_89 = RTX 4080 Super) -> success
+     build the GLM decoder, the model inspector and the CPU tests -> success
+     decoder binary contains sm_89 code -> success
+     CPU-only tests of the fork (GGUF reader, model description) -> success
+     probe - does base B open our tiny GLM GGUF (not the 4096/2048 geometry)? Exploratory, never fails the job -> success
+  job 114300530843 strata-glm-sm89 (89) success
+     CUDA 13 toolkit + cuBLAS (no GPU on the runner) -> success
+     strata-glm at the pinned commit + our patches (patches/strata-glm, ADR-007) -> success
+     Linux disk tier (patch 0003) functional test, CPU -> success
+     configure (sm_89 = RTX 4080 Super) -> success
+     build strata-glm -> success
+     binary contains sm_89 code -> success
+     new flags are validated before any CUDA call (no GPU needed) -> success
+  job 114300530849 strata-glm-sm89 (86) success
+     CUDA 13 toolkit + cuBLAS (no GPU on the runner) -> success
+     strata-glm at the pinned commit + our patches (patches/strata-glm, ADR-007) -> success
+     Linux disk tier (patch 0003) functional test, CPU -> success
+     configure (sm_89 = RTX 4080 Super) -> success
+     build strata-glm -> success
+     binary contains sm_89 code -> success
+     new flags are validated before any CUDA call (no GPU needed) -> success
+  job 114300530859 cuda-compile success
+     CUDA toolkit (compile only, no GPU on the runner) -> success
+     compile kernels for sm_89 -> success
+  job 114300530885 cpu-parity success
+     llama.cpp at the pinned commit -> success
+     deps -> success
+     unit tests -> success
+     ggml delta-net parity (CPU) -> success
+     G1 tiny-model parity against the real glm5-next graph (CPU) -> success
+     MiMo G1 tiny-model parity against the real mimo2 graph (CPU) -> success
+     N2 qwen4exp (candidate 1) tiny-model parity against the real qwen4exp graph (CPU) -> success
+     N6 qwen4exp several ubatches, token-by-token decode, rollback and MTP against the real qwen4exp graph (CPU) -> success
+     G0 per-token routing tracer + cache simulator on the tiny glm5-next model (CPU smoke) -> success
+     G0 trace + probe on a tiny qwen3moe (last layer keeps only output rows; predict_eval self-checks) (CPU smoke) -> success
+     roofline, cache-simulator and GGUF-audit unit tests (type table checked against the pinned gguf-py) -> success
+$ gh run view 38081791575 --json jobs   (server-cpu, claude/n8-session-store, ebecad4)
+38081791575 server-cpu claude/n8-session-store ebecad4 success
+  job 114300045445 n7 success
+     deps -> success
+     harness tests against a stand-in server (fault injection) -> success
+     llama.cpp at the pinned commit (tools/engines/pins.json) -> success
+     N7 llama-server checks on tiny qwen4exp and glm5-next (CPU) -> success
+     N8 corrupted slot files - raw llama-server vs tools/kv/session_store.py (CPU) -> success
+     keep results and server logs -> success
+$ gh run view 38080354794 --json jobs; gh api …/check-runs/<job>/annotations   (engines-sm89, claude/relaxed-dijkstra-1d7i5o, 259081e)
+38080354794 engines-sm89 claude/relaxed-dijkstra-1d7i5o 259081e success
+  job 114295815094 build (ik_llama.cpp) success
+  job 114295815212 build (exllamav3) success
+  job 114295815251 build (strata) success
+  job 114295815284 build (llama.cpp) success
+ik_llama.cpp 5194a9e1451b sm_89 ok Build cuda_13.0.r13.0/compiler.36424714_0
+exllamav3 151539c77abc sm_89 ok Build cuda_13.0.r13.0/compiler.36424714_0
+strata fb58e0dbc839 sm_89 ok Build cuda_13.0.r13.0/compiler.36424714_0
+llama.cpp 79e2e74eb110 sm_89 ok Build cuda_13.0.r13.0/compiler.36424714_0
+$ gh api repos/samnolak/408032gb/check-runs/<job>/annotations   (notice, выдержка)
+114300530685 ref-torch-cpu (a2c1815):   dflash2 oracle vs vLLM: Ran 7 tests in 0.048s OK  torch 2.14.1+cpu
+114300530843 strata-glm-sm89 (89) (a2c1815):
+  ok: --pack p --tokens t.txt --layer-split 14,25,35 --gpus 0,1 -> 2
+  ok: --pack p --tokens t.txt --layer-split 25,14 -> 2
+  ok: --pack p --tokens t.txt --layer-split 50 -> 2
+  ok: --pack p --tokens t.txt --bogus -> 2
+  cubin archs:      26 sm_89
+  strata-glm build OK, 69 CUDA objects
+114300530830 lt-strata-sm89 (a2c1815):
+  strata-model-inspect, tiny GGUF arch=glm5-next (4157600 bytes): exit 1
+  arch=glm5next output head: model: missing or invalid integer glm5next.expert_group_count|
+  strata-model-inspect, tiny GGUF arch=glm5next (4157568 bytes): exit 1
+  model_test: 1/1 Test #2: model_test .......................   Passed    0.00 sec 100% tests passed, 0 tests failed out of 1
+  gguf_reader_test: 1/1 Test #1: gguf_reader_test .................   Passed    0.00 sec 100% tests passed, 0 tests failed out of 1
+114296831693 lt-strata-sm89 (4d7c852):  cubin archs:      18 sm_89 | lt-strata build OK, 62 CUDA objects
+114296831708 strata-glm-sm89 (86) (4d7c852):  cubin archs:      26 sm_86
+$ gh run view 38079738013 --json status,jobs   (traces-real, claude/research-landscape, 7a0bf02)
+in_progress
+  7 smoke - the same tools on a tiny qwen3moe before any download (scripts/traces/smoke_tiny.sh) completed success
+  8 traces, probes, predictors and cache policies per model in_progress
+$ gh run view <id> --log
+failed to get run log: Get "https://results-receiver.actions.githubusercontent.com/rest/runs/…/logs?…": Forbidden   (URL сокращён)
+```
+
+
+### 4.3 Полный набор `unittest` в трёх рабочих деревьях
+
+Первый прогон (без `-v`, `TMPDIR=$S/corr/tmp`); на research в нём участвовал тогда ещё не закоммиченный
+`tests/test_merge_matrix.py` (закоммичен позже в `c95c670`), n7 и n8 потом получили слияние PR #1 — поэтому ниже есть второй
+прогон на HEAD при написании документа.
+```
+$ for w in wt-research 408032gb wt-n8; do cd /home/user/$w; python3 -m unittest discover -s tests; done
+== wt-research 7e534c9 claude/research-landscape
+rc=0 seconds=118
+----------------------------------------------------------------------
+Ran 522 tests in 118.042s
+
+OK (skipped=86)
+== 408032gb 986519a claude/n7-server-hybrid-cpu
+rc=0 seconds=162
+----------------------------------------------------------------------
+Ran 447 tests in 161.925s
+
+OK (skipped=86)
+== wt-n8 ebecad4 claude/n8-session-store
+rc=0 seconds=170
+----------------------------------------------------------------------
+Ran 465 tests in 170.121s
+
+OK (skipped=86)
+```
+Второй прогон (`-v`, причины пропусков посчитаны `grep -oE "\.\.\. skipped '.*'" | sort | uniq -c`):
+```
+$ for w in wt-research 408032gb wt-n8; do cd /home/user/$w; python3 -m unittest discover -s tests -v; done   # + grep -oE "\.\.\. skipped '.*'" | sort | uniq -c
+== wt-research a2c1815 claude/research-landscape untracked=0
+rc=0 seconds=113
+Ran 522 tests in 112.590s
+
+OK (skipped=86)
+     40 'set QWEN4EXP_DECODE_DUMP, QWEN4EXP_TINY_GGUF, LLAMA_CPP_GGUF_PY: run tools/tinygen/run_parity_qwen4exp_decode.sh'
+     17 'set QWEN4EXP_TINY_DUMP, QWEN4EXP_TINY_GGUF, LLAMA_CPP_GGUF_PY: run tools/tinygen/run_parity_qwen4exp.sh'
+      8 'run tools/tinygen/run_parity.sh'
+      6 'set QWEN4EXP_DECODE_DUMP, QWEN4EXP_MTP_GGUF, LLAMA_CPP_GGUF_PY: run tools/tinygen/run_parity_qwen4exp_decode.sh'
+      5 'run tools/tinygen/run_parity.sh mimo'
+      3 'set GGML_GDN_HARNESS (see tests/ggml_parity/build.sh)'
+      2 'torch is not installed: the vendored vLLM functions cannot be executed'
+      2 'set LLAMA_CPP_GGUF_PY=<llama.cpp>/gguf-py'
+      1 'shellcheck not available (env SHELLCHECK or PATH)'
+      1 'set LLAMA_CPP_FULL_CLONE=<llama.cpp clone with history> to check ancestry'
+      1 'nvcc not available (set NVCC=/path/to/nvcc)'
+== 408032gb 090ca71 claude/n7-server-hybrid-cpu untracked=0
+rc=0 seconds=169
+Ran 461 tests in 169.004s
+
+OK (skipped=86)
+     40 'set QWEN4EXP_DECODE_DUMP, QWEN4EXP_TINY_GGUF, LLAMA_CPP_GGUF_PY: run tools/tinygen/run_parity_qwen4exp_decode.sh'
+     17 'set QWEN4EXP_TINY_DUMP, QWEN4EXP_TINY_GGUF, LLAMA_CPP_GGUF_PY: run tools/tinygen/run_parity_qwen4exp.sh'
+      8 'run tools/tinygen/run_parity.sh'
+      6 'set QWEN4EXP_DECODE_DUMP, QWEN4EXP_MTP_GGUF, LLAMA_CPP_GGUF_PY: run tools/tinygen/run_parity_qwen4exp_decode.sh'
+      5 'run tools/tinygen/run_parity.sh mimo'
+      3 'set GGML_GDN_HARNESS (see tests/ggml_parity/build.sh)'
+      2 'torch is not installed: the vendored vLLM functions cannot be executed'
+      2 'set LLAMA_CPP_GGUF_PY=<llama.cpp>/gguf-py'
+      1 'shellcheck not available (env SHELLCHECK or PATH)'
+      1 'set LLAMA_CPP_FULL_CLONE=<llama.cpp clone with history> to check ancestry'
+      1 'nvcc not available (set NVCC=/path/to/nvcc)'
+== wt-n8 43c2171 claude/n8-session-store untracked=0
+rc=0 seconds=183
+Ran 479 tests in 182.042s
+
+OK (skipped=86)
+     40 'set QWEN4EXP_DECODE_DUMP, QWEN4EXP_TINY_GGUF, LLAMA_CPP_GGUF_PY: run tools/tinygen/run_parity_qwen4exp_decode.sh'
+     17 'set QWEN4EXP_TINY_DUMP, QWEN4EXP_TINY_GGUF, LLAMA_CPP_GGUF_PY: run tools/tinygen/run_parity_qwen4exp.sh'
+      8 'run tools/tinygen/run_parity.sh'
+      6 'set QWEN4EXP_DECODE_DUMP, QWEN4EXP_MTP_GGUF, LLAMA_CPP_GGUF_PY: run tools/tinygen/run_parity_qwen4exp_decode.sh'
+      5 'run tools/tinygen/run_parity.sh mimo'
+      3 'set GGML_GDN_HARNESS (see tests/ggml_parity/build.sh)'
+      2 'torch is not installed: the vendored vLLM functions cannot be executed'
+      2 'set LLAMA_CPP_GGUF_PY=<llama.cpp>/gguf-py'
+      1 'shellcheck not available (env SHELLCHECK or PATH)'
+      1 'set LLAMA_CPP_FULL_CLONE=<llama.cpp clone with history> to check ancestry'
+      1 'nvcc not available (set NVCC=/path/to/nvcc)'
+```
+
+### 4.4 Шаги `cpu-parity` локально (research, llama.cpp `ec7630a`)
+
+Выдержка из вывода обёртки: строки `== шаг`, `Ran`/`OK` и ключевые строки скриптов дословно; пустые строки, разделители `---` и
+строки `artifacts:` опущены; комментарии после `#` добавлены при составлении. Полные логи — `$S/corr/par/*.log`.
+```
+$ bash $S/corr/run_cpu_parity.sh     # те же команды, что ci.yml:19-41; build dir $S/corr/build-tools; gdn_harness слинкован с её libggml*.so
+repo a2c1815; llama.cpp ec7630a640789c393694fb194f1bbbf0369fc62d
+== ggml_gdn rc=0 s=1            # GGML_GDN_HARNESS=… LLAMA_CPP_GGUF_PY=… python3 -m unittest tests.test_kda_vs_ggml tests.test_fitplan -v
+Ran 18 tests in 0.322s
+OK
+== glm_parity rc=0 s=2          # tools/tinygen/run_parity.sh $S/llama-ec7630a $S/corr/build-tools
+Ran 8 tests in 0.267s
+OK
+== mimo_parity rc=0 s=1         # tools/tinygen/run_parity_mimo.sh …
+Ran 5 tests in 0.076s
+OK
+== qwen4exp_parity rc=0 s=2     # tools/tinygen/run_parity_qwen4exp.sh …
+Ran 17 tests in 0.387s
+OK
+== qwen4exp_decode rc=0 s=8     # tools/tinygen/run_parity_qwen4exp_decode.sh …
+ub16: 4 graphs, 1 calls, n_rs_seq 0
+ub10: 7 graphs, 1 calls, n_rs_seq 0
+decode: 17 graphs, 17 calls, n_rs_seq 0
+rollback: 16 graphs, 17 calls, n_rs_seq 3
+mtp: 11 graphs, 9 calls, n_rs_seq 0
+Ran 54 tests in 3.718s
+OK
+== trace_smoke rc=0 s=2         # tools/g0/run_trace_smoke.sh …
+trace checks OK: 5 files, prompt part of generation traces == prompt-only traces
+== smoke_tiny rc=0 s=1          # scripts/traces/smoke_tiny.sh … $S/corr/smoke-tiny
+{"router_logits_max_rel_err": 0.00027022845461033285, "selection_rule_match": 1.0, "gating": 1, "groups": [0, 0], "probe_equals_trace_rows": 1.0}
+-b 64 vs -b 1: 2334/2340 (token, layer) rows select the same experts
+smoke ok
+== tools_gguf rc=0 s=3          # LLAMA_CPP_GGUF_PY=… python3 -m unittest tests.test_roofline tests.test_cachesim tests.test_gguf_quant_audit tests.test_offline_weights -v
+Ran 52 tests in 2.170s
+OK
+$ cd $S/corr/par && grep -c skipped *.log    # ни один тест паритета не пропущен
+ggml_gdn.log:0
+glm_parity.log:0
+mimo_parity.log:0
+qwen4exp_decode.log:0
+qwen4exp_parity.log:0
+smoke_tiny.log:0
+tools_gguf.log:0
+trace_smoke.log:0
+```
+Худшие ошибки из таблиц, которые печатают сами тесты N2/N6 (`grep`/`awk` по логам; повторяющиеся пробелы сжаты):
+```
+e2e logits                                          -1  1.490e-06  7.439e-07  (55, 87)                       # N2
+max rel (runs): rollback final_output (gated norm) [full]   6    12  6.621e-06  5.422e-06                       # N6
+max rel (MTP): hc_inject (attention mixer) [chunk]          8    11  1.786e-06  1.577e-06                       # N6 MTP
+```
+Тест GLM таблицу не печатает; ошибки сняты вспомогательным скриптом, который подменяет только `assertClose` (записывает max abs
+и нормированную rel) и запускает те же 8 тестов на тех же дампах:
+```
+$ GLM_TINY_DUMP=… GLM_TINY_GGUF=… LLAMA_CPP_GGUF_PY=… python3 -I $S/corr/glm_errs.py /home/user/wt-research
+Ran 8 tests in 0.299s
+OK
+check                          n     tol    max abs    max rel worst layer
+kda gate                       9   1e-05  6.837e-07  1.413e-07 2
+kda scan                       9   1e-04  6.859e-08  2.580e-07 4
+kda q conv                     9   1e-05  8.808e-07  2.065e-07 6
+kda k conv                     9   1e-05  7.479e-07  1.722e-07 2
+kda v conv                     9   1e-05  8.920e-07  1.841e-07 4
+hc_post                       12   1e-05  9.313e-07  4.657e-07 7
+hc_comb                       12   1e-05  5.322e-07  5.323e-07 10
+hc mixer input                12   1e-05  2.783e-06  1.404e-07 10
+hc_attn_post                  12   1e-05  2.346e-06  2.877e-07 7
+swiglu clamp                  11   1e-05  2.121e-08  1.363e-07 4
+indexer key                    3   1e-04  5.160e-07  1.800e-07 -
+pooled keys                    3   1e-04  4.953e-07  2.892e-07 -
+indexer query                  3   1e-04  3.254e-07  8.880e-08 -
+indexer scores                 3   1e-04  5.029e-07  2.552e-07 -
+q_resid                        3   1e-05  5.381e-07  1.607e-07 -
+q absorbed                     3   1e-05  7.298e-07  1.830e-07 -
+latent                         3   1e-05  4.090e-07  1.360e-07 -
+kqv_out                        3   1e-04  9.021e-07  2.657e-07 -
+attn_out                       3   1e-04  5.284e-07  1.881e-07 -
+```
+(DSA-строки — слои 3, 7, 11; номер слоя в сообщении теста не передаётся. Роутер сравнивается `assertAlmostEqual` и в таблицу не
+попадает.)
+
+### 4.5 Шаги `server-cpu` локально (n8, llama.cpp `79e2e74`)
+```
+$ bash $S/corr/run_server_cpu.sh     # tools/srvcheck/run_n7.sh $S/llama.cpp $S/corr/build-n7 $S/corr/n7-out; затем slot_corruption_probe.py для обеих моделей
+repo ebecad4; llama.cpp 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6
+== run_n7.sh rc=0 s=253
+llama.cpp 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6 (pins.json)
+version: 0.6.0-dev (build 1, commit 79e2e74)
+== qwen4exp gate (-c 1024 -np 1 -t 2 -fa off -ctk f32 -ctv f32 --no-warmup)
+  "all_pass": true
+== glm5next gate (-c 1024 -np 1 -t 2 -fa off -ctk f32 -ctv f32 --no-warmup)
+  "all_pass": true
+== qwen4exp characterization (-c 1024 -np 1 -t 2 --no-warmup)
+  "all_pass": true
+== glm5next characterization (-c 1024 -np 1 -t 2 --no-warmup)
+  "all_pass": false
+artifacts: $S/corr/n7-out
+$ python3 tools/srvcheck/n7_report.py lines $S/corr/n7-out/qwen4exp-gate.json $S/corr/n7-out/glm5next-gate.json $S/corr/n7-out/qwen4exp-defaults.json $S/corr/n7-out/glm5next-defaults.json | grep -E "^## |^verdict|^prefix_extend|^isolation|^mtp  "   (выдержка: блоки glm5next без строки mtp; у qwen4exp оба verdict — all_pass true)
+## glm5next.gguf: server_args -c 1024 -np 1 -t 2 -fa off -ctk f32 -ctv f32 --no-warmup
+verdict {"determinism": true, "prefix_extend_correct": true, "prefix_diverge_correct": true, "slot_persist_same_process": true, "slot_persist_after_restart": true, "cache_reuse_correct": true, "isolation_two_slots": true, "server_exit_clean": true, "mtp_equals_plain_decode": true, "all_pass": true}
+prefix_extend    n_next 256 reusable 232 warm prompt_n 25 cache_n 231 reused 231 | max|d| 7.152557373046875e-06 same_tokens True
+isolation        server max_busy_slots 2 client overlap 0.158 s same_tokens [True, True] max|d| [4.458427429199219e-05, 1.5735626220703125e-05]
+## glm5next.gguf: server_args -c 1024 -np 1 -t 2 --no-warmup
+verdict {"determinism": true, "prefix_extend_correct": false, "prefix_diverge_correct": true, "slot_persist_same_process": true, "slot_persist_after_restart": true, "cache_reuse_correct": true, "isolation_two_slots": false, "server_exit_clean": true, "mtp_equals_plain_decode": true, "all_pass": false}
+prefix_extend    n_next 256 reusable 232 warm prompt_n 25 cache_n 231 reused 231 | max|d| 0.026694536209106445 same_tokens True
+isolation        server max_busy_slots 2 client overlap 0.178 s same_tokens [True, True] max|d| [0.001149892807006836, 0.0018963813781738281]
+== n8 probe qwen4exp rc=0 s=1
+intact           raw: accepted prompt_n   4 same_tokens True  max|d| 0         nulls 0   | store: restored                  prompt_n   4 same True
+exp@0.2          raw: accepted prompt_n   4 same_tokens False max|d| inf       nulls 25  | store: refused  sha256 mismatch  prompt_n 200 same True
+exp@0.3          raw: accepted prompt_n   4 same_tokens False max|d| 0.639     nulls 0   | store: refused  sha256 mismatch  prompt_n 200 same True
+exp@0.4          raw: accepted prompt_n   4 same_tokens False max|d| 0.736     nulls 0   | store: refused  sha256 mismatch  prompt_n 200 same True
+truncated-1000   raw: accepted prompt_n 200 same_tokens True  max|d| 0         nulls 0   | store: refused  size 255724 != 256724 prompt_n 200 same True
+== n8 probe glm5next rc=0 s=3
+exp@0.1          raw: accepted prompt_n   4 same_tokens False max|d| 1.18      nulls 0   | store: refused  sha256 mismatch  prompt_n 200 same True
+exp@0.6          raw: accepted prompt_n   4 same_tokens False max|d| 0.529     nulls 0   | store: refused  sha256 mismatch  prompt_n 200 same True
+truncated-1000   raw: accepted prompt_n 200 same_tokens True  max|d| 0         nulls 0   | store: refused  size 286020 != 287020 prompt_n 200 same True
+```
+(выдержка из 2 × 14 строк; все 26 повреждённых файлов: сырой сервер — `accepted`, хранилище — `refused`, после отказа
+`same True`; построчно совпадает с таблицей `docs/evidence/2026-10-10-n8-session-store.md` раздел 2.) Рабочее дерево n8 во время
+прогона сдвинулось на `750fe3d` (слияние PR #1); `tools/srvcheck/`, `tools/kv/`, `tools/tinygen/` этим слиянием не менялись
+(`git diff --stat ebecad4 750fe3d` — 18 файлов, ни одного из этих каталогов).
+
+### 4.6 Окружение, пины, прочее
+```
+$ ls kernels
+ls: cannot access 'kernels': No such file or directory
+$ which nvidia-smi nvcc; ls /dev/nvidia*
+which rc=1
+ls: cannot access '/dev/nvidia*': No such file or directory
+$ python3 -c "import torch"
+ModuleNotFoundError: No module named 'torch'
+$ grep -m1 "model name" /proc/cpuinfo; nproc
+model name	: Intel(R) Xeon(R) Processor @ 2.80GHz
+4
+$ grep -E "^GGML_(AVX2|AVX512|NATIVE):" <build-tools>/CMakeCache.txt
+GGML_AVX2:BOOL=ON
+GGML_AVX512:BOOL=OFF
+GGML_NATIVE:BOOL=OFF
+$ for f in <graph files>; do diff <ec7630a>/$f <79e2e74>/$f | grep -c "^[<>]"; done
+src/models/glm5-next.cpp 312
+src/models/qwen4exp.cpp 140
+src/models/mimo2.cpp 29
+src/models/delta-net-base.cpp 0
+src/llama-graph.cpp 321
+src/llama-memory-hybrid-idx.cpp 184
+src/llama-memory-recurrent.cpp 4
+ggml/src/ggml-cpu/ops.cpp 37
+$ git -C <ec7630a> rev-parse HEAD; git -C <79e2e74> rev-parse HEAD
+ec7630a640789c393694fb194f1bbbf0369fc62d
+79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6
+$ git log --all --oneline -- tests/test_srvcheck_llama.py | wc -l   (wt-research, wt-n8)
+0
+0
+$ grep -nE "^class (Q4_K|Q5_K|Q6_K|Q8_0|IQ4_XS|MXFP4)\b|^def dequantize" <ec7630a>/gguf-py/gguf/quants.py
+68:def dequantize(data: np.ndarray, qtype: GGMLQuantizationT
+379:class Q8_0(__Quant, qtype=GGMLQuantizationType.Q8_0):
+476:class Q4_K(__Quant, qtype=GGMLQuantizationType.Q4_K):
+526:class Q5_K(__Quant, qtype=GGMLQuantizationType.Q5_K):
+553:class Q6_K(__Quant, qtype=GGMLQuantizationType.Q6_K):
+657:class MXFP4(__Quant, qtype=GGMLQuantizationType.MXFP4):
+1352:class IQ4_XS(__Quant, qtype=GGMLQuantizationType.IQ4_XS
+```
+
+### 4.7 Проба пробела 1: те же скрипты паритета на llama.cpp `79e2e74` (не существующая проверка, разовый прогон)
+```
+$ bash $S/corr/run_pin_probe.sh      # cmake -S tools/g0 -B $S/corr/build-tools-79 -DLLAMA_CPP_DIR=$S/llama.cpp …; затем run_parity*.sh с ним
+repo a2c1815; llama.cpp 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6
+== build dump-tensors @79e2e74 rc=0 s=157
+[100%] Built target dump-tensors
+== glm_parity rc=0 s=1
+Ran 8 tests in 0.229s
+OK
+== mimo_parity rc=0 s=1
+Ran 5 tests in 0.076s
+OK
+== qwen4exp_parity rc=0 s=2
+Ran 17 tests in 0.327s
+OK
+== qwen4exp_decode rc=1 s=7
+FAIL: test_qsa_pool_cache_and_selection (tests.test_qwen4exp_decode_parity.Decode.test_qsa_pool_cache_and_selection)
+AssertionError: 1.3864799363845095 not less than 0.0001 : decode indexer_pool_k_new (padding rows) L3 graph 1: rel err 1.39e+00 (abs 3.06e+00)
+FAIL: test_qsa_pool_cache_and_selection (tests.test_qwen4exp_decode_parity.Rollback.test_qsa_pool_cache_and_selection)
+AssertionError: 1.3627376980950934 not less than 0.0001 : rollback indexer_pool_k_new (padding rows) L3 graph 2: rel err 1.36e+00 (abs 2.87e+00)
+Ran 54 tests in 3.231s
+FAILED (failures=2)
+$ grep -E "^(decode|rollback) +logits.bin \[full\]" $S/corr/pin79/qwen4exp_decode.log
+decode   logits.bin [full]                                             -1    10  1.387e-06  1.125e-06
+rollback logits.bin [full]                                             -1     0  1.506e-06  8.570e-07
+$ QWEN4EXP_DECODE_DUMP=… python3 -I $S/corr/qsa_nopad.py /home/user/wt-research   # тот же тест, только сравнение «padding rows» не утверждается
+Ran 2 tests in 0.616s
+OK
+padding-row comparisons not asserted: 25 max rel 2.053132109357617
+decode   qsa selection: tie replays = 0                                 3    -1  0.000e+00  0.000e+00
+rollback qsa selection: tie replays = 0                                 3    -1  0.000e+00  0.000e+00
+$ python3 - <последний $S/corr/tmp/tmp.*/n6>/decode   # max|row| по строкам дампа indexer_pool_k_new-3 в graph 0…3 (79e2e74)
+g000 indexer_pool_k_new-3__0 ne [16, 13, 1, 1] max|row|: [2.39, 2.06, 2.31, 2.33, 1.96, 1.91, 2.18, 1.82, 2.64, 2.44, 2.4, 2.72, 1.84]
+g001 indexer_pool_k_new-3__0 ne [16, 1, 1, 1] max|row|: [1.84]
+g002 indexer_pool_k_new-3__0 ne [16, 1, 1, 1] max|row|: [1.84]
+g003 indexer_pool_k_new-3__0 ne [16, 1, 1, 1] max|row|: [1.84]
+```
+(Полный лог — `$S/corr/pin79/qwen4exp_decode.log`; дампы — последний `$S/corr/tmp/tmp.*/n6`.)

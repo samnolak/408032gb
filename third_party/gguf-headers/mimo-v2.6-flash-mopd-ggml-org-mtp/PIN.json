@@ -1,0 +1,161 @@
+{
+ "request_path": "data/gguf-headers/mimo-v2.6-flash-mopd-ggml-org-mtp/REQUEST.json",
+ "request_sha256": "d1a0a2708e12319c0ee230a43ade1ee6c3e8001eace7225c54b30c0954829cbb",
+ "request": {
+  "_doc": "N18 (b): the separate MTP file (Q8_0) of ggml-org/MiMo-V2.6-Flash-MOPD-GGUF @e6d4bced739310a721eefad4c247ec7e0247c89d (third_party/gguf-headers/discover-mimo/LISTING.json:488, 2383728864 B; the repo also ships BF16 and Q4_0 ones). Headers only, by Range reads (scripts/gguf_headers_fetch.py). The file is analysed as its own model (analysis mode mtp_files): layout, NextN layers against the first NextN layer of the QuantaPlanta single-file MXFP4 GGUF (its hub-parsed total is 987820224 params above ggml-org's; PROVISIONAL: the 3 NextN layers), KV against the ggml-org MXFP4 trunk, and what each llama.cpp pin's loader asks of a separate MTP file. docs/reassessment/CORRECTNESS.md gap 9.",
+  "repo": "ggml-org/MiMo-V2.6-Flash-MOPD-GGUF",
+  "revision": "e6d4bced739310a721eefad4c247ec7e0247c89d",
+  "files": [
+   "mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf"
+  ],
+  "expect_count": 1,
+  "max_header_bytes": 33554432,
+  "initial_bytes": 262144,
+  "analysis": {
+   "mode": "mtp_files",
+   "graph": "mimo2",
+   "trunk": "mimo-v2.6-flash-mopd-ggml-org-mxfp4",
+   "mtp_reference": {
+    "request": "mimo-v2.6-flash-mopd-quantaplanta-mxfp4"
+   },
+   "hf_config": "data/gguf-headers/mimo-v2.6-flash-config/config.json"
+  },
+  "kind": "headers"
+ },
+ "repo": "ggml-org/MiMo-V2.6-Flash-MOPD-GGUF",
+ "requested_revision": "e6d4bced739310a721eefad4c247ec7e0247c89d",
+ "max_header_bytes": 33554432,
+ "initial_bytes": 262144,
+ "endpoint": "https://huggingface.co",
+ "tool": "scripts/gguf_headers_fetch.py",
+ "workflow_sha": "65c380517e5fe53f21c2361490854cde46265e22",
+ "fetched_utc": "2026-10-11T14:31:07Z",
+ "revision": "e6d4bced739310a721eefad4c247ec7e0247c89d",
+ "gated": false,
+ "license_tags": [
+  "license:mit"
+ ],
+ "gguf_listing": [
+  {
+   "path": "MiMo-V2.6-Flash-MOPD-MXFP4-00001-of-00002.gguf",
+   "size": 5948640,
+   "lfs_sha256": "a353e75ccd30f347dfd68a8cf1be8be0fb989fcca94b8e72fd7d1e35241b5f51"
+  },
+  {
+   "path": "MiMo-V2.6-Flash-MOPD-MXFP4-00002-of-00002.gguf",
+   "size": 167363516512,
+   "lfs_sha256": "3adf8ea80157dd066945a954428ba0e507c15c0e5a8b6b276ac92df0948698bc"
+  },
+  {
+   "path": "MiMo-V2.6-Flash-MOPD-Q2_K-00001-of-00002.gguf",
+   "size": 5948928,
+   "lfs_sha256": "612ae7fd2064a2ba296b72cc9a0765e5ebd91541996e54718b6f06b883140cfe"
+  },
+  {
+   "path": "MiMo-V2.6-Flash-MOPD-Q2_K-00002-of-00002.gguf",
+   "size": 126360000608,
+   "lfs_sha256": "637921c1b5b556f422c548c2b2ff96384baaeb86a86c2081a5c925bfaedf5f70"
+  },
+  {
+   "path": "MiMo-V2.6-Flash-MOPD-Q2_K_S-00001-of-00002.gguf",
+   "size": 5948928,
+   "lfs_sha256": "ad88631792326298ea2b4d828eafa11daa21d0c754e73f7cb1f854413371cf3b"
+  },
+  {
+   "path": "MiMo-V2.6-Flash-MOPD-Q2_K_S-00002-of-00002.gguf",
+   "size": 105858242656,
+   "lfs_sha256": "4f21f6083146630b2b633a8a68193c97817e2d102c30e7d92c8a7c8a6fd6949a"
+  },
+  {
+   "path": "dflash-MiMo-V2.6-Flash-MOPD-BF16.gguf",
+   "size": 5441972448,
+   "lfs_sha256": "c909b7c0d0f10061a212fba30f9c0d7fb6261ea293a5ebd3558f4badacb56b5d"
+  },
+  {
+   "path": "dflash-MiMo-V2.6-Flash-MOPD-Q8_0.gguf",
+   "size": 2893932768,
+   "lfs_sha256": "cfd70fef40bc4ef2f6c186516bdfa8c861ebd7b8e5f44ed4703a41dde1492a67"
+  },
+  {
+   "path": "mmproj-MiMo-V2.6-Flash-MOPD-BF16.gguf",
+   "size": 2748509792,
+   "lfs_sha256": "9b7d98d8afe2a6ae25635ecc490fb37883f912bf1d5648d1334fdc703e4a565e"
+  },
+  {
+   "path": "mmproj-MiMo-V2.6-Flash-MOPD-Q8_0.gguf",
+   "size": 1564438112,
+   "lfs_sha256": "7fa58c0f20342fad37ef1962e8a9fd37ef834038b377e4f7e93f905e013e55db"
+  },
+  {
+   "path": "mtp-MiMo-V2.6-Flash-MOPD-BF16.gguf",
+   "size": 4481536224,
+   "lfs_sha256": "d4292135824f47b8f8e1219780ed53a50ad9c3fb520d5670db7a9c6760c32e20"
+  },
+  {
+   "path": "mtp-MiMo-V2.6-Flash-MOPD-Q4_0.gguf",
+   "size": 1264898272,
+   "lfs_sha256": "bc9914785441a04596e84d919b59aed352336eda7fe323f1ce1eecf15422ba71"
+  },
+  {
+   "path": "mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf",
+   "size": 2383728864,
+   "lfs_sha256": "4589839383ca7524fa1bdf635b8cef0da59b7e909d84a433f6006f7b64fc17ec"
+  }
+ ],
+ "status": "ok",
+ "files": [
+  {
+   "path": "mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf",
+   "size": 2383728864,
+   "lfs_sha256": "4589839383ca7524fa1bdf635b8cef0da59b7e909d84a433f6006f7b64fc17ec",
+   "lfs_size": 2383728864,
+   "git_oid": "47b56dc3cfcce28fa1a0e93e5329ea44cea327f1",
+   "xet_hash": "37dd943d02f6105f8d0ade0dd091f9b1d763bd0e24f14852c2055c2fc618fa9a",
+   "header_bytes": 5950944,
+   "header_sha256": "8805a08513f9777f59845d1bfa486ef52eb3a77c63952cf6031eee55f28c413b",
+   "header_gz": "mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf.header.gz",
+   "header_gz_bytes": 1661660,
+   "header_gz_sha256": "f5b80cd495a7789743934b1a4f71b1259a3f2565d35bdd00019217936921177f",
+   "summary": "mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf.summary.json",
+   "bytes_fetched": 8388608,
+   "range_requests": [
+    [
+     0,
+     262143
+    ],
+    [
+     262144,
+     524287
+    ],
+    [
+     524288,
+     1048575
+    ],
+    [
+     1048576,
+     2097151
+    ],
+    [
+     2097152,
+     4194303
+    ],
+    [
+     4194304,
+     8388607
+    ]
+   ],
+   "resolve_redirect": {
+    "x_linked_etag": "4589839383ca7524fa1bdf635b8cef0da59b7e909d84a433f6006f7b64fc17ec",
+    "x_repo_commit": "e6d4bced739310a721eefad4c247ec7e0247c89d",
+    "x_linked_size": "2383728864",
+    "hops": 1
+   },
+   "etag_matches_lfs_sha256": true,
+   "repo_commit_matches": true,
+   "tensor_offsets": "contiguous",
+   "size_check": "exact"
+  }
+ ],
+ "bytes_fetched": 8388608,
+ "committed_bytes": 1661660
+}

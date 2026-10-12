@@ -1,0 +1,18 @@
+===== PROBE =====
+name: meta.kit_git
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: git
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+git -C /synthetic log -1 --format='%H %cI %s' && git -C /synthetic status --short -- .
+===== STDOUT =====
+0000000000000000000000000000000000000000 2026-01-01T00:00:00+00:00 synthetic commit
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

@@ -1,0 +1,1 @@
+{"repo": "Qwen/Qwen3.8-Flash-Next", "revision": "main", "files": ["chat_template.jinja", "tokenizer_config.json", "special_tokens_map.json", "generation_config.json", "config.json", "tokenizer.json"]}

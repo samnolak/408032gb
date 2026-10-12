@@ -21,7 +21,28 @@ add_executable(g0-expert-hist expert_hist.cpp)
 target_link_libraries(g0-expert-hist PRIVATE llama-common llama)
 target_compile_features(g0-expert-hist PRIVATE cxx_std_17)
 
+# Per-token routing traces (prompt + greedy generation) for tools/g0/cachesim.py.
+add_executable(g0-expert-trace expert_trace.cpp)
+target_link_libraries(g0-expert-trace PRIVATE llama-common llama)
+target_compile_features(g0-expert-trace PRIVATE cxx_std_17)
+
+# Expert-prediction probe (router input, router logits, selected experts) for tools/g0/predict_eval.py.
+add_executable(g0-expert-probe expert_probe.cpp)
+target_link_libraries(g0-expert-probe PRIVATE llama-common llama)
+target_compile_features(g0-expert-probe PRIVATE cxx_std_17)
+
 # Tensor dump tool for parity tests (tools/dump/dump_tensors.cpp); same pinned llama.cpp.
 add_executable(dump-tensors ../dump/dump_tensors.cpp)
 target_link_libraries(dump-tensors PRIVATE llama-common llama)
+# llama-ext.h (staging API used by the MTP mode: llama_set_embeddings_nextn) lives in llama.cpp's src/
+target_include_directories(dump-tensors PRIVATE ${LLAMA_CPP_DIR}/src)
 target_compile_features(dump-tensors PRIVATE cxx_std_17)
+
+# llama-quantize of the same pinned checkout, for the quantized tiny models of tools/tinygen/run_parity_quant.sh
+# (N10, gap 2). Opt-in (-DG0_QUANTIZE=ON, which that script passes), so that a checkout whose tools/quantize is laid out
+# differently cannot break the configure of the other G0 tools; built only on request (--target llama-quantize).
+# Output: <build>/quantize/llama-quantize.
+option(G0_QUANTIZE "also configure llama-quantize of LLAMA_CPP_DIR (tools/tinygen/run_parity_quant.sh)" OFF)
+if (G0_QUANTIZE)
+    add_subdirectory(${LLAMA_CPP_DIR}/tools/quantize quantize EXCLUDE_FROM_ALL)
+endif()

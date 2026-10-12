@@ -1,0 +1,17 @@
+===== PROBE =====
+name: network.internet_check
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: not-run
+requires: -
+timeout_s: 120
+runner: (not run)
+===== COMMAND =====
+curl ...
+===== STDOUT =====
+===== STDERR =====
+===== RESULT =====
+exit_code: not-run
+duration_s: 0.010
+status: skipped
+note: off by default; enable with --net-check

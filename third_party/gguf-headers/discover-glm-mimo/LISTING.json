@@ -1,0 +1,3899 @@
+{
+ "request_path": "data/gguf-headers/discover-glm-mimo/REQUEST.json",
+ "request_sha256": "29c2d28028e9923ef14b76c301e228cd7fc2a26aa56159d04b0d5ce1beaafd5c",
+ "request": {
+  "_doc": "Lists GGUF repos through the hub search API (filter gguf, with the hub's parsed gguf.architecture) and, for the repos whose architecture matches, their .gguf paths and sizes from the tree API. Reads no file. Purpose: the repo id of the Unsloth glm5next files (UNKNOWN), a glm5-next GGUF for llama.cpp mainline (scripts/r1/configs/llamacpp-server-moecache.json GLM_GGUF is UNKNOWN), MiMo-V2.6-Flash GGUFs (mimo2). Result: third_party/gguf-headers/discover-glm-mimo/LISTING.json.",
+  "kind": "discover",
+  "limit": 100,
+  "list_files": true,
+  "searches": [
+   {
+    "search": "GLM-5.3-Flash",
+    "architectures": [
+     "glm5-next",
+     "glm5next"
+    ]
+   },
+   {
+    "search": "MiMo-V2.6-Flash",
+    "architectures": [
+     "mimo2"
+    ]
+   }
+  ]
+ },
+ "endpoint": "https://huggingface.co",
+ "tool": "scripts/gguf_headers_fetch.py",
+ "fetched_utc": "2026-10-11T11:36:06Z",
+ "searches": [
+  {
+   "search": "GLM-5.3-Flash",
+   "architectures": [
+    "glm5-next",
+    "glm5next"
+   ],
+   "url": "https://huggingface.co/api/models?search=GLM-5.3-Flash&filter=gguf&limit=100&expand=gguf&expand=sha&expand=lastModified&expand=downloads&expand=gated&expand=tags",
+   "expanded": true,
+   "n_results": 95,
+   "results": [
+    {
+     "id": "huihui-ai/Huihui-GLM-5.3-Flash-abliterated-GGUF",
+     "sha": "c43a994637c10f5c376b7a471b3afc7663f80b9b",
+     "lastModified": "2026-10-09T11:24:45.000Z",
+     "downloads": 27094,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "UD-IQ1_M/GLM-5.3-Flash-UD-IQ1_M-00001-of-00003.gguf",
+       "size": 9430112
+      },
+      {
+       "path": "UD-IQ1_M/GLM-5.3-Flash-UD-IQ1_M-00002-of-00003.gguf",
+       "size": 49996246720
+      },
+      {
+       "path": "UD-IQ1_M/GLM-5.3-Flash-UD-IQ1_M-00003-of-00003.gguf",
+       "size": 47573668224
+      },
+      {
+       "path": "UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00001-of-00003.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00002-of-00003.gguf",
+       "size": 49621122656
+      },
+      {
+       "path": "UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00003-of-00003.gguf",
+       "size": 43456692768
+      },
+      {
+       "path": "UD-IQ2_XXS/GLM-5.3-Flash-UD-IQ2_XXS-00001-of-00004.gguf",
+       "size": 9430112
+      },
+      {
+       "path": "UD-IQ2_XXS/GLM-5.3-Flash-UD-IQ2_XXS-00002-of-00004.gguf",
+       "size": 49896298208
+      },
+      {
+       "path": "UD-IQ2_XXS/GLM-5.3-Flash-UD-IQ2_XXS-00003-of-00004.gguf",
+       "size": 49248507968
+      },
+      {
+       "path": "UD-IQ2_XXS/GLM-5.3-Flash-UD-IQ2_XXS-00004-of-00004.gguf",
+       "size": 2690716128
+      },
+      {
+       "path": "UD-IQ3_XXS/GLM-5.3-Flash-UD-IQ3_XXS-00001-of-00004.gguf",
+       "size": 9430112
+      },
+      {
+       "path": "UD-IQ3_XXS/GLM-5.3-Flash-UD-IQ3_XXS-00002-of-00004.gguf",
+       "size": 49261511712
+      },
+      {
+       "path": "UD-IQ3_XXS/GLM-5.3-Flash-UD-IQ3_XXS-00003-of-00004.gguf",
+       "size": 49075832608
+      },
+      {
+       "path": "UD-IQ3_XXS/GLM-5.3-Flash-UD-IQ3_XXS-00004-of-00004.gguf",
+       "size": 22020797920
+      },
+      {
+       "path": "UD-IQ4_XS/GLM-5.3-Flash-UD-IQ4_XS-00001-of-00005.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-IQ4_XS/GLM-5.3-Flash-UD-IQ4_XS-00002-of-00005.gguf",
+       "size": 49989334368
+      },
+      {
+       "path": "UD-IQ4_XS/GLM-5.3-Flash-UD-IQ4_XS-00003-of-00005.gguf",
+       "size": 49607025472
+      },
+      {
+       "path": "UD-IQ4_XS/GLM-5.3-Flash-UD-IQ4_XS-00004-of-00005.gguf",
+       "size": 49486530304
+      },
+      {
+       "path": "UD-IQ4_XS/GLM-5.3-Flash-UD-IQ4_XS-00005-of-00005.gguf",
+       "size": 7729791808
+      },
+      {
+       "path": "UD-Q2_K_XL/GLM-5.3-Flash-UD-Q2_K_XL-00001-of-00004.gguf",
+       "size": 9430112
+      },
+      {
+       "path": "UD-Q2_K_XL/GLM-5.3-Flash-UD-Q2_K_XL-00002-of-00004.gguf",
+       "size": 49294976064
+      },
+      {
+       "path": "UD-Q2_K_XL/GLM-5.3-Flash-UD-Q2_K_XL-00003-of-00004.gguf",
+       "size": 49949266176
+      },
+      {
+       "path": "UD-Q2_K_XL/GLM-5.3-Flash-UD-Q2_K_XL-00004-of-00004.gguf",
+       "size": 9466399712
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UD-Q3_K_XL-00001-of-00004.gguf",
+       "size": 9430112
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UD-Q3_K_XL-00002-of-00004.gguf",
+       "size": 49609243680
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UD-Q3_K_XL-00003-of-00004.gguf",
+       "size": 49623486144
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UD-Q3_K_XL-00004-of-00004.gguf",
+       "size": 48293762624
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00001-of-00006.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00002-of-00006.gguf",
+       "size": 49198039392
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00003-of-00006.gguf",
+       "size": 49988626464
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00004-of-00006.gguf",
+       "size": 48700701504
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00005-of-00006.gguf",
+       "size": 49026026912
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00006-of-00006.gguf",
+       "size": 2784498048
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00001-of-00006.gguf",
+       "size": 9430112
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00002-of-00006.gguf",
+       "size": 48806959456
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00003-of-00006.gguf",
+       "size": 48557435840
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00004-of-00006.gguf",
+       "size": 49317045248
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00005-of-00006.gguf",
+       "size": 49317045248
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00006-of-00006.gguf",
+       "size": 44298171872
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00001-of-00007.gguf",
+       "size": 9430112
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00002-of-00007.gguf",
+       "size": 49354106816
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00003-of-00007.gguf",
+       "size": 48109732832
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00004-of-00007.gguf",
+       "size": 49515349120
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00005-of-00007.gguf",
+       "size": 48930700480
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00006-of-00007.gguf",
+       "size": 49077752416
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00007-of-00007.gguf",
+       "size": 46836040928
+      },
+      {
+       "path": "mmproj-model-bf16.gguf",
+       "size": 1164010176
+      }
+     ]
+    },
+    {
+     "id": "peasantsmith/GLM-5.3-Flash-Maya-GGUF",
+     "sha": "f16ee4ba50d8fd2bb726ea1862ca6ca14ba188da",
+     "lastModified": "2026-10-09T22:52:28.000Z",
+     "downloads": 57366,
+     "gated": false,
+     "gguf_architecture": "llama",
+     "gguf_total_params": 0,
+     "gguf_context_length": 65536,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": false
+    },
+    {
+     "id": "unsloth/GLM-5.3-Flash-GGUF",
+     "sha": "a38483c8cd5df544f53d70fb281afe97369d5ab6",
+     "lastModified": "2026-10-05T22:23:39.000Z",
+     "downloads": 954431,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00001-of-00014.gguf",
+       "size": 9429728
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00002-of-00014.gguf",
+       "size": 48155668736
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00003-of-00014.gguf",
+       "size": 49289812544
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00004-of-00014.gguf",
+       "size": 49315393792
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00005-of-00014.gguf",
+       "size": 49998245760
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00006-of-00014.gguf",
+       "size": 49492991520
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00007-of-00014.gguf",
+       "size": 49289812544
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00008-of-00014.gguf",
+       "size": 49596568192
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00009-of-00014.gguf",
+       "size": 49315393792
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00010-of-00014.gguf",
+       "size": 49289812544
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00011-of-00014.gguf",
+       "size": 49622149440
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00012-of-00014.gguf",
+       "size": 49289812544
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00013-of-00014.gguf",
+       "size": 49355397280
+      },
+      {
+       "path": "BF16/GLM-5.3-Flash-BF16-00014-of-00014.gguf",
+       "size": 49620575872
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Q8_0-00001-of-00008.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Q8_0-00002-of-00008.gguf",
+       "size": 49665857344
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Q8_0-00003-of-00008.gguf",
+       "size": 49822821280
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Q8_0-00004-of-00008.gguf",
+       "size": 49849652064
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Q8_0-00005-of-00008.gguf",
+       "size": 49974608352
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Q8_0-00006-of-00008.gguf",
+       "size": 49840638624
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Q8_0-00007-of-00008.gguf",
+       "size": 49831834720
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Q8_0-00008-of-00008.gguf",
+       "size": 41987123840
+      },
+      {
+       "path": "UD-IQ1_M/GLM-5.3-Flash-UD-IQ1_M-00001-of-00003.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-IQ1_M/GLM-5.3-Flash-UD-IQ1_M-00002-of-00003.gguf",
+       "size": 49996246592
+      },
+      {
+       "path": "UD-IQ1_M/GLM-5.3-Flash-UD-IQ1_M-00003-of-00003.gguf",
+       "size": 47573668096
+      },
+      {
+       "path": "UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00001-of-00003.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00002-of-00003.gguf",
+       "size": 49621122496
+      },
+      {
+       "path": "UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00003-of-00003.gguf",
+       "size": 43456692608
+      },
+      {
+       "path": "UD-IQ2_XXS/GLM-5.3-Flash-UD-IQ2_XXS-00001-of-00004.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-IQ2_XXS/GLM-5.3-Flash-UD-IQ2_XXS-00002-of-00004.gguf",
+       "size": 49896298080
+      },
+      {
+       "path": "UD-IQ2_XXS/GLM-5.3-Flash-UD-IQ2_XXS-00003-of-00004.gguf",
+       "size": 49248507840
+      },
+      {
+       "path": "UD-IQ2_XXS/GLM-5.3-Flash-UD-IQ2_XXS-00004-of-00004.gguf",
+       "size": 2690716000
+      },
+      {
+       "path": "UD-IQ3_XXS/GLM-5.3-Flash-UD-IQ3_XXS-00001-of-00004.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-IQ3_XXS/GLM-5.3-Flash-UD-IQ3_XXS-00002-of-00004.gguf",
+       "size": 49261511584
+      },
+      {
+       "path": "UD-IQ3_XXS/GLM-5.3-Flash-UD-IQ3_XXS-00003-of-00004.gguf",
+       "size": 49075832480
+      },
+      {
+       "path": "UD-IQ3_XXS/GLM-5.3-Flash-UD-IQ3_XXS-00004-of-00004.gguf",
+       "size": 22020797792
+      },
+      {
+       "path": "UD-IQ4_XS/GLM-5.3-Flash-UD-IQ4_XS-00001-of-00005.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-IQ4_XS/GLM-5.3-Flash-UD-IQ4_XS-00002-of-00005.gguf",
+       "size": 49989334176
+      },
+      {
+       "path": "UD-IQ4_XS/GLM-5.3-Flash-UD-IQ4_XS-00003-of-00005.gguf",
+       "size": 49607025280
+      },
+      {
+       "path": "UD-IQ4_XS/GLM-5.3-Flash-UD-IQ4_XS-00004-of-00005.gguf",
+       "size": 49486530144
+      },
+      {
+       "path": "UD-IQ4_XS/GLM-5.3-Flash-UD-IQ4_XS-00005-of-00005.gguf",
+       "size": 7729791616
+      },
+      {
+       "path": "UD-Q2_K_XL/GLM-5.3-Flash-UD-Q2_K_XL-00001-of-00004.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-Q2_K_XL/GLM-5.3-Flash-UD-Q2_K_XL-00002-of-00004.gguf",
+       "size": 49294975936
+      },
+      {
+       "path": "UD-Q2_K_XL/GLM-5.3-Flash-UD-Q2_K_XL-00003-of-00004.gguf",
+       "size": 49949266048
+      },
+      {
+       "path": "UD-Q2_K_XL/GLM-5.3-Flash-UD-Q2_K_XL-00004-of-00004.gguf",
+       "size": 9466399584
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UD-Q3_K_XL-00001-of-00004.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UD-Q3_K_XL-00002-of-00004.gguf",
+       "size": 49609243584
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UD-Q3_K_XL-00003-of-00004.gguf",
+       "size": 49623486016
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UD-Q3_K_XL-00004-of-00004.gguf",
+       "size": 48293762496
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00001-of-00006.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00002-of-00006.gguf",
+       "size": 49198039200
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00003-of-00006.gguf",
+       "size": 49988626304
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00004-of-00006.gguf",
+       "size": 48700701344
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00005-of-00006.gguf",
+       "size": 49026026752
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00006-of-00006.gguf",
+       "size": 2784497888
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00001-of-00006.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00002-of-00006.gguf",
+       "size": 48806959328
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00003-of-00006.gguf",
+       "size": 48557435712
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00004-of-00006.gguf",
+       "size": 49317045120
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00005-of-00006.gguf",
+       "size": 49317045120
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UD-Q5_K_XL-00006-of-00006.gguf",
+       "size": 44298171744
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00001-of-00007.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00002-of-00007.gguf",
+       "size": 49354106688
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00003-of-00007.gguf",
+       "size": 48109732704
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00004-of-00007.gguf",
+       "size": 49515348992
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00005-of-00007.gguf",
+       "size": 48930700352
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00006-of-00007.gguf",
+       "size": 49077752288
+      },
+      {
+       "path": "UD-Q6_K_XL/GLM-5.3-Flash-UD-Q6_K_XL-00007-of-00007.gguf",
+       "size": 46836040800
+      },
+      {
+       "path": "mmproj-BF16.gguf",
+       "size": 1164010176
+      },
+      {
+       "path": "mmproj-F16.gguf",
+       "size": 1128047296
+      }
+     ]
+    },
+    {
+     "id": "autotrust/GLM-5.3-Flash-GGUF-DGX-Spark",
+     "sha": "e1599a6bc0ea2bce3caa994a8c1efba706937f0d",
+     "lastModified": "2026-10-11T03:49:39.000Z",
+     "downloads": 35088,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 279498438142,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-Q2-DGX-Spark-00001-of-00002.gguf",
+       "size": 44984916000
+      },
+      {
+       "path": "GLM-5.3-Flash-Q2-DGX-Spark-00002-of-00002.gguf",
+       "size": 39944534144
+      }
+     ]
+    },
+    {
+     "id": "orcarouter/GLM-5.3-Flash-Uncensored-GGUF",
+     "sha": "efa699effe7e3114ac89a87bab2ee9f56ccddba3",
+     "lastModified": "2026-10-02T04:17:10.000Z",
+     "downloads": 17786,
+     "gated": "auto",
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "Q2_K/GLM-5.3-Flash-Uncensored-Q2_K-00001-of-00003.gguf",
+       "size": 44200046016
+      },
+      {
+       "path": "Q2_K/GLM-5.3-Flash-Uncensored-Q2_K-00002-of-00003.gguf",
+       "size": 44927281184
+      },
+      {
+       "path": "Q2_K/GLM-5.3-Flash-Uncensored-Q2_K-00003-of-00003.gguf",
+       "size": 27742612544
+      },
+      {
+       "path": "Q3_K_M/GLM-5.3-Flash-Uncensored-Q3_K_M-00001-of-00004.gguf",
+       "size": 44946334944
+      },
+      {
+       "path": "Q3_K_M/GLM-5.3-Flash-Uncensored-Q3_K_M-00002-of-00004.gguf",
+       "size": 44434543808
+      },
+      {
+       "path": "Q3_K_M/GLM-5.3-Flash-Uncensored-Q3_K_M-00003-of-00004.gguf",
+       "size": 44680756896
+      },
+      {
+       "path": "Q3_K_M/GLM-5.3-Flash-Uncensored-Q3_K_M-00004-of-00004.gguf",
+       "size": 18670791296
+      },
+      {
+       "path": "Q4_K_M/GLM-5.3-Flash-Uncensored-Q4_K_M-00001-of-00005.gguf",
+       "size": 44351173792
+      },
+      {
+       "path": "Q4_K_M/GLM-5.3-Flash-Uncensored-Q4_K_M-00002-of-00005.gguf",
+       "size": 44268614560
+      },
+      {
+       "path": "Q4_K_M/GLM-5.3-Flash-Uncensored-Q4_K_M-00003-of-00005.gguf",
+       "size": 43647098080
+      },
+      {
+       "path": "Q4_K_M/GLM-5.3-Flash-Uncensored-Q4_K_M-00004-of-00005.gguf",
+       "size": 44919583648
+      },
+      {
+       "path": "Q4_K_M/GLM-5.3-Flash-Uncensored-Q4_K_M-00005-of-00005.gguf",
+       "size": 15788509792
+      },
+      {
+       "path": "Q6_K/GLM-5.3-Flash-Uncensored-Q6_K-00001-of-00006.gguf",
+       "size": 44458707360
+      },
+      {
+       "path": "Q6_K/GLM-5.3-Flash-Uncensored-Q6_K-00002-of-00006.gguf",
+       "size": 44570395648
+      },
+      {
+       "path": "Q6_K/GLM-5.3-Flash-Uncensored-Q6_K-00003-of-00006.gguf",
+       "size": 44575130752
+      },
+      {
+       "path": "Q6_K/GLM-5.3-Flash-Uncensored-Q6_K-00004-of-00006.gguf",
+       "size": 44685398496
+      },
+      {
+       "path": "Q6_K/GLM-5.3-Flash-Uncensored-Q6_K-00005-of-00006.gguf",
+       "size": 44566117312
+      },
+      {
+       "path": "Q6_K/GLM-5.3-Flash-Uncensored-Q6_K-00006-of-00006.gguf",
+       "size": 40513913792
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Uncensored-Q8_0-00001-of-00008.gguf",
+       "size": 43947596512
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Uncensored-Q8_0-00002-of-00008.gguf",
+       "size": 44992314656
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Uncensored-Q8_0-00003-of-00008.gguf",
+       "size": 44518914720
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Uncensored-Q8_0-00004-of-00008.gguf",
+       "size": 44684358400
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Uncensored-Q8_0-00005-of-00008.gguf",
+       "size": 44684358432
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Uncensored-Q8_0-00006-of-00008.gguf",
+       "size": 44518914688
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Uncensored-Q8_0-00007-of-00008.gguf",
+       "size": 44697897376
+      },
+      {
+       "path": "Q8_0/GLM-5.3-Flash-Uncensored-Q8_0-00008-of-00008.gguf",
+       "size": 28937610944
+      },
+      {
+       "path": "mmproj-GLM-5.3-Flash-Uncensored-F16.gguf",
+       "size": 1164010080
+      }
+     ]
+    },
+    {
+     "id": "BoldingBuilds/orcarouter_GLM-5.3-Flash-Uncensored-GGUF",
+     "sha": "8a31ca66485373f9d5c002f5400b2aecaff84dfe",
+     "lastModified": "2026-10-08T15:09:50.000Z",
+     "downloads": 482874,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "IQ2_M/GLM-5.3-Flash-Uncensored-IQ2_M-00001-of-00003.gguf",
+       "size": 41294057664
+      },
+      {
+       "path": "IQ2_M/GLM-5.3-Flash-Uncensored-IQ2_M-00002-of-00003.gguf",
+       "size": 41660409216
+      },
+      {
+       "path": "IQ2_M/GLM-5.3-Flash-Uncensored-IQ2_M-00003-of-00003.gguf",
+       "size": 38667480704
+      },
+      {
+       "path": "IQ2_S/GLM-5.3-Flash-Uncensored-IQ2_S-00001-of-00003.gguf",
+       "size": 35986673472
+      },
+      {
+       "path": "IQ2_S/GLM-5.3-Flash-Uncensored-IQ2_S-00002-of-00003.gguf",
+       "size": 35549403136
+      },
+      {
+       "path": "IQ2_S/GLM-5.3-Flash-Uncensored-IQ2_S-00003-of-00003.gguf",
+       "size": 35930094976
+      },
+      {
+       "path": "IQ2_XXS/GLM-5.3-Flash-Uncensored-IQ2_XXS-00001-of-00003.gguf",
+       "size": 36009226912
+      },
+      {
+       "path": "IQ2_XXS/GLM-5.3-Flash-Uncensored-IQ2_XXS-00002-of-00003.gguf",
+       "size": 35517783296
+      },
+      {
+       "path": "IQ2_XXS/GLM-5.3-Flash-Uncensored-IQ2_XXS-00003-of-00003.gguf",
+       "size": 25577133312
+      },
+      {
+       "path": "IQ3_XXS/GLM-5.3-Flash-Uncensored-IQ3_XXS-00001-of-00003.gguf",
+       "size": 45672911040
+      },
+      {
+       "path": "IQ3_XXS/GLM-5.3-Flash-Uncensored-IQ3_XXS-00002-of-00003.gguf",
+       "size": 45407495392
+      },
+      {
+       "path": "IQ3_XXS/GLM-5.3-Flash-Uncensored-IQ3_XXS-00003-of-00003.gguf",
+       "size": 43225116416
+      },
+      {
+       "path": "mmproj-GLM-5.3-Flash-Uncensored-F16.gguf",
+       "size": 1128048000
+      }
+     ]
+    },
+    {
+     "id": "pfeifferj/GLM-5.3-Flash-GSQ-RCO-GGUF",
+     "sha": "892aabe2e45835f58f3f24bf03dc5427d345e230",
+     "lastModified": "2026-09-14T20:13:26.000Z",
+     "downloads": 32438,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-GSQ-RCO-3.0bit.gguf",
+       "size": 117481680096
+      },
+      {
+       "path": "GLM-5.3-Flash-GSQ-RCO-3.5bit.gguf",
+       "size": 137073274080
+      },
+      {
+       "path": "GLM-5.3-Flash-mmproj-BF16.gguf",
+       "size": 1164010144
+      }
+     ]
+    },
+    {
+     "id": "marcorez8/GLM-5.3-Flash-Abliterated-Heretic-V2-UD-IQ4_XS",
+     "sha": "fa7f285225cb71e40915cb25ba8a3555fddb1bf0",
+     "lastModified": "2026-09-17T18:11:17.000Z",
+     "downloads": 1604,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-Abliterated-Heretic-V2-UD-IQ4_XS-00001-of-00005.gguf",
+       "size": 9429859
+      },
+      {
+       "path": "GLM-5.3-Flash-Abliterated-Heretic-V2-UD-IQ4_XS-00002-of-00005.gguf",
+       "size": 49989334176
+      },
+      {
+       "path": "GLM-5.3-Flash-Abliterated-Heretic-V2-UD-IQ4_XS-00003-of-00005.gguf",
+       "size": 49607025280
+      },
+      {
+       "path": "GLM-5.3-Flash-Abliterated-Heretic-V2-UD-IQ4_XS-00004-of-00005.gguf",
+       "size": 49486530144
+      },
+      {
+       "path": "GLM-5.3-Flash-Abliterated-Heretic-V2-UD-IQ4_XS-00005-of-00005.gguf",
+       "size": 7729791616
+      },
+      {
+       "path": "Shard_Rewrite/GLM-5.3-Flash-Abliterated-Heretic-V2-UD-IQ4_XS-00001-of-00005.gguf",
+       "size": 9429984
+      },
+      {
+       "path": "Shard_Rewrite/mmproj-F16.gguf",
+       "size": 1128047296
+      },
+      {
+       "path": "mmproj-F16.gguf",
+       "size": 1128047200
+      }
+     ]
+    },
+    {
+     "id": "Baekpica/GLM-5.3-Flash-Uncensored-Mixed-Quant-GGUF",
+     "sha": "62955f8e8b18714c98dcee35eb7c0ed66080d994",
+     "lastModified": "2026-10-08T12:02:22.000Z",
+     "downloads": 816,
+     "gated": false,
+     "gguf_architecture": "glm5-next-vision",
+     "gguf_total_params": 563627008,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": false
+    },
+    {
+     "id": "neuralll/GLM-5.3-Flash-GSQ-RCO-3.0bit-Q4Kattn-GGUF",
+     "sha": "7feedfeb5ee924bfbe0064c63b124728b443ddc0",
+     "lastModified": "2026-09-26T11:42:48.000Z",
+     "downloads": 8067,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-GSQ-RCO-3.0bit-q4kattn.gguf",
+       "size": 113585695168
+      }
+     ]
+    },
+    {
+     "id": "ggml-org/GLM-5.3-Flash-GGUF",
+     "sha": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+     "lastModified": "2026-10-08T10:56:49.000Z",
+     "downloads": 2718,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-Q2_K-00001-of-00002.gguf",
+       "size": 9430240
+      },
+      {
+       "path": "GLM-5.3-Flash-Q2_K-00002-of-00002.gguf",
+       "size": 133799626432
+      },
+      {
+       "path": "GLM-5.3-Flash-Q2_K_S-00001-of-00002.gguf",
+       "size": 9430240
+      },
+      {
+       "path": "GLM-5.3-Flash-Q2_K_S-00002-of-00002.gguf",
+       "size": 110017922752
+      },
+      {
+       "path": "GLM-5.3-Flash-Q4_K-00001-of-00002.gguf",
+       "size": 9429952
+      },
+      {
+       "path": "GLM-5.3-Flash-Q4_K-00002-of-00002.gguf",
+       "size": 181363033792
+      },
+      {
+       "path": "mmproj-GLM-5.3-Flash-Q8_0.gguf",
+       "size": 652829376
+      },
+      {
+       "path": "mtp-GLM-5.3-Flash-Q4_0.gguf",
+       "size": 4947287104
+      },
+      {
+       "path": "mtp-GLM-5.3-Flash-Q8_0.gguf",
+       "size": 9284197440
+      }
+     ]
+    },
+    {
+     "id": "aj9o9/GLM-5.3-Flash-GGUF",
+     "sha": "07c62fcdeaf1c05d22bd123c3da8058a1b1e63e2",
+     "lastModified": "2026-09-01T20:10:54.000Z",
+     "downloads": 17095,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "AJ-IQ2_XXS/GLM-5.3-Flash-AJ-IQ2_XXS-00001-of-00002.gguf",
+       "size": 44665098240
+      },
+      {
+       "path": "AJ-IQ2_XXS/GLM-5.3-Flash-AJ-IQ2_XXS-00002-of-00002.gguf",
+       "size": 42680908320
+      },
+      {
+       "path": "AJ-IQ3_XXS/GLM-5.3-Flash-AJ-IQ3_XXS-00001-of-00003.gguf",
+       "size": 39842483616
+      },
+      {
+       "path": "AJ-IQ3_XXS/GLM-5.3-Flash-AJ-IQ3_XXS-00002-of-00003.gguf",
+       "size": 39974541184
+      },
+      {
+       "path": "AJ-IQ3_XXS/GLM-5.3-Flash-AJ-IQ3_XXS-00003-of-00003.gguf",
+       "size": 32594142624
+      }
+     ]
+    },
+    {
+     "id": "Anbeeld/GLM-5.3-Flash-DFlash2-GGUF",
+     "sha": "f3569acb7f9cee95e66d24442d75536eb00ab842",
+     "lastModified": "2026-08-29T15:42:59.000Z",
+     "downloads": 1766,
+     "gated": false,
+     "gguf_architecture": "dflash",
+     "gguf_total_params": 1171080448,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": false
+    },
+    {
+     "id": "SyndicateLabs/GLM-5.3-Flash-CYBERSECURITY-GGUF",
+     "sha": "e8b51a5b8a4519cf12a54b4982fe9c791920cf28",
+     "lastModified": "2026-09-15T07:14:08.000Z",
+     "downloads": 8228,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-CYBER-IQ1_M-MTP.gguf",
+       "size": 101208277792
+      },
+      {
+       "path": "GLM-5.3-Flash-CYBER-IQ2_M-MTP.gguf",
+       "size": 121865093920
+      },
+      {
+       "path": "GLM-5.3-Flash-CYBER-IQ2_M.gguf",
+       "size": 115537726208
+      },
+      {
+       "path": "GLM-5.3-Flash-CYBER-IQ3_M-MTP.gguf",
+       "size": 154853950240
+      },
+      {
+       "path": "GLM-5.3-Flash-CYBER-IQ3_M.gguf",
+       "size": 151263365888
+      },
+      {
+       "path": "GLM-5.3-Flash-CYBER-IQ4_XS-MTP.gguf",
+       "size": 175981445920
+      },
+      {
+       "path": "GLM-5.3-Flash-CYBER-Q4_K_M-MTP.gguf",
+       "size": 195512877856
+      }
+     ]
+    },
+    {
+     "id": "GCSA-AiLab/GLM-5.3-Flash-Uncensored-RCO-GSQ-GGUF",
+     "sha": "6363ade6cb1ade5d5b37aee901772d92758c407f",
+     "lastModified": "2026-10-09T12:07:13.000Z",
+     "downloads": 8152,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "Q4/GLM-5.3-Flash-Uncensored-GSQ-RCO-Q4.gguf",
+       "size": 137073273280
+      },
+      {
+       "path": "Q8/GLM-5.3-Flash-Uncensored-Q8_0.gguf",
+       "size": 333201812736
+      }
+     ]
+    },
+    {
+     "id": "avar6/GLM-5.3-Flash-BF16-gguf",
+     "sha": "7083b2085efa3e30b3ea408f37d494b72d3839ef",
+     "lastModified": "2026-09-21T23:18:27.000Z",
+     "downloads": 2118,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-mmproj-bf16.gguf",
+       "size": 1164010144
+      },
+      {
+       "path": "IQ2_S-2.83bpw/GLM-5.3-Flash-IQ2_S-2.83bpw-00001-of-00003.gguf",
+       "size": 49832216672
+      },
+      {
+       "path": "IQ2_S-2.83bpw/GLM-5.3-Flash-IQ2_S-2.83bpw-00002-of-00003.gguf",
+       "size": 49474408448
+      },
+      {
+       "path": "IQ2_S-2.83bpw/GLM-5.3-Flash-IQ2_S-2.83bpw-00003-of-00003.gguf",
+       "size": 14312278880
+      },
+      {
+       "path": "IQ2_XXS-2.32bpw/GLM-5.3-Flash-IQ2_XXS-2.32bpw-00001-of-00002.gguf",
+       "size": 49867834112
+      },
+      {
+       "path": "IQ2_XXS-2.32bpw/GLM-5.3-Flash-IQ2_XXS-2.32bpw-00002-of-00002.gguf",
+       "size": 42992042048
+      },
+      {
+       "path": "Q2_K-Q3_K-3.20bpw/GLM-5.3-Flash-Q2_K-Q3_K-3.20bpw-00001-of-00003.gguf",
+       "size": 49257746432
+      },
+      {
+       "path": "Q2_K-Q3_K-3.20bpw/GLM-5.3-Flash-Q2_K-Q3_K-3.20bpw-00002-of-00003.gguf",
+       "size": 49782656448
+      },
+      {
+       "path": "Q2_K-Q3_K-3.20bpw/GLM-5.3-Flash-Q2_K-Q3_K-3.20bpw-00003-of-00003.gguf",
+       "size": 29219030240
+      },
+      {
+       "path": "Q3_S-3.60bpw/GLM-5.3-Flash-Q3_S-3.60bpw-00001-of-00003.gguf",
+       "size": 49705716992
+      },
+      {
+       "path": "Q3_S-3.60bpw/GLM-5.3-Flash-Q3_S-3.60bpw-00002-of-00003.gguf",
+       "size": 49516942944
+      },
+      {
+       "path": "Q3_S-3.60bpw/GLM-5.3-Flash-Q3_S-3.60bpw-00003-of-00003.gguf",
+       "size": 45061111424
+      },
+      {
+       "path": "Q3_XL-3.86bpw/GLM-5.3-Flash-Q3_XL-3.86bpw-00001-of-00004.gguf",
+       "size": 49842093280
+      },
+      {
+       "path": "Q3_XL-3.86bpw/GLM-5.3-Flash-Q3_XL-3.86bpw-00002-of-00004.gguf",
+       "size": 49644428576
+      },
+      {
+       "path": "Q3_XL-3.86bpw/GLM-5.3-Flash-Q3_XL-3.86bpw-00003-of-00004.gguf",
+       "size": 49653319264
+      },
+      {
+       "path": "Q3_XL-3.86bpw/GLM-5.3-Flash-Q3_XL-3.86bpw-00004-of-00004.gguf",
+       "size": 5694702080
+      },
+      {
+       "path": "imatrix/GLM-5.3-Flash-imatrix.gguf",
+       "size": 512687520
+      }
+     ]
+    },
+    {
+     "id": "AliceThirty/GLM-5.3-Flash-UNCENSORED-GGUF",
+     "sha": "b3ce393a304de259557a9270fa443ffdb09beaa4",
+     "lastModified": "2026-09-02T13:49:03.000Z",
+     "downloads": 31049,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-UNCENSORED-FP8-mmproj-bf16.gguf",
+       "size": 1164010432
+      },
+      {
+       "path": "UD-IQ3_XXS/GLM-5.3-Flash-UNCENSORED-FP8-UD-IQ3_XXS-00001-of-00003.gguf",
+       "size": 48444133536
+      },
+      {
+       "path": "UD-IQ3_XXS/GLM-5.3-Flash-UNCENSORED-FP8-UD-IQ3_XXS-00002-of-00003.gguf",
+       "size": 48383856064
+      },
+      {
+       "path": "UD-IQ3_XXS/GLM-5.3-Flash-UNCENSORED-FP8-UD-IQ3_XXS-00003-of-00003.gguf",
+       "size": 23747708128
+      },
+      {
+       "path": "UD-Q2_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q2_K_XL-00001-of-00003.gguf",
+       "size": 48473045248
+      },
+      {
+       "path": "UD-Q2_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q2_K_XL-00002-of-00003.gguf",
+       "size": 48999255872
+      },
+      {
+       "path": "UD-Q2_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q2_K_XL-00003-of-00003.gguf",
+       "size": 11219966752
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q3_K_XL-00001-of-00004.gguf",
+       "size": 48587185760
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q3_K_XL-00002-of-00004.gguf",
+       "size": 48246754720
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q3_K_XL-00003-of-00004.gguf",
+       "size": 48305374944
+      },
+      {
+       "path": "UD-Q3_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q3_K_XL-00004-of-00004.gguf",
+       "size": 2149650656
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q4_K_XL-00001-of-00005.gguf",
+       "size": 47750338048
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q4_K_XL-00002-of-00005.gguf",
+       "size": 48769328032
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q4_K_XL-00003-of-00005.gguf",
+       "size": 48497855328
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q4_K_XL-00004-of-00005.gguf",
+       "size": 48951451264
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q4_K_XL-00005-of-00005.gguf",
+       "size": 5962727680
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q5_K_XL-00001-of-00005.gguf",
+       "size": 48867015840
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q5_K_XL-00002-of-00005.gguf",
+       "size": 48603884352
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q5_K_XL-00003-of-00005.gguf",
+       "size": 47538509088
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q5_K_XL-00004-of-00005.gguf",
+       "size": 47685214848
+      },
+      {
+       "path": "UD-Q5_K_XL/GLM-5.3-Flash-UNCENSORED-FP8-UD-Q5_K_XL-00005-of-00005.gguf",
+       "size": 47835841760
+      }
+     ]
+    },
+    {
+     "id": "patrickbdevaney/GLM-5.3-Flash-REAP50-GGUF",
+     "sha": "46cb1bb887721d919e978d2f3eb18da245fecd77",
+     "lastModified": "2026-10-01T13:40:34.000Z",
+     "downloads": 12175,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 164907253550,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-REAP50-IQ3_M.gguf",
+       "size": 72132392352
+      },
+      {
+       "path": "GLM-5.3-Flash-REAP50-IQ4_XS.gguf",
+       "size": 88048752032
+      },
+      {
+       "path": "GLM-5.3-Flash-REAP50-Q3_K_M.gguf",
+       "size": 78776759712
+      },
+      {
+       "path": "GLM-5.3-Flash-REAP50-Q4_K_M.gguf",
+       "size": 99330938048
+      },
+      {
+       "path": "GLM-5.3-Flash-REAP50-Q4_K_S.gguf",
+       "size": 93526480064
+      },
+      {
+       "path": "mmproj-GLM-5.3-Flash-REAP50-F16.gguf",
+       "size": 1128047424
+      }
+     ]
+    },
+    {
+     "id": "Solstice-AI/GLM-5.3-Flash-UNCENSORED-mlx-oQ8e-DFlash2",
+     "sha": "2532db3456d4f4cd3e89af62694b44bdbf4a66e3",
+     "lastModified": "2026-09-11T09:47:05.000Z",
+     "downloads": 12386,
+     "gated": false,
+     "gguf_architecture": "dflash",
+     "gguf_total_params": 1171080448,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": false
+    },
+    {
+     "id": "Solstice-AI/GLM-5.3-Flash-UNCENSORED-mlx-oQ4e-DFlash2",
+     "sha": "bffafea2ded6db6547600004f73dd4fab241fc3c",
+     "lastModified": "2026-09-11T09:46:14.000Z",
+     "downloads": 21082,
+     "gated": false,
+     "gguf_architecture": "dflash",
+     "gguf_total_params": 1171080448,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": false
+    },
+    {
+     "id": "GCSA-AiLab/GLM-5.3-Flash-Abliterated-LoRA-GGUF",
+     "sha": "1d8439bff3ef52fe237a86e1c422dbff4834d825",
+     "lastModified": "2026-10-09T12:00:19.000Z",
+     "downloads": 523,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 143927296,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-Ablitered-LoRA-v1.gguf",
+       "size": 287876448
+      },
+      {
+       "path": "GLM-5.3-Flash-Ablitered2-LoRA-v2.gguf",
+       "size": 277259072
+      }
+     ]
+    },
+    {
+     "id": "AliceThirty/GLM-5.3-Flash-UNCENSORED-V2-GGUF",
+     "sha": "06a87980ce3fb0c62eaf352a320f0d3529218788",
+     "lastModified": "2026-09-18T20:42:48.000Z",
+     "downloads": 634,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-Uncensored-V2-UD-Q4_K_XL-00001-of-00005.gguf",
+       "size": 47750338048
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-Uncensored-V2-UD-Q4_K_XL-00002-of-00005.gguf",
+       "size": 48769328032
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-Uncensored-V2-UD-Q4_K_XL-00003-of-00005.gguf",
+       "size": 48497855328
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-Uncensored-V2-UD-Q4_K_XL-00004-of-00005.gguf",
+       "size": 48951451264
+      },
+      {
+       "path": "UD-Q4_K_XL/GLM-5.3-Flash-Uncensored-V2-UD-Q4_K_XL-00005-of-00005.gguf",
+       "size": 5962727680
+      }
+     ]
+    },
+    {
+     "id": "neuralll/GLM-5.3-Flash-MTP-GGUF",
+     "sha": "c68e5f340cbaeed0ad0f7f7c283247f6965f21ca",
+     "lastModified": "2026-09-26T16:31:08.000Z",
+     "downloads": 581,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 7432592416,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-MTP-Q4_K.gguf",
+       "size": 4588592064
+      }
+     ]
+    },
+    {
+     "id": "bartowski/GLM-5.3-Flash-BF16-GGUF",
+     "sha": "66e5e9f0e337470e8801b99bae6c45779b042cc2",
+     "lastModified": "2026-10-01T08:22:21.000Z",
+     "downloads": 11326,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ1_M/GLM-5.3-Flash-BF16-IQ1_M-00001-of-00003.gguf",
+       "size": 39736687008
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ1_M/GLM-5.3-Flash-BF16-IQ1_M-00002-of-00003.gguf",
+       "size": 39147346272
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ1_M/GLM-5.3-Flash-BF16-IQ1_M-00003-of-00003.gguf",
+       "size": 4130935136
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ1_S/GLM-5.3-Flash-BF16-IQ1_S-00001-of-00002.gguf",
+       "size": 39718478752
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ1_S/GLM-5.3-Flash-BF16-IQ1_S-00002-of-00002.gguf",
+       "size": 35127394400
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_M/GLM-5.3-Flash-BF16-IQ2_M-00001-of-00004.gguf",
+       "size": 39934715712
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_M/GLM-5.3-Flash-BF16-IQ2_M-00002-of-00004.gguf",
+       "size": 39284352480
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_M/GLM-5.3-Flash-BF16-IQ2_M-00003-of-00004.gguf",
+       "size": 39995410304
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_M/GLM-5.3-Flash-BF16-IQ2_M-00004-of-00004.gguf",
+       "size": 1403588704
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_S/GLM-5.3-Flash-BF16-IQ2_S-00001-of-00003.gguf",
+       "size": 39879921824
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_S/GLM-5.3-Flash-BF16-IQ2_S-00002-of-00003.gguf",
+       "size": 39557703200
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_S/GLM-5.3-Flash-BF16-IQ2_S-00003-of-00003.gguf",
+       "size": 28085890528
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_XS/GLM-5.3-Flash-BF16-IQ2_XS-00001-of-00003.gguf",
+       "size": 39750750400
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_XS/GLM-5.3-Flash-BF16-IQ2_XS-00002-of-00003.gguf",
+       "size": 39656050240
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_XS/GLM-5.3-Flash-BF16-IQ2_XS-00003-of-00003.gguf",
+       "size": 22021473664
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_XXS/GLM-5.3-Flash-BF16-IQ2_XXS-00001-of-00003.gguf",
+       "size": 39641764032
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_XXS/GLM-5.3-Flash-BF16-IQ2_XXS-00002-of-00003.gguf",
+       "size": 39389798368
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ2_XXS/GLM-5.3-Flash-BF16-IQ2_XXS-00003-of-00003.gguf",
+       "size": 17599149024
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_M/GLM-5.3-Flash-BF16-IQ3_M-00001-of-00005.gguf",
+       "size": 38813924640
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_M/GLM-5.3-Flash-BF16-IQ3_M-00002-of-00005.gguf",
+       "size": 39285328992
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_M/GLM-5.3-Flash-BF16-IQ3_M-00003-of-00005.gguf",
+       "size": 38648212992
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_M/GLM-5.3-Flash-BF16-IQ3_M-00004-of-00005.gguf",
+       "size": 39276762016
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_M/GLM-5.3-Flash-BF16-IQ3_M-00005-of-00005.gguf",
+       "size": 10603649600
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_XS/GLM-5.3-Flash-BF16-IQ3_XS-00001-of-00004.gguf",
+       "size": 39742957312
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_XS/GLM-5.3-Flash-BF16-IQ3_XS-00002-of-00004.gguf",
+       "size": 39611776256
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_XS/GLM-5.3-Flash-BF16-IQ3_XS-00003-of-00004.gguf",
+       "size": 39611776256
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_XS/GLM-5.3-Flash-BF16-IQ3_XS-00004-of-00004.gguf",
+       "size": 28390638560
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_XXS/GLM-5.3-Flash-BF16-IQ3_XXS-00001-of-00004.gguf",
+       "size": 39610574592
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_XXS/GLM-5.3-Flash-BF16-IQ3_XXS-00002-of-00004.gguf",
+       "size": 39531822240
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_XXS/GLM-5.3-Flash-BF16-IQ3_XXS-00003-of-00004.gguf",
+       "size": 39132593824
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ3_XXS/GLM-5.3-Flash-BF16-IQ3_XXS-00004-of-00004.gguf",
+       "size": 20550156992
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ4_NL/GLM-5.3-Flash-BF16-IQ4_NL-00001-of-00006.gguf",
+       "size": 38863994272
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ4_NL/GLM-5.3-Flash-BF16-IQ4_NL-00002-of-00006.gguf",
+       "size": 38865904256
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ4_NL/GLM-5.3-Flash-BF16-IQ4_NL-00003-of-00006.gguf",
+       "size": 39742424480
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ4_NL/GLM-5.3-Flash-BF16-IQ4_NL-00004-of-00006.gguf",
+       "size": 39497771712
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ4_NL/GLM-5.3-Flash-BF16-IQ4_NL-00005-of-00006.gguf",
+       "size": 39727203328
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ4_NL/GLM-5.3-Flash-BF16-IQ4_NL-00006-of-00006.gguf",
+       "size": 4130935136
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ4_XS/GLM-5.3-Flash-BF16-IQ4_XS-00001-of-00005.gguf",
+       "size": 38987480768
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ4_XS/GLM-5.3-Flash-BF16-IQ4_XS-00002-of-00005.gguf",
+       "size": 39078279872
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ4_XS/GLM-5.3-Flash-BF16-IQ4_XS-00003-of-00005.gguf",
+       "size": 39073879072
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ4_XS/GLM-5.3-Flash-BF16-IQ4_XS-00004-of-00005.gguf",
+       "size": 38930001248
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-IQ4_XS/GLM-5.3-Flash-BF16-IQ4_XS-00005-of-00005.gguf",
+       "size": 21675240064
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q2_K/GLM-5.3-Flash-BF16-Q2_K-00001-of-00004.gguf",
+       "size": 39647065472
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q2_K/GLM-5.3-Flash-BF16-Q2_K-00002-of-00004.gguf",
+       "size": 39260821248
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q2_K/GLM-5.3-Flash-BF16-Q2_K-00003-of-00004.gguf",
+       "size": 39976456192
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q2_K/GLM-5.3-Flash-BF16-Q2_K-00004-of-00004.gguf",
+       "size": 6786812000
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_L/GLM-5.3-Flash-BF16-Q3_K_L-00001-of-00005.gguf",
+       "size": 39884559872
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_L/GLM-5.3-Flash-BF16-Q3_K_L-00002-of-00005.gguf",
+       "size": 39601792448
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_L/GLM-5.3-Flash-BF16-Q3_K_L-00003-of-00005.gguf",
+       "size": 39438220128
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_L/GLM-5.3-Flash-BF16-Q3_K_L-00004-of-00005.gguf",
+       "size": 39382260960
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_L/GLM-5.3-Flash-BF16-Q3_K_L-00005-of-00005.gguf",
+       "size": 4130935136
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_M/GLM-5.3-Flash-BF16-Q3_K_M-00001-of-00004.gguf",
+       "size": 39846811136
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_M/GLM-5.3-Flash-BF16-Q3_K_M-00002-of-00004.gguf",
+       "size": 39611776256
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_M/GLM-5.3-Flash-BF16-Q3_K_M-00003-of-00004.gguf",
+       "size": 39527365728
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_M/GLM-5.3-Flash-BF16-Q3_K_M-00004-of-00004.gguf",
+       "size": 36034188672
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_S/GLM-5.3-Flash-BF16-Q3_K_S-00001-of-00004.gguf",
+       "size": 39742957312
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_S/GLM-5.3-Flash-BF16-Q3_K_S-00002-of-00004.gguf",
+       "size": 39611776256
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_S/GLM-5.3-Flash-BF16-Q3_K_S-00003-of-00004.gguf",
+       "size": 39611776256
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q3_K_S/GLM-5.3-Flash-BF16-Q3_K_S-00004-of-00004.gguf",
+       "size": 28390638560
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_0/GLM-5.3-Flash-BF16-Q4_0-00001-of-00005.gguf",
+       "size": 38971989696
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_0/GLM-5.3-Flash-BF16-Q4_0-00002-of-00005.gguf",
+       "size": 39530478144
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_0/GLM-5.3-Flash-BF16-Q4_0-00003-of-00005.gguf",
+       "size": 39393354784
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_0/GLM-5.3-Flash-BF16-Q4_0-00004-of-00005.gguf",
+       "size": 39406618016
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_0/GLM-5.3-Flash-BF16-Q4_0-00005-of-00005.gguf",
+       "size": 26790757056
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_1/GLM-5.3-Flash-BF16-Q4_1-00001-of-00006.gguf",
+       "size": 39208230176
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_1/GLM-5.3-Flash-BF16-Q4_1-00002-of-00006.gguf",
+       "size": 38982374400
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_1/GLM-5.3-Flash-BF16-Q4_1-00003-of-00006.gguf",
+       "size": 38989730944
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_1/GLM-5.3-Flash-BF16-Q4_1-00004-of-00006.gguf",
+       "size": 39126837792
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_1/GLM-5.3-Flash-BF16-Q4_1-00005-of-00006.gguf",
+       "size": 39025628160
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_1/GLM-5.3-Flash-BF16-Q4_1-00006-of-00006.gguf",
+       "size": 7277003264
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_K_M/GLM-5.3-Flash-BF16-Q4_K_M-00001-of-00006.gguf",
+       "size": 38863994272
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_K_M/GLM-5.3-Flash-BF16-Q4_K_M-00002-of-00006.gguf",
+       "size": 38865904256
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_K_M/GLM-5.3-Flash-BF16-Q4_K_M-00003-of-00006.gguf",
+       "size": 39742424480
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_K_M/GLM-5.3-Flash-BF16-Q4_K_M-00004-of-00006.gguf",
+       "size": 39497771712
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_K_M/GLM-5.3-Flash-BF16-Q4_K_M-00005-of-00006.gguf",
+       "size": 39727203328
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_K_M/GLM-5.3-Flash-BF16-Q4_K_M-00006-of-00006.gguf",
+       "size": 4130935136
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_K_S/GLM-5.3-Flash-BF16-Q4_K_S-00001-of-00005.gguf",
+       "size": 38727617952
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_K_S/GLM-5.3-Flash-BF16-Q4_K_S-00002-of-00005.gguf",
+       "size": 39899716416
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_K_S/GLM-5.3-Flash-BF16-Q4_K_S-00003-of-00005.gguf",
+       "size": 39737812000
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_K_S/GLM-5.3-Flash-BF16-Q4_K_S-00004-of-00005.gguf",
+       "size": 39742547104
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q4_K_S/GLM-5.3-Flash-BF16-Q4_K_S-00005-of-00005.gguf",
+       "size": 31188300768
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_M/GLM-5.3-Flash-BF16-Q5_K_M-00001-of-00007.gguf",
+       "size": 39930440864
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_M/GLM-5.3-Flash-BF16-Q5_K_M-00002-of-00007.gguf",
+       "size": 39040006784
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_M/GLM-5.3-Flash-BF16-Q5_K_M-00003-of-00007.gguf",
+       "size": 39533601792
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_M/GLM-5.3-Flash-BF16-Q5_K_M-00004-of-00007.gguf",
+       "size": 39681757824
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_M/GLM-5.3-Flash-BF16-Q5_K_M-00005-of-00007.gguf",
+       "size": 38963561312
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_M/GLM-5.3-Flash-BF16-Q5_K_M-00006-of-00007.gguf",
+       "size": 38963561312
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_M/GLM-5.3-Flash-BF16-Q5_K_M-00007-of-00007.gguf",
+       "size": 7578993152
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_S/GLM-5.3-Flash-BF16-Q5_K_S-00001-of-00006.gguf",
+       "size": 39397702816
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_S/GLM-5.3-Flash-BF16-Q5_K_S-00002-of-00006.gguf",
+       "size": 39686492896
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_S/GLM-5.3-Flash-BF16-Q5_K_S-00003-of-00006.gguf",
+       "size": 39533479168
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_S/GLM-5.3-Flash-BF16-Q5_K_S-00004-of-00006.gguf",
+       "size": 39681757824
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_S/GLM-5.3-Flash-BF16-Q5_K_S-00005-of-00006.gguf",
+       "size": 39686492896
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q5_K_S/GLM-5.3-Flash-BF16-Q5_K_S-00006-of-00006.gguf",
+       "size": 29927025664
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K/GLM-5.3-Flash-BF16-Q6_K-00001-of-00008.gguf",
+       "size": 38958935072
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K/GLM-5.3-Flash-BF16-Q6_K-00002-of-00008.gguf",
+       "size": 38155271008
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K/GLM-5.3-Flash-BF16-Q6_K-00003-of-00008.gguf",
+       "size": 38941000160
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K/GLM-5.3-Flash-BF16-Q6_K-00004-of-00008.gguf",
+       "size": 38779095712
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K/GLM-5.3-Flash-BF16-Q6_K-00005-of-00008.gguf",
+       "size": 38792721504
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K/GLM-5.3-Flash-BF16-Q6_K-00006-of-00008.gguf",
+       "size": 38888655136
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K/GLM-5.3-Flash-BF16-Q6_K-00007-of-00008.gguf",
+       "size": 37732070080
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K/GLM-5.3-Flash-BF16-Q6_K-00008-of-00008.gguf",
+       "size": 10796548736
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K_S/GLM-5.3-Flash-BF16-Q6_K_S-00001-of-00007.gguf",
+       "size": 40005938432
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K_S/GLM-5.3-Flash-BF16-Q6_K_S-00002-of-00007.gguf",
+       "size": 39994334272
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K_S/GLM-5.3-Flash-BF16-Q6_K_S-00003-of-00007.gguf",
+       "size": 38909620448
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K_S/GLM-5.3-Flash-BF16-Q6_K_S-00004-of-00007.gguf",
+       "size": 38783708192
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K_S/GLM-5.3-Flash-BF16-Q6_K_S-00005-of-00007.gguf",
+       "size": 38941122752
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K_S/GLM-5.3-Flash-BF16-Q6_K_S-00006-of-00007.gguf",
+       "size": 38787986400
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q6_K_S/GLM-5.3-Flash-BF16-Q6_K_S-00007-of-00007.gguf",
+       "size": 32749267840
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q8_0/GLM-5.3-Flash-BF16-Q8_0-00001-of-00009.gguf",
+       "size": 39146607680
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q8_0/GLM-5.3-Flash-BF16-Q8_0-00002-of-00009.gguf",
+       "size": 39444054528
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q8_0/GLM-5.3-Flash-BF16-Q8_0-00003-of-00009.gguf",
+       "size": 39435041280
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q8_0/GLM-5.3-Flash-BF16-Q8_0-00004-of-00009.gguf",
+       "size": 39435041280
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q8_0/GLM-5.3-Flash-BF16-Q8_0-00005-of-00009.gguf",
+       "size": 39434918688
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q8_0/GLM-5.3-Flash-BF16-Q8_0-00006-of-00009.gguf",
+       "size": 39444054592
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q8_0/GLM-5.3-Flash-BF16-Q8_0-00007-of-00009.gguf",
+       "size": 39435041280
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q8_0/GLM-5.3-Flash-BF16-Q8_0-00008-of-00009.gguf",
+       "size": 39435041280
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-Q8_0/GLM-5.3-Flash-BF16-Q8_0-00009-of-00009.gguf",
+       "size": 26292243040
+      },
+      {
+       "path": "GLM-5.3-Flash-BF16-imatrix.gguf",
+       "size": 512687648
+      },
+      {
+       "path": "mmproj-GLM-5.3-Flash-BF16-bf16.gguf",
+       "size": 1164010176
+      },
+      {
+       "path": "mmproj-GLM-5.3-Flash-BF16-f16.gguf",
+       "size": 1128047296
+      }
+     ]
+    },
+    {
+     "id": "SixVolts/GLM-5.3-Flash-ewaste-edition-GGUF",
+     "sha": "f9dd17e251f5e685770f532596f0e575b0f60109",
+     "lastModified": "2026-10-03T03:05:39.000Z",
+     "downloads": 407,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-Q2_K_XL-00001-of-00003.gguf",
+       "size": 44697356352
+      },
+      {
+       "path": "GLM-5.3-Flash-Q2_K_XL-00002-of-00003.gguf",
+       "size": 44534003744
+      },
+      {
+       "path": "GLM-5.3-Flash-Q2_K_XL-00003-of-00003.gguf",
+       "size": 22825059296
+      },
+      {
+       "path": "GLM-5.3-Flash-Q3_K_M-00001-of-00004.gguf",
+       "size": 44291739776
+      },
+      {
+       "path": "GLM-5.3-Flash-Q3_K_M-00002-of-00004.gguf",
+       "size": 43752199360
+      },
+      {
+       "path": "GLM-5.3-Flash-Q3_K_M-00003-of-00004.gguf",
+       "size": 44445728128
+      },
+      {
+       "path": "GLM-5.3-Flash-Q3_K_M-00004-of-00004.gguf",
+       "size": 6436094464
+      },
+      {
+       "path": "GLM-5.3-Flash-Q3_K_XL-00001-of-00004.gguf",
+       "size": 44424603648
+      },
+      {
+       "path": "GLM-5.3-Flash-Q3_K_XL-00002-of-00004.gguf",
+       "size": 44355494848
+      },
+      {
+       "path": "GLM-5.3-Flash-Q3_K_XL-00003-of-00004.gguf",
+       "size": 44179836320
+      },
+      {
+       "path": "GLM-5.3-Flash-Q3_K_XL-00004-of-00004.gguf",
+       "size": 13134728032
+      },
+      {
+       "path": "GLM-5.3-Flash-Q4_K_XL-00001-of-00005.gguf",
+       "size": 43775317728
+      },
+      {
+       "path": "GLM-5.3-Flash-Q4_K_XL-00002-of-00005.gguf",
+       "size": 44353905440
+      },
+      {
+       "path": "GLM-5.3-Flash-Q4_K_XL-00003-of-00005.gguf",
+       "size": 44172278880
+      },
+      {
+       "path": "GLM-5.3-Flash-Q4_K_XL-00004-of-00005.gguf",
+       "size": 44198811040
+      },
+      {
+       "path": "GLM-5.3-Flash-Q4_K_XL-00005-of-00005.gguf",
+       "size": 10023246144
+      },
+      {
+       "path": "mmproj/mmproj-GLM-5.3-Flash-F16.gguf",
+       "size": 1128047296
+      }
+     ]
+    },
+    {
+     "id": "peasantsmith/GLM-5.3-Flash-Maya-M-Derisked-IQ2_S-GGUF",
+     "sha": "b0a5474568ab4322ba4b74be5f34308fb4592d57",
+     "lastModified": "2026-10-10T16:30:27.000Z",
+     "downloads": 737,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-Maya-M-Derisked-IQ2_S-00001-of-00003.gguf",
+       "size": 47678327584
+      },
+      {
+       "path": "GLM-5.3-Flash-Maya-M-Derisked-IQ2_S-00002-of-00003.gguf",
+       "size": 47820244896
+      },
+      {
+       "path": "GLM-5.3-Flash-Maya-M-Derisked-IQ2_S-00003-of-00003.gguf",
+       "size": 20504990688
+      }
+     ]
+    },
+    {
+     "id": "alesha-pro/GLM-5.3-Flash-abliterated-Maya-M-GGUF",
+     "sha": "3518a2d20e5a2ea8d9468718745dca5f72aed5f1",
+     "lastModified": "2026-10-10T17:43:00.000Z",
+     "downloads": 678,
+     "gated": false,
+     "gguf_architecture": "llama",
+     "gguf_total_params": 0,
+     "gguf_context_length": 65536,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": false
+    },
+    {
+     "id": "AtomicChat/GLM-5.3-Flash-GGUF",
+     "sha": "dfa0fac0733754b7e99c278d23ff599109eedc8f",
+     "lastModified": "2026-08-26T14:18:20.000Z",
+     "downloads": 0,
+     "gated": false,
+     "gguf_architecture": null,
+     "gguf_total_params": null,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": false
+    },
+    {
+     "id": "vcruz305/GLM-5.3-Flash-GGUF",
+     "sha": "b19ca66573c0f50a96720f4395788ed32a158f37",
+     "lastModified": "2026-08-27T19:49:15.000Z",
+     "downloads": 5014,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-Q2_K.gguf",
+       "size": 116728212640
+      },
+      {
+       "path": "GLM-5.3-Flash-Q4_K_M.gguf",
+       "size": 192880442528
+      },
+      {
+       "path": "mmproj-GLM-5.3-Flash-F16.gguf",
+       "size": 1128047104
+      }
+     ]
+    },
+    {
+     "id": "DevQuasar/zai-org.GLM-5.3-Flash-GGUF",
+     "sha": "0be0114b087a6bd18337800c1f28fbc908e41665",
+     "lastModified": "2026-08-27T17:34:56.000Z",
+     "downloads": 5840,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "Q2_K/zai-org.GLM-5.3-Flash.f16.gguf.Q2_K.gguf-00001-of-00009.gguf",
+       "size": 13759132160
+      },
+      {
+       "path": "Q2_K/zai-org.GLM-5.3-Flash.f16.gguf.Q2_K.gguf-00002-of-00009.gguf",
+       "size": 13495796224
+      },
+      {
+       "path": "Q2_K/zai-org.GLM-5.3-Flash.f16.gguf.Q2_K.gguf-00003-of-00009.gguf",
+       "size": 13487831552
+      },
+      {
+       "path": "Q2_K/zai-org.GLM-5.3-Flash.f16.gguf.Q2_K.gguf-00004-of-00009.gguf",
+       "size": 13487831552
+      },
+      {
+       "path": "Q2_K/zai-org.GLM-5.3-Flash.f16.gguf.Q2_K.gguf-00005-of-00009.gguf",
+       "size": 13482335008
+      },
+      {
+       "path": "Q2_K/zai-org.GLM-5.3-Flash.f16.gguf.Q2_K.gguf-00006-of-00009.gguf",
+       "size": 13495796288
+      },
+      {
+       "path": "Q2_K/zai-org.GLM-5.3-Flash.f16.gguf.Q2_K.gguf-00007-of-00009.gguf",
+       "size": 13487831552
+      },
+      {
+       "path": "Q2_K/zai-org.GLM-5.3-Flash.f16.gguf.Q2_K.gguf-00008-of-00009.gguf",
+       "size": 13487831552
+      },
+      {
+       "path": "Q2_K/zai-org.GLM-5.3-Flash.f16.gguf.Q2_K.gguf-00009-of-00009.gguf",
+       "size": 6200906368
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00001-of-00012.gguf",
+       "size": 13277093888
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00002-of-00012.gguf",
+       "size": 12745959680
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00003-of-00012.gguf",
+       "size": 12992519040
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00004-of-00012.gguf",
+       "size": 13063203072
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00005-of-00012.gguf",
+       "size": 12745959776
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00006-of-00012.gguf",
+       "size": 12992519040
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00007-of-00012.gguf",
+       "size": 13063203072
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00008-of-00012.gguf",
+       "size": 12745959776
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00009-of-00012.gguf",
+       "size": 12984554304
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00010-of-00012.gguf",
+       "size": 13063203072
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00011-of-00012.gguf",
+       "size": 12745959776
+      },
+      {
+       "path": "Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00012-of-00012.gguf",
+       "size": 6995796704
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00001-of-00015.gguf",
+       "size": 13884404000
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00002-of-00015.gguf",
+       "size": 13172464000
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00003-of-00015.gguf",
+       "size": 13155848576
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00004-of-00015.gguf",
+       "size": 13181892832
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00005-of-00015.gguf",
+       "size": 13172464096
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00006-of-00015.gguf",
+       "size": 13172464096
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00007-of-00015.gguf",
+       "size": 13155848640
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00008-of-00015.gguf",
+       "size": 13181892832
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00009-of-00015.gguf",
+       "size": 13172464096
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00010-of-00015.gguf",
+       "size": 13172464096
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00011-of-00015.gguf",
+       "size": 13155848640
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00012-of-00015.gguf",
+       "size": 13190543584
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00013-of-00015.gguf",
+       "size": 13062740192
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00014-of-00015.gguf",
+       "size": 12442458464
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.Q4_K_M.gguf-00015-of-00015.gguf",
+       "size": 4729588384
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00001-of-00015.gguf",
+       "size": 13849201280
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00002-of-00015.gguf",
+       "size": 13148795616
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00003-of-00015.gguf",
+       "size": 13138547072
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00004-of-00015.gguf",
+       "size": 13158224448
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00005-of-00015.gguf",
+       "size": 13148795712
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00006-of-00015.gguf",
+       "size": 13148795712
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00007-of-00015.gguf",
+       "size": 13138547136
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00008-of-00015.gguf",
+       "size": 13158224448
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00009-of-00015.gguf",
+       "size": 13148795712
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00010-of-00015.gguf",
+       "size": 13148795712
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00011-of-00015.gguf",
+       "size": 13138547136
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00012-of-00015.gguf",
+       "size": 13166875200
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00013-of-00015.gguf",
+       "size": 13039071808
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00014-of-00015.gguf",
+       "size": 12418790080
+      },
+      {
+       "path": "Q4_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q4_K_M.gguf-00015-of-00015.gguf",
+       "size": 4723821216
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00001-of-00017.gguf",
+       "size": 12563312512
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00002-of-00017.gguf",
+       "size": 13860569856
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00003-of-00017.gguf",
+       "size": 13980891008
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00004-of-00017.gguf",
+       "size": 13652121952
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00005-of-00017.gguf",
+       "size": 13860569920
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00006-of-00017.gguf",
+       "size": 13980891104
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00007-of-00017.gguf",
+       "size": 13974100320
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00008-of-00017.gguf",
+       "size": 13860569920
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00009-of-00017.gguf",
+       "size": 13980891104
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00010-of-00017.gguf",
+       "size": 13974100320
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00011-of-00017.gguf",
+       "size": 13860569920
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00012-of-00017.gguf",
+       "size": 13980891104
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00013-of-00017.gguf",
+       "size": 13652121952
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00014-of-00017.gguf",
+       "size": 12515557952
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00015-of-00017.gguf",
+       "size": 12544240096
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00016-of-00017.gguf",
+       "size": 12629088352
+      },
+      {
+       "path": "Q5_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q5_K_M.gguf-00017-of-00017.gguf",
+       "size": 5335665312
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00001-of-00021.gguf",
+       "size": 14007437920
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00002-of-00021.gguf",
+       "size": 12220778112
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00003-of-00021.gguf",
+       "size": 12187445408
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00004-of-00021.gguf",
+       "size": 12165726592
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00005-of-00021.gguf",
+       "size": 12187445440
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00006-of-00021.gguf",
+       "size": 12165726624
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00007-of-00021.gguf",
+       "size": 12187445440
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00008-of-00021.gguf",
+       "size": 12165726624
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00009-of-00021.gguf",
+       "size": 12187445440
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00010-of-00021.gguf",
+       "size": 12165726624
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00011-of-00021.gguf",
+       "size": 12187445440
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00012-of-00021.gguf",
+       "size": 12165726624
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00013-of-00021.gguf",
+       "size": 12187445440
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00014-of-00021.gguf",
+       "size": 12165726624
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00015-of-00021.gguf",
+       "size": 12187445440
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00016-of-00021.gguf",
+       "size": 12165726624
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00017-of-00021.gguf",
+       "size": 12187445440
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00018-of-00021.gguf",
+       "size": 12165726624
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00019-of-00021.gguf",
+       "size": 12187445440
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00020-of-00021.gguf",
+       "size": 12165726624
+      },
+      {
+       "path": "Q6_K/zai-org.GLM-5.3-Flash.f16.gguf.Q6_K.gguf-00021-of-00021.gguf",
+       "size": 12077327072
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00001-of-00026.gguf",
+       "size": 12885442592
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00002-of-00026.gguf",
+       "size": 13191487424
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00003-of-00026.gguf",
+       "size": 13022229248
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00004-of-00026.gguf",
+       "size": 13194717088
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00005-of-00026.gguf",
+       "size": 13173670144
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00006-of-00026.gguf",
+       "size": 13048011360
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00007-of-00026.gguf",
+       "size": 13186752416
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00008-of-00026.gguf",
+       "size": 13181634880
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00009-of-00026.gguf",
+       "size": 13040046624
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00010-of-00026.gguf",
+       "size": 13168935072
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00011-of-00026.gguf",
+       "size": 13199452224
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00012-of-00026.gguf",
+       "size": 13040046624
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00013-of-00026.gguf",
+       "size": 13176899808
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00014-of-00026.gguf",
+       "size": 13191487488
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00015-of-00026.gguf",
+       "size": 13022229280
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00016-of-00026.gguf",
+       "size": 13194717120
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00017-of-00026.gguf",
+       "size": 13173670176
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00018-of-00026.gguf",
+       "size": 13048011360
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00019-of-00026.gguf",
+       "size": 13186752416
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00020-of-00026.gguf",
+       "size": 13181634880
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00021-of-00026.gguf",
+       "size": 13040046624
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00022-of-00026.gguf",
+       "size": 13168935072
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00023-of-00026.gguf",
+       "size": 13199452224
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00024-of-00026.gguf",
+       "size": 13040046624
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00025-of-00026.gguf",
+       "size": 13176899808
+      },
+      {
+       "path": "Q8_0/zai-org.GLM-5.3-Flash.f16.gguf.Q8_0.gguf-00026-of-00026.gguf",
+       "size": 5165206048
+      },
+      {
+       "path": "mmproj-zai-org.GLM-5.3-Flash.f16.gguf",
+       "size": 1128047200
+      }
+     ]
+    },
+    {
+     "id": "Blackfrost-AI/GLM-5.3-Flash-DERISKED-GGUF",
+     "sha": "b4e3bc7d79810cb6861faa83b8a96accc3ca4288",
+     "lastModified": "2026-09-04T15:48:42.000Z",
+     "downloads": 450,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00001-of-00014.gguf",
+       "size": 9430400
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00002-of-00014.gguf",
+       "size": 11652267264
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00003-of-00014.gguf",
+       "size": 11915525696
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00004-of-00014.gguf",
+       "size": 11600818432
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00005-of-00014.gguf",
+       "size": 11768343424
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00006-of-00014.gguf",
+       "size": 11968309792
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00007-of-00014.gguf",
+       "size": 11594661440
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00008-of-00014.gguf",
+       "size": 11674278528
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00009-of-00014.gguf",
+       "size": 11921682688
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00010-of-00014.gguf",
+       "size": 11594661440
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00011-of-00014.gguf",
+       "size": 11680435520
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00012-of-00014.gguf",
+       "size": 11915525696
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00013-of-00014.gguf",
+       "size": 11608790176
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q3_K_M-00014-of-00014.gguf",
+       "size": 11680096896
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00001-of-00014.gguf",
+       "size": 9430400
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00002-of-00014.gguf",
+       "size": 14405431552
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00003-of-00014.gguf",
+       "size": 15121955392
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00004-of-00014.gguf",
+       "size": 14515581184
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00005-of-00014.gguf",
+       "size": 14726516608
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00006-of-00014.gguf",
+       "size": 14565096992
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00007-of-00014.gguf",
+       "size": 14507752000
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00008-of-00014.gguf",
+       "size": 15222395520
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00009-of-00014.gguf",
+       "size": 14515581184
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00010-of-00014.gguf",
+       "size": 14499101248
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00011-of-00014.gguf",
+       "size": 15230224704
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00012-of-00014.gguf",
+       "size": 16380639808
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00013-of-00014.gguf",
+       "size": 14537046176
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q4_K_M-00014-of-00014.gguf",
+       "size": 14622066304
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00001-of-00014.gguf",
+       "size": 9430400
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00002-of-00014.gguf",
+       "size": 17001918720
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00003-of-00014.gguf",
+       "size": 17596316224
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00004-of-00014.gguf",
+       "size": 17289195776
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00005-of-00014.gguf",
+       "size": 17535012736
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00006-of-00014.gguf",
+       "size": 17349934624
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00007-of-00014.gguf",
+       "size": 17279908416
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00008-of-00014.gguf",
+       "size": 17710371456
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00009-of-00014.gguf",
+       "size": 17289195776
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00010-of-00014.gguf",
+       "size": 17275451968
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00011-of-00014.gguf",
+       "size": 17719658816
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00012-of-00014.gguf",
+       "size": 18244729408
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00013-of-00014.gguf",
+       "size": 17308055712
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q5_K_M-00014-of-00014.gguf",
+       "size": 17406051968
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00001-of-00014.gguf",
+       "size": 9430400
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00002-of-00014.gguf",
+       "size": 19762750720
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00003-of-00014.gguf",
+       "size": 20226356800
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00004-of-00014.gguf",
+       "size": 20237709568
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00005-of-00014.gguf",
+       "size": 20521104256
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00006-of-00014.gguf",
+       "size": 20309856800
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00007-of-00014.gguf",
+       "size": 20226356800
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00008-of-00014.gguf",
+       "size": 20354878080
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00009-of-00014.gguf",
+       "size": 20237709568
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00010-of-00014.gguf",
+       "size": 20226356800
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00011-of-00014.gguf",
+       "size": 20366230848
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00012-of-00014.gguf",
+       "size": 20226356800
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00013-of-00014.gguf",
+       "size": 20253285536
+      },
+      {
+       "path": "GLM-5.3-Flash-DERISKED-Q6_K-00014-of-00014.gguf",
+       "size": 20365585024
+      }
+     ]
+    },
+    {
+     "id": "msuiche/GLM-5.3-Flash-abliterated-cyber-GLP-44",
+     "sha": "ef85b0169fd25a3c0223eedddee124cf6b1580dc",
+     "lastModified": "2026-09-04T11:25:55.000Z",
+     "downloads": 40,
+     "gated": "auto",
+     "gguf_architecture": "controlvector",
+     "gguf_total_params": 720896,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": false
+    },
+    {
+     "id": "AMAImedia/GLM-5.3-Flash-FP8-GGUF",
+     "sha": "7764ceaa66e8f1bd0c8530fe880a8ba292ff4029",
+     "lastModified": "2026-09-20T23:13:37.000Z",
+     "downloads": 3678,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true,
+     "gguf_files": [
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00001-of-00012.gguf",
+       "size": 13232323872
+      },
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00002-of-00012.gguf",
+       "size": 12713805344
+      },
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00003-of-00012.gguf",
+       "size": 12966672544
+      },
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00004-of-00012.gguf",
+       "size": 13031048736
+      },
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00005-of-00012.gguf",
+       "size": 12713805440
+      },
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00006-of-00012.gguf",
+       "size": 12966672544
+      },
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00007-of-00012.gguf",
+       "size": 13031048736
+      },
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00008-of-00012.gguf",
+       "size": 12713805440
+      },
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00009-of-00012.gguf",
+       "size": 12965630784
+      },
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00010-of-00012.gguf",
+       "size": 13031048736
+      },
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00011-of-00012.gguf",
+       "size": 12713805440
+      },
+      {
+       "path": "GGUF-Q3_K_M/zai-org.GLM-5.3-Flash.f16.gguf.Q3_K_M.gguf-00012-of-00012.gguf",
+       "size": 6976258048
+      }
+     ]
+    },
+    {
+     "id": "axiomofmind/GLM-5.3-Flash-W4A16-NVFP4-GGUF",
+     "sha": "ad1eed18404ac246de2d08c5768c69fc272bcffe",
+     "lastModified": "2026-08-27T15:09:41.000Z",
+     "downloads": 222,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759440670,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "6block/GLM-5.3-Flash-GGUF",
+     "sha": "ecc6c5303921d0a67c698aee7faf2f3577386347",
+     "lastModified": "2026-08-28T15:16:22.000Z",
+     "downloads": 548,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "antirez/glm-5.3-flash-gguf",
+     "sha": "b2fa29d7a6b410db11221c904973967b80b760f5",
+     "lastModified": "2026-08-28T21:49:06.000Z",
+     "downloads": 74444,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320778593630,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "41cff9af7b3a86c96751b107a8444f245fbda0bd5320b636a5bb1f7f4ba1a5c3",
+     "arch_match": true
+    },
+    {
+     "id": "ddh0/GLM-5.3-Flash-GGUF",
+     "sha": "79b15e13262259b03de43c3cc31701ce2d438635",
+     "lastModified": "2026-09-12T02:20:00.000Z",
+     "downloads": 938,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "Nil626yhh/GLM-5.3-Flash-GGUF",
+     "sha": "540c41d2cff0fad3c68a934f2e7263ccc00e71aa",
+     "lastModified": "2026-08-27T16:22:48.000Z",
+     "downloads": 162,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "Serpen/GLM-5.3-Flash",
+     "sha": "1f0c4ba27b16bf111cbbb96c782815366f0c1fe3",
+     "lastModified": "2026-08-27T22:27:43.000Z",
+     "downloads": 9,
+     "gated": false,
+     "gguf_architecture": "clip",
+     "gguf_total_params": 563627008,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": false
+    },
+    {
+     "id": "vcruz305/GLM-5.3-Flash-DFlash2-GGUF",
+     "sha": "caf6ef0cedd0dc4ac1183c4110266c2e4f58e17c",
+     "lastModified": "2026-08-28T03:29:28.000Z",
+     "downloads": 356,
+     "gated": false,
+     "gguf_architecture": "dflash",
+     "gguf_total_params": 1171080448,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": false
+    },
+    {
+     "id": "sayyidfareed/GLM-5.3-Flash-Spark-Q2XL-MTP",
+     "sha": "6e6619ac46a7c4e06e19032b613db1549f5cd254",
+     "lastModified": "2026-08-28T01:47:43.000Z",
+     "downloads": 178,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "meshllm/GLM-5.3-Flash-UD-Q4_K_XL-layers",
+     "sha": "d1b3be770eacf2cfef13e62866fefc2f3917616f",
+     "lastModified": "2026-09-25T22:19:11.000Z",
+     "downloads": 18923,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 289521910,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "qtum/GLM-5.3-Flash-GGUF",
+     "sha": "3e90be1b205c6e6b8535bb84c1634372fad0d93c",
+     "lastModified": "2026-08-31T16:41:36.000Z",
+     "downloads": 298,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "0ppxnhximxr/GLM-5.3-Flash-GGUF",
+     "sha": "fac026d82ab108f9c64856e2011190cf29456dde",
+     "lastModified": "2026-08-28T17:58:18.000Z",
+     "downloads": 233,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "lazywold/GLM-5.3-Flash-GGUF",
+     "sha": "48d746c3cf52a24ebd8e2ff90e53967e3c89073f",
+     "lastModified": "2026-08-28T18:01:05.000Z",
+     "downloads": 143,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "D9010/GLM-5.3-Flash-D9010-86GB",
+     "sha": "856d9b46cc21f446b5ad5d9a333a849e745838f0",
+     "lastModified": "2026-08-31T03:16:00.000Z",
+     "downloads": 71,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "Hagwell/GLM-5.3-Flash-GGUF",
+     "sha": "c4379587064b74cc57b6aeca4f32f28bbcc7240f",
+     "lastModified": "2026-08-29T11:31:46.000Z",
+     "downloads": 184,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "MorinoNushi/GLM-5.3-Flash-Heretic-LoRA-V1-GGUF",
+     "sha": "4f0c4414913062c85c9066d73ad1d76360895044",
+     "lastModified": "2026-08-29T15:45:48.000Z",
+     "downloads": 139,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 14606336,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": true
+    },
+    {
+     "id": "CoboSan/GLM-5.3-Flash-GGUF",
+     "sha": "5ec23a1e4de9295222749ec5ced3ebe690b19272",
+     "lastModified": "2026-08-29T19:00:33.000Z",
+     "downloads": 158,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "ashuaria/GLM-5.3-Flash-GGUF-Finetuning",
+     "sha": "8bd0713f091f3b71052abbad436f9c79f32724a1",
+     "lastModified": "2026-08-30T02:49:14.000Z",
+     "downloads": 179,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "AesSedai/GLM-5.3-Flash-GGUF",
+     "sha": "99fb1c6c5e87700bb66747081da6e5d1879c9bf0",
+     "lastModified": "2026-08-30T10:13:20.000Z",
+     "downloads": 2119,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "batiai/GLM-5.3-Flash-GGUF",
+     "sha": "5d8c47def046bb0902e69ecbe85851180068a2a1",
+     "lastModified": "2026-09-04T21:37:56.000Z",
+     "downloads": 918,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "Sciguy429/GLM-5.3-Flash-BF16",
+     "sha": "8fc43603504090ae9a33b032b992c6ac7189ccc2",
+     "lastModified": "2026-09-01T16:38:31.000Z",
+     "downloads": 111,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "zurichquants/GLM-5.3-Flash-GGUF",
+     "sha": "c1d2cf2791995531f01d71ada0c0a098005dd341",
+     "lastModified": "2026-09-01T23:17:19.000Z",
+     "downloads": 269,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "zurichquants/GLM-5.3-Flash-UD-Q4_K_XL-layers",
+     "sha": "c0bae1f4b727cf037e9f4240980e12890376d28e",
+     "lastModified": "2026-09-01T23:21:25.000Z",
+     "downloads": 1461,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 289521910,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "lausannequants/GLM-5.3-Flash-GGUF",
+     "sha": "7a065d040c3b10a02f6ab1c3305045e52add488f",
+     "lastModified": "2026-09-02T23:09:16.000Z",
+     "downloads": 201,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "lausannequants/GLM-5.3-Flash-UD-Q4_K_XL-layers",
+     "sha": "dae7911b928ce6d7fa2d262bed57a1ef33abcb87",
+     "lastModified": "2026-09-02T23:10:56.000Z",
+     "downloads": 636,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 289521910,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "DogContext/GLM-5.3-Flash-Uncensored-Q2-ds4",
+     "sha": "235989b3a2f4ede83c05c9bdb29130ea3f77e3bb",
+     "lastModified": "2026-09-21T16:43:52.000Z",
+     "downloads": 15614,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "petr567/GLM-5.3-Flash-AJ-IQ2-XXS-Strix-Halo-256K",
+     "sha": "07f9bcbbcfe85d944b9da9b58b34d845ababc21f",
+     "lastModified": "2026-09-03T13:47:22.000Z",
+     "downloads": 0,
+     "gated": false,
+     "gguf_architecture": null,
+     "gguf_total_params": null,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": false
+    },
+    {
+     "id": "BoldingBuilds/GLM-5.3-Flash-Uncensored-GGUF",
+     "sha": "be99016c76c70d84ed8eae126655449b677d0b10",
+     "lastModified": "2026-10-07T22:04:07.000Z",
+     "downloads": 4308,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "marcorez8/GLM-5.3-Flash-Abliterated-Heretic-V1-UD-IQ4_XS-F16",
+     "sha": "eaeca1ca3d2a6cd64931a9cdc245167db48e0b33",
+     "lastModified": "2026-09-06T07:46:41.000Z",
+     "downloads": 351,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "backpack-run/GLM-5.3-Flash-GGUF",
+     "sha": "144a2c2723b8a86fb1273e8d349b715f8070d754",
+     "lastModified": "2026-09-06T13:37:46.000Z",
+     "downloads": 489,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+     "arch_match": true
+    },
+    {
+     "id": "Solstice-AI/GLM-5.3-Flash-UNCENSORED-NVFP4-DFlash2",
+     "sha": "9b9f2589f5426c1682111c7f93bc7990a916b063",
+     "lastModified": "2026-09-11T09:46:35.000Z",
+     "downloads": 8289,
+     "gated": false,
+     "gguf_architecture": "dflash",
+     "gguf_total_params": 1171080448,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": false
+    },
+    {
+     "id": "Solstice-AI/GLM-5.3-Flash-UNCENSORED-GGUF",
+     "sha": "f167280509eacaabc3febcbb8fbc49cc390f4795",
+     "lastModified": "2026-09-08T01:00:56.000Z",
+     "downloads": 1106,
+     "gated": false,
+     "gguf_architecture": "dflash",
+     "gguf_total_params": 1171080448,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": false
+    },
+    {
+     "id": "PaoAI/GLM-5.3-Flash-PaoAI-ROCmFP4-STRIX-BALANCED-GGUF",
+     "sha": "fe78bc85332b4ced2adab63ac17c96d6248a427c",
+     "lastModified": "2026-09-21T11:24:58.000Z",
+     "downloads": 1083,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "PaoAI/GLM-5.3-Flash-PaoAI-ROCmFP4-STRIX-HYBRID-GGUF",
+     "sha": "d1a213cf9f869fa2b8c01a1b43d0cbcb90c99d45",
+     "lastModified": "2026-09-11T15:18:13.000Z",
+     "downloads": 249,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "PaoAI/GLM-5.3-Flash-PaoAI-ROCmFP4-STRIX-MTP-GGUF",
+     "sha": "dae7a7d01adbc5dfd78d0fd345af03a5390551f0",
+     "lastModified": "2026-09-11T15:37:41.000Z",
+     "downloads": 91,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "M0STAFAz/GLM-5.3-Flash-0.1B-A0.1B-F16.gguf",
+     "sha": "82f77811d3065405ff56310f2f19a39c2752e033",
+     "lastModified": "2026-09-09T01:20:57.000Z",
+     "downloads": 129,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 83486574,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "MorinoNushi/GLM-5.3-Flash-Heretic-Abliterated-LoRA-V2-GGUF",
+     "sha": "1ab13071490a9a1150177df69da16e9490f01dd3",
+     "lastModified": "2026-09-12T16:13:32.000Z",
+     "downloads": 836,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 43022336,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": true
+    },
+    {
+     "id": "xautonomics/GLM-5.3-Flash-UD-IQ4_XS.LAYR.GGUF",
+     "sha": "f873b2463e715aee1f51b812949ef1147551ab0e",
+     "lastModified": "2026-09-14T17:46:59.000Z",
+     "downloads": 3472,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 289521910,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "elvezjp/GLM-5.3-Flash-ELVEZ-KDA-Q8_0-gguf",
+     "sha": "8a3748f4851c6cc4013eccf9e328347986f0f2be",
+     "lastModified": "2026-09-26T07:19:22.000Z",
+     "downloads": 235,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "41cff9af7b3a86c96751b107a8444f245fbda0bd5320b636a5bb1f7f4ba1a5c3",
+     "arch_match": true
+    },
+    {
+     "id": "Cypherfox/GLM-5.3-Flash-dealignai-orcarouter-merge",
+     "sha": "70253325de76374dceb2d74ef415e82afa7f358c",
+     "lastModified": "2026-09-22T19:57:02.000Z",
+     "downloads": 1825,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "acfc37c9cba68e0f2707bb16a51f7bf84cb4d29d6c6db0819d7b1761f98a52a1",
+     "arch_match": true
+    },
+    {
+     "id": "YTan2000/GLM-5.3-Flash-TQ3_4S",
+     "sha": "4bce6a5fecbf5e1cc803329105a33642e75e5374",
+     "lastModified": "2026-09-25T17:22:20.000Z",
+     "downloads": 438,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "baerquants/GLM-5.3-Flash-UD-Q4_K_XL-layers",
+     "sha": "b37667a46551644452c62e3a7ce995995899bdf9",
+     "lastModified": "2026-09-22T20:02:44.000Z",
+     "downloads": 763,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 289521910,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "kyuz0/GLM-5.3-Flash-Mixed-Q2-Q4-GGUF",
+     "sha": "6ec5f33b8ac7146756bde992b43e82735b5702cb",
+     "lastModified": "2026-09-23T20:25:11.000Z",
+     "downloads": 2165,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "41cff9af7b3a86c96751b107a8444f245fbda0bd5320b636a5bb1f7f4ba1a5c3",
+     "arch_match": true
+    },
+    {
+     "id": "onicubag/GLM-5.3-Flash-IQ6_K-GGUF",
+     "sha": "eb013ee1238b2d415d39b7a1c365fb2c661f10cd",
+     "lastModified": "2026-09-27T07:28:11.000Z",
+     "downloads": 257,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "41cff9af7b3a86c96751b107a8444f245fbda0bd5320b636a5bb1f7f4ba1a5c3",
+     "arch_match": true
+    },
+    {
+     "id": "taurusduan/GLM-5.3-Flash-GGUF-DGX-Spark",
+     "sha": "5d637027494d1fe5f7224c582f855b66b626faa6",
+     "lastModified": "2026-09-29T01:10:06.000Z",
+     "downloads": 221,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 279498438142,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "Oppsy/Huihui-GLM-5.3-Flash-abliterated-GGUF",
+     "sha": "84080f36fef97421d9f59075034871fb9f8dfc82",
+     "lastModified": "2026-09-29T07:26:08.000Z",
+     "downloads": 406,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "taurusduan/Huihui-GLM-5.3-Flash-abliterated-GGUF",
+     "sha": "2ac4dcb4a2ec12fea3076d9876e469b348e9165f",
+     "lastModified": "2026-09-30T05:50:38.000Z",
+     "downloads": 665,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "Nbighir/Huihui-GLM-5.3-Flash-abliterated-GGUF",
+     "sha": "4edf69d36da4b4ece57779910d30fa89fe55f789",
+     "lastModified": "2026-09-30T14:20:18.000Z",
+     "downloads": 344,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "bytehackr/Huihui-GLM-5.3-Flash-abliterated-GGUF",
+     "sha": "4d68b8b38431e8b09aa09daaa9f02e4fe7694e17",
+     "lastModified": "2026-09-30T16:17:44.000Z",
+     "downloads": 342,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "Ihnenko/Huihui-GLM-5.3-Flash-abliterated-GGUF",
+     "sha": "acaba26472f932664aa7622169ffb628d99718d0",
+     "lastModified": "2026-09-30T18:02:05.000Z",
+     "downloads": 361,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "Jerome0207/huihui-glm-5.3-flash-abliterated-q4-k-xl",
+     "sha": "b8e8b5ab3dfe70dff354198373642448ceb6ab44",
+     "lastModified": "2026-10-01T06:49:16.000Z",
+     "downloads": 92,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "axi0mX/GLM-5.3-Flash-Uncensored-GGUF",
+     "sha": "ea05e17ef542f8cab06e57cd5ba6ca17cf1ef926",
+     "lastModified": "2026-10-03T05:08:19.000Z",
+     "downloads": 4294,
+     "gated": false,
+     "gguf_architecture": "glm5next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+     "arch_match": true
+    },
+    {
+     "id": "Dennits/Huihui-GLM-5.3-Flash-abliterated-GGUF",
+     "sha": "625420c5a8828d04d4fff82228e18489b8700bda",
+     "lastModified": "2026-10-01T19:55:59.000Z",
+     "downloads": 349,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "amd/GLM-5.3-Flash-EXTENSOR",
+     "sha": "20eb2529ccb031568d76f37d844fdd6363597330",
+     "lastModified": "2026-10-01T20:45:34.000Z",
+     "downloads": 275,
+     "gated": false,
+     "gguf_architecture": "glm53flash",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+     "arch_match": false
+    },
+    {
+     "id": "cafonez/GLM-5.3-Flash-Gorgon-GGUF",
+     "sha": "7ce8c3507c2a361a08ac8e4047db42037fc1ee64",
+     "lastModified": "2026-10-02T01:43:55.000Z",
+     "downloads": 64,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "taurusduan/GLM-5.3-Flash-GSQ-RCO-GGUF",
+     "sha": "fd0d96efa505da7dc448f4a8159442a9db6d38a2",
+     "lastModified": "2026-10-02T02:26:10.000Z",
+     "downloads": 1551,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 313326811966,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+     "arch_match": true
+    },
+    {
+     "id": "moixx/Huihui-GLM-5.3-Flash-abliterated-GGUF",
+     "sha": "7dec0e5d7fdfb9b1a87e54153eb32b7744c35c01",
+     "lastModified": "2026-10-03T11:06:28.000Z",
+     "downloads": 378,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "SaturnHeaven/GLM-5.3-Flash-RANMA-EXL3-GGUF",
+     "sha": "89dcf818785c0adfd6896989da6f5f869c7c468e",
+     "lastModified": "2026-10-07T07:29:01.000Z",
+     "downloads": 1233,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320991099998,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "41cff9af7b3a86c96751b107a8444f245fbda0bd5320b636a5bb1f7f4ba1a5c3",
+     "arch_match": true
+    },
+    {
+     "id": "lte-ai/GLM-5.3-Flash-Strata-Q2Q3-Experts",
+     "sha": "3eb74994c13339355b1ff96a99f2cbad094ab044",
+     "lastModified": "2026-10-10T20:51:05.000Z",
+     "downloads": 491,
+     "gated": false,
+     "gguf_architecture": null,
+     "gguf_total_params": 292326211584,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": false
+    },
+    {
+     "id": "SaturnHeaven/GLM-5.3-Flash-EXL3-Spark-RANMA-EXL3-GGUF",
+     "sha": "20962f29dd935844e93176d281dfa96f6a091a4a",
+     "lastModified": "2026-10-07T08:15:27.000Z",
+     "downloads": 192,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320991099998,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "41cff9af7b3a86c96751b107a8444f245fbda0bd5320b636a5bb1f7f4ba1a5c3",
+     "arch_match": true
+    },
+    {
+     "id": "mussonking/GLM-5.3-Flash-Phobos-GGUF",
+     "sha": "8180fc686744085629808d28ef7b8874b50c3b02",
+     "lastModified": "2026-10-08T21:06:42.000Z",
+     "downloads": 49,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "muterornament/Huihui-GLM-5.3-Flash-abliterated-GGUF",
+     "sha": "71d63379755890317bb482899be8ec4559495d77",
+     "lastModified": "2026-10-09T06:27:00.000Z",
+     "downloads": 893,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    },
+    {
+     "id": "Dgvdhb/Huihui-GLM-5.3-Flash-abliterated-GGUF",
+     "sha": "d26512d71ef4127c7b4ad215e8006f94386f299d",
+     "lastModified": "2026-10-10T13:55:41.000Z",
+     "downloads": 817,
+     "gated": false,
+     "gguf_architecture": "glm5-next",
+     "gguf_total_params": 320759404382,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "a4fddbbf0b432101a296c17094f8bc5a2b0d30713b5b5cd92f86be78511aa724",
+     "arch_match": true
+    }
+   ]
+  },
+  {
+   "search": "MiMo-V2.6-Flash",
+   "architectures": [
+    "mimo2"
+   ],
+   "url": "https://huggingface.co/api/models?search=MiMo-V2.6-Flash&filter=gguf&limit=100&expand=gguf&expand=sha&expand=lastModified&expand=downloads&expand=gated&expand=tags",
+   "expanded": true,
+   "n_results": 30,
+   "results": [
+    {
+     "id": "ProCreations/MiMo-V2.6-Flash-RL-NVFP4",
+     "sha": "34cebc5d75743a93ab76145ec609cfef9da8c417",
+     "lastModified": "2026-09-22T15:47:33.000Z",
+     "downloads": 11177,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766637184,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "ggml-org/MiMo-V2.6-Flash-RL-GGUF",
+     "sha": "b0b2d0fb0b56611c761e075425c88989faf1ed1f",
+     "lastModified": "2026-10-11T08:23:14.000Z",
+     "downloads": 15855,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 308778780864,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "MorinoNushi/MiMo-V2.6-Flash-RL-Uncensored-Heretic-GGUF",
+     "sha": "fbbb29584eb9378500c22276c61ae26cc19c5e0f",
+     "lastModified": "2026-09-24T00:43:27.000Z",
+     "downloads": 344,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 308778780864,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "MorinoNushi/MiMo-V2.6-Flash-RL-Uncensored-Heretic-LoRA-GGUF",
+     "sha": "0ecc6864d187d4117d3348c85379bfe9298f49e3",
+     "lastModified": "2026-09-23T23:36:23.000Z",
+     "downloads": 587,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 35045376,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": true
+    },
+    {
+     "id": "pfeifferj/MiMo-V2.6-Flash-RL-GSQ-RCO-GGUF",
+     "sha": "a37b69042dbe3e375790d10ffefda6333365c718",
+     "lastModified": "2026-09-25T09:41:55.000Z",
+     "downloads": 2853,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 308778780864,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "patrickbdevaney/MiMo-V2.6-Flash-REAP50-GGUF",
+     "sha": "8d0abe0abfbeab31329e853fd8379e0f50cfb107",
+     "lastModified": "2026-09-25T20:48:02.000Z",
+     "downloads": 6615,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 157356536128,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "AesSedai/MiMo-V2.6-Flash-MOPD-GGUF",
+     "sha": "b6e95d58c343b59b48a1dcbe98815d19abcae001",
+     "lastModified": "2026-09-29T18:22:15.000Z",
+     "downloads": 1669,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "ProCreations/MiMo-V2.6-Flash-RL-IQ3_XXS-GGUF",
+     "sha": "9b2bf573c44ed6ddc93db767e7541209617af795",
+     "lastModified": "2026-09-22T06:25:13.000Z",
+     "downloads": 712,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "TrevorJS/MiMo-V2.6-Flash-RL-GGUF",
+     "sha": "dce9d8c8e576159b1e21c849b494fd1e4e550da2",
+     "lastModified": "2026-09-23T07:45:41.000Z",
+     "downloads": 1442,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "Baekpica/MiMo-V2.6-Flash-RL-Mixed-Quant-GGUF",
+     "sha": "7cbefe60ca47818074fbfa0e09f04105ee8fc673",
+     "lastModified": "2026-09-26T09:35:52.000Z",
+     "downloads": 3673,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "Baekpica/MiMo-V2.6-Flash-RL-GGUF",
+     "sha": "a485ac9ebf5190639e3b3b4459024bd654a9864b",
+     "lastModified": "2026-09-22T04:01:21.000Z",
+     "downloads": 840,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "kernelpool/MiMo-V2.6-Flash-MXFP4-GGUF",
+     "sha": "f4a1c0708d4acebad1de35630519b1eddca55aec",
+     "lastModified": "2026-09-22T08:24:02.000Z",
+     "downloads": 571,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "853650bee57bf95020373e4c928bd5a4b41b9915adf964a77711d2b49a291887",
+     "arch_match": true
+    },
+    {
+     "id": "jedisct1/MiMo-V2.6-Flash-RL-GGUF-100K",
+     "sha": "a207209263a08c51f615d1ee333c72e7bd909797",
+     "lastModified": "2026-09-22T20:06:49.000Z",
+     "downloads": 240,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "8d671a825e7aec303ed02e60bb8817c91a54c9486b0e26155075911d70d70344",
+     "arch_match": true
+    },
+    {
+     "id": "YanissAmz/MiMo-V2.6-Flash-RL-GGUF",
+     "sha": "e7a3bd785397699f2ce01e6459641010b7720277",
+     "lastModified": "2026-09-23T13:46:05.000Z",
+     "downloads": 1277,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "AliceThirty/MiMo-V2.6-Flash-RL-UNCENSORED-gguf",
+     "sha": "5cc3ec2959c03f37fa163579e0dafc3267262dfa",
+     "lastModified": "2026-09-23T22:09:32.000Z",
+     "downloads": 2028,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "0xSojalSec/MiMo-V2.6-Flash-RL-Uncensored-Heretic-LoRA-GGUF",
+     "sha": "c47289f56ace2b55e02d538b5eb5b1aad3053664",
+     "lastModified": "2026-09-25T00:08:30.000Z",
+     "downloads": 153,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 35045376,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": true
+    },
+    {
+     "id": "QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+     "sha": "ac33b3743d70ed57a8cc6b847698d2ebbddb7784",
+     "lastModified": "2026-09-27T20:57:35.000Z",
+     "downloads": 48815,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "ProCreations/MiMo-V2.6-Flash-MOPD-NVFP4",
+     "sha": "da654d8ed8d0d2acbf0fc5b63df72a7b75a6bb2a",
+     "lastModified": "2026-09-27T23:15:05.000Z",
+     "downloads": 1204,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766637184,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "ddh0/MiMo-V2.6-Flash-MOPD-GGUF",
+     "sha": "b9e3e8a3370aae1e66298f974d4547c75ecf4286",
+     "lastModified": "2026-10-11T04:48:51.000Z",
+     "downloads": 1200,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "kernelpool/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+     "sha": "44d9191bb7a95125c8b971ce0593bd802ae6dd48",
+     "lastModified": "2026-10-04T03:08:13.000Z",
+     "downloads": 602,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "ggml-org/MiMo-V2.6-Flash-MOPD-GGUF",
+     "sha": "e6d4bced739310a721eefad4c247ec7e0247c89d",
+     "lastModified": "2026-10-11T07:58:04.000Z",
+     "downloads": 5621,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 308778780864,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "webmp3/Sakura-MiMo-V2.6-Flash-MOPD-P160-GGUF",
+     "sha": "a0d8ac0255752ca55c14e2951fd965be92abffeb",
+     "lastModified": "2026-10-08T12:25:18.000Z",
+     "downloads": 691,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 195212097312,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "fresherbz/MiMo-V2.6-Flash-MOPD-IQ2_XXS-GGUF",
+     "sha": "b393fdeb4476168115bcddd61219e71a6b80697b",
+     "lastModified": "2026-09-29T12:18:06.000Z",
+     "downloads": 204,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 308778780864,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "Baekpica/MiMo-V2.6-Flash-MOPD-Mixed-Quant-GGUF",
+     "sha": "c2de39b1ac00f2567a2ff00ef38f52a05c92029b",
+     "lastModified": "2026-09-30T04:30:27.000Z",
+     "downloads": 554,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "AMAImedia/MiMo-V2.6-Flash-MOPD-BPW2.5-GGUF",
+     "sha": "a98d84c2f7111d6485fe3d389ab72c0cef28ea1b",
+     "lastModified": "2026-10-09T08:27:20.000Z",
+     "downloads": 335,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "CarnaK/MiMo-V2.6-Flash-RL-Heretic-MTP-Q3_K-GGUF",
+     "sha": "4d21819d3ede85034176246c590f1892d6c177fe",
+     "lastModified": "2026-10-01T18:02:22.000Z",
+     "downloads": 0,
+     "gated": false,
+     "gguf_architecture": null,
+     "gguf_total_params": null,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": false
+    },
+    {
+     "id": "cafonez/MiMo-V2.6-Flash-RL-UNCENSORED-Gorgon-GGUF",
+     "sha": "998bdd418f7a4f62bef68bd607eb1014a188f5af",
+     "lastModified": "2026-10-02T12:40:03.000Z",
+     "downloads": 224,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "kernelpool/MiMo-V2.6-Flash-MOPD-GGUF",
+     "sha": "3ce46a094a33818968ab7999e7916b45331d775f",
+     "lastModified": "2026-10-04T01:49:33.000Z",
+     "downloads": 286,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "spiritfather/MiMo-V2.6-Flash-MOPD-Yamz-Uncensored-GGUF",
+     "sha": "f1adc2e15d07b84bc35b7e0ba6e2b7df5094ff3f",
+     "lastModified": "2026-10-06T02:46:41.000Z",
+     "downloads": 1180,
+     "gated": false,
+     "gguf_architecture": "mimo2",
+     "gguf_total_params": 309766601088,
+     "gguf_context_length": 1048576,
+     "gguf_chat_template_sha256": "11ea52e156de38a458e6b7720ad45915d65b97d4ec979a09f55e3c9bd1b4d059",
+     "arch_match": true
+    },
+    {
+     "id": "petr567/MiMo-V2.6-Flash-MOPD-Strix-Halo-Recipe",
+     "sha": "29500f0a89103e846a93886ac65217a48d6883d8",
+     "lastModified": "2026-10-06T01:01:22.000Z",
+     "downloads": 0,
+     "gated": false,
+     "gguf_architecture": null,
+     "gguf_total_params": null,
+     "gguf_context_length": null,
+     "gguf_chat_template_sha256": null,
+     "arch_match": false
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,327 @@
+{
+ "label": "CONFIRMED only for the traces given; routing of a quantized model may differ from the original",
+ "files": [
+  "c00_en_cachesim_py.trace",
+  "c01_en_roofline_py.trace",
+  "c02_en_gateway_py.trace",
+  "c03_en_run_matrix_py.trace",
+  "c04_en_qwen4exp_py.trace",
+  "c05_en_dsa_py.trace",
+  "c06_en_expert_trace_cpp.trace",
+  "c07_en_slot_persist_py.trace",
+  "c08_en_run_eval_py.trace",
+  "c09_en_run_r1_py.trace",
+  "c10_en_pack_py.trace",
+  "c11_en_test_gateway_py.trace",
+  "c12_ru_ADR-012-reassessment_md.trace",
+  "c13_ru_ROADMAP_md.trace",
+  "c14_ru_kda_py.trace",
+  "c15_ru_gguf_quant_audit_py.trace"
+ ],
+ "split": "held-out every 4th file: 12 train / 4 test",
+ "n_experts": 64,
+ "warm": false,
+ "session": false,
+ "devices": 4,
+ "prompt_readonly": true,
+ "hit_rate_by_capacity": {
+  "0.1": {
+   "static": {
+    "all": 0.28958683495597204,
+    "prompt": 0.2936333999752901,
+    "gen": 0.22485851598993892,
+    "layer_min": 0.12341964502796013,
+    "layer_max": 0.3812910284463895
+   },
+   "lru": {
+    "all": 0.3106078024080593,
+    "prompt": 0.3071620915840194,
+    "gen": 0.36572493711821774,
+    "layer_min": 0.08178336980306346,
+    "layer_max": 0.4166058837831267
+   },
+   "lfu": {
+    "all": 0.3797608854216218,
+    "prompt": 0.37934529893410307,
+    "gen": 0.38640855192238593,
+    "layer_min": 0.1361232676878191,
+    "layer_max": 0.49544128373450036
+   },
+   "tinylfu": {
+    "all": 0.33181706466241717,
+    "prompt": 0.3410168139903182,
+    "gen": 0.1846590909090909,
+    "layer_min": 0.15681983953318746,
+    "layer_max": 0.43076829564794555
+   },
+   "hybrid": {
+    "all": 0.2959260932990835,
+    "prompt": 0.296772685408781,
+    "gen": 0.28238411785842615,
+    "layer_min": 0.09722222222222222,
+    "layer_max": 0.39955628495015805
+   },
+   "opt": {
+    "all": 0.5622396906944048,
+    "prompt": 0.5606734300764885,
+    "gen": 0.5872933884297521,
+    "layer_min": 0.3576768781911014,
+    "layer_max": 0.6532640408460978
+   },
+   "lru_global": {
+    "all": 0.019499413313037135,
+    "prompt": 0.0,
+    "gen": 0.3314094502335609,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "lru_device": {
+    "all": 0.019809273882387762,
+    "prompt": 0.0,
+    "gen": 0.33667579949694576,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "opt_global": {
+    "all": 0.5941526866034524,
+    "prompt": 0.5927303640223288,
+    "gen": 0.6169039705353935,
+    "layer_min": null,
+    "layer_max": null
+   }
+  },
+  "0.25": {
+   "static": {
+    "all": 0.5304548673876045,
+    "prompt": 0.5381459683488145,
+    "gen": 0.40742903341717573,
+    "layer_min": 0.30324580598103573,
+    "layer_max": 0.649434719183078
+   },
+   "lru": {
+    "all": 0.5972301504244231,
+    "prompt": 0.5948679141441937,
+    "gen": 0.6350161696011498,
+    "layer_min": 0.2865609044493071,
+    "layer_max": 0.7329200097252614
+   },
+   "lfu": {
+    "all": 0.6219859617966363,
+    "prompt": 0.627452040254737,
+    "gen": 0.534551293568092,
+    "layer_min": 0.349957451981522,
+    "layer_max": 0.7401835643082908
+   },
+   "tinylfu": {
+    "all": 0.5677828253998457,
+    "prompt": 0.5804210236653825,
+    "gen": 0.3656238771110313,
+    "layer_min": 0.34284585460734257,
+    "layer_max": 0.6774252370532458
+   },
+   "hybrid": {
+    "all": 0.5922261334686413,
+    "prompt": 0.5924944964226747,
+    "gen": 0.5879334351419332,
+    "layer_min": 0.28762460491125696,
+    "layer_max": 0.7314004376367614
+   },
+   "opt": {
+    "all": 0.7944706075117073,
+    "prompt": 0.793051452832096,
+    "gen": 0.8171712181099533,
+    "layer_min": 0.6188913202042305,
+    "layer_max": 0.8646669097982008
+   },
+   "lru_global": {
+    "all": 0.03638450195033774,
+    "prompt": 0.0,
+    "gen": 0.6183861839741286,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "lru_device": {
+    "all": 0.03634684298988362,
+    "prompt": 0.0,
+    "gen": 0.6177461372619475,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "opt_global": {
+    "all": 0.8117270002854153,
+    "prompt": 0.8104951254029404,
+    "gen": 0.8314319080129356,
+    "layer_min": null,
+    "layer_max": null
+   }
+  },
+  "0.5": {
+   "static": {
+    "all": 0.7665983519910359,
+    "prompt": 0.7732245347230802,
+    "gen": 0.6606068091987064,
+    "layer_min": 0.5486566982737661,
+    "layer_max": 0.8571906151227814
+   },
+   "lru": {
+    "all": 0.8320278227042569,
+    "prompt": 0.8298369705614772,
+    "gen": 0.8670724038807043,
+    "layer_min": 0.5943046438123024,
+    "layer_max": 0.9091903719912473
+   },
+   "lfu": {
+    "all": 0.8264027632427404,
+    "prompt": 0.8320531432165601,
+    "gen": 0.7360200323392023,
+    "layer_min": 0.6132385120350109,
+    "layer_max": 0.8972465353756383
+   },
+   "tinylfu": {
+    "all": 0.7903598346705568,
+    "prompt": 0.8016725539968327,
+    "gen": 0.6094030722242185,
+    "layer_min": 0.5923292000972527,
+    "layer_max": 0.8645149525893508
+   },
+   "hybrid": {
+    "all": 0.8287693315996998,
+    "prompt": 0.8286800961441263,
+    "gen": 0.830196730147323,
+    "layer_min": 0.5787442256260636,
+    "layer_max": 0.9056345733041575
+   },
+   "opt": {
+    "all": 0.9311429032019366,
+    "prompt": 0.9302498792582525,
+    "gen": 0.9454275961192957,
+    "layer_min": 0.8347009482129832,
+    "layer_max": 0.9618587405786531
+   },
+   "lru_global": {
+    "all": 0.04962327825875538,
+    "prompt": 0.0,
+    "gen": 0.8433906755300036,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "lru_device": {
+    "all": 0.04934182708062453,
+    "prompt": 0.0,
+    "gen": 0.8386071685231764,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "opt_global": {
+    "all": 0.9412090772629732,
+    "prompt": 0.9402679343614165,
+    "gen": 0.9562634746676248,
+    "layer_min": null,
+    "layer_max": null
+   }
+  },
+  "0.75": {
+   "static": {
+    "all": 0.9204041533208597,
+    "prompt": 0.9221524603237002,
+    "gen": 0.8924384656845131,
+    "layer_min": 0.7921529297349866,
+    "layer_max": 0.9520423048869439
+   },
+   "lru": {
+    "all": 0.9476560270193131,
+    "prompt": 0.9470287702312625,
+    "gen": 0.9576895436579231,
+    "layer_min": 0.837314612205203,
+    "layer_max": 0.9733770970094822
+   },
+   "lfu": {
+    "all": 0.9425747100920728,
+    "prompt": 0.9446188491907495,
+    "gen": 0.9098769313690263,
+    "layer_min": 0.8267687819110139,
+    "layer_max": 0.9721006564551422
+   },
+   "tinylfu": {
+    "all": 0.9272746012114294,
+    "prompt": 0.9323003830040547,
+    "gen": 0.8468828602227811,
+    "layer_min": 0.8132445903233649,
+    "layer_max": 0.9617067833698031
+   },
+   "hybrid": {
+    "all": 0.949355305024366,
+    "prompt": 0.9490476845663968,
+    "gen": 0.9542759611929572,
+    "layer_min": 0.8218757597860442,
+    "layer_max": 0.9769025042548019
+   },
+   "opt": {
+    "all": 0.9830898053890633,
+    "prompt": 0.9829578639380904,
+    "gen": 0.985200323392023,
+    "layer_min": 0.9478786773644542,
+    "layer_max": 0.9918247021638706
+   },
+   "lru_global": {
+    "all": 0.05293660609520185,
+    "prompt": 0.0,
+    "gen": 0.8997035573122529,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "lru_device": {
+    "all": 0.052813718961088385,
+    "prompt": 0.0,
+    "gen": 0.8976149838303988,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "opt_global": {
+    "all": 0.9870420141861965,
+    "prompt": 0.9869065402715846,
+    "gen": 0.9892090370104204,
+    "layer_min": null,
+    "layer_max": null
+   }
+  }
+ },
+ "distinct_experts_per_window": {
+  "gen": {
+   "1": {
+    "distinct": 4.0,
+    "independent": 4.0
+   },
+   "2": {
+    "distinct": 6.715315479720791,
+    "independent": 7.75
+   },
+   "4": {
+    "distinct": 11.072780845436407,
+    "independent": 14.5615234375
+   },
+   "8": {
+    "distinct": 17.628597165505646,
+    "independent": 25.809953674674034
+   }
+  },
+  "prompt": {
+   "1": {
+    "distinct": 4.0,
+    "independent": 4.0
+   },
+   "2": {
+    "distinct": 6.799266942581896,
+    "independent": 7.75
+   },
+   "4": {
+    "distinct": 11.244333331530528,
+    "independent": 14.5615234375
+   },
+   "8": {
+    "distinct": 17.800175717637877,
+    "independent": 25.809953674674034
+   }
+  }
+ }
+}

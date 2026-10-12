@@ -1,0 +1,35 @@
+NORTHBRIDGE LOGISTICS - STAFF HANDBOOK, FINANCE CHAPTER (SYNTHETIC DOCUMENT; FICTIONAL COMPANY)
+
+F.1 Purpose
+This chapter explains how employees request, approve and settle expenses. It applies to all permanent
+staff and contractors with a company card. Questions go to the finance helpdesk.
+
+F.2 Definitions
+"Expense report" means a claim for reimbursement of costs already paid by an employee. "Purchase request"
+means an approval to buy something in the future. "Travel booking" means a trip booked through the travel
+desk portal. These are three different processes with different approvers.
+
+F.3 Purchase requests
+Purchase requests up to 1000 EUR are approved by the budget owner. Requests above 1000 EUR need a second
+approval from procurement. Requests above 25000 EUR also need a signed quote from the supplier.
+
+F.4 Travel bookings
+Travel bookings are approved by the line manager. A single travel booking above 5000 EUR is approved by the
+travel desk manager instead of the line manager. Business-class flights always need the travel desk
+manager's approval regardless of price.
+
+F.5 Expense reports
+F.5.1 Submit expense reports within 30 days of the expense. Attach every receipt above 25 EUR.
+F.5.2 Approval limits for expense reports: up to 500 EUR - the employee's team lead; above 500 EUR and up to
+5000 EUR - the head of the department; above 5000 EUR - the regional finance director. An approver may not
+approve their own report; it then goes to the next level.
+F.5.3 Reports approved by the 25th of a month are reimbursed with that month's salary; later approvals are
+paid with the next salary.
+
+F.6 Company cards
+Company card limits are 3000 EUR per month by default. Cash withdrawals with a company card are not allowed.
+Lost cards must be reported to the card provider and to the finance helpdesk within 24 hours.
+
+F.7 Audit
+Finance audits a random 5 percent of expense reports every quarter. Missing receipts found in an audit must be
+provided within 10 working days; otherwise the amount is deducted from the next salary.

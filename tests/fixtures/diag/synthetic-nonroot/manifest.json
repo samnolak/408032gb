@@ -1,0 +1,336 @@
+{
+ "kit": "408032gb scripts/diag",
+ "kit_version": 1,
+ "schema": 1,
+ "synthetic": true,
+ "synthetic_note": "SYNTHETIC TEST FIXTURE - NOT EVIDENCE; see tests/fixtures/diag/README.md",
+ "run_state": "completed",
+ "hostname": "synthetic-fixture-synthetic-nonroot",
+ "started_utc": "2026-01-01T00:00:00Z",
+ "finished_utc": "2026-01-01T00:00:00Z",
+ "argv": "scripts/diag/collect.sh",
+ "uid": 1000,
+ "user": "synthetic",
+ "is_root": false,
+ "assume_nonroot_test_hook": false,
+ "sudo": "not-requested",
+ "net_check": false,
+ "timeout_s": 120,
+ "have_timeout_cmd": true,
+ "path": "/usr/bin:/bin",
+ "kit_dir": "/synthetic/scripts/diag",
+ "counts": {
+  "ok": 8,
+  "failed": 0,
+  "not-available": 7,
+  "needs-root": 3,
+  "skipped": 0
+ },
+ "probes": [
+  {
+   "seq": 1,
+   "name": "system.uname",
+   "category": "system",
+   "command": "uname -a",
+   "requires": [
+    "uname"
+   ],
+   "root_mode": "none",
+   "run_as": "user",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/001_system.uname.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 2,
+   "name": "system.virt",
+   "category": "system",
+   "command": "systemd-detect-virt || [ $? -eq 1 ]",
+   "requires": [
+    "systemd-detect-virt"
+   ],
+   "root_mode": "none",
+   "run_as": "user",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/002_system.virt.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 3,
+   "name": "system.dmesg_filtered",
+   "category": "system",
+   "command": "out=$(dmesg -T) || exit $?\n...",
+   "requires": [
+    "dmesg"
+   ],
+   "root_mode": "partial",
+   "run_as": "not-run",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": null,
+   "duration_s": 0.01,
+   "output_file": "probes/003_system.dmesg_filtered.txt",
+   "status": "needs-root",
+   "note": "failed without root (exit 1); rerun as root or with --sudo"
+  },
+  {
+   "seq": 4,
+   "name": "cpu.lscpu",
+   "category": "cpu",
+   "command": "lscpu",
+   "requires": [
+    "lscpu"
+   ],
+   "root_mode": "none",
+   "run_as": "user",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/004_cpu.lscpu.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 5,
+   "name": "cpu.flags",
+   "category": "cpu",
+   "command": "flags=$(grep -m1 -E '^flags' /proc/cpuinfo)\n...",
+   "requires": [
+    "/proc/cpuinfo"
+   ],
+   "root_mode": "none",
+   "run_as": "user",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/005_cpu.flags.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 6,
+   "name": "cpu.numactl_hardware",
+   "category": "cpu",
+   "command": "numactl -H",
+   "requires": [
+    "numactl"
+   ],
+   "root_mode": "none",
+   "run_as": "not-run",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": null,
+   "duration_s": 0.01,
+   "output_file": "probes/006_cpu.numactl_hardware.txt",
+   "status": "not-available",
+   "note": "not found: numactl"
+  },
+  {
+   "seq": 7,
+   "name": "memory.meminfo",
+   "category": "memory",
+   "command": "cat /proc/meminfo",
+   "requires": [
+    "/proc/meminfo"
+   ],
+   "root_mode": "none",
+   "run_as": "user",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/007_memory.meminfo.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 8,
+   "name": "memory.ulimit_l",
+   "category": "memory",
+   "command": "ulimit -l",
+   "requires": [],
+   "root_mode": "none",
+   "run_as": "user",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/008_memory.ulimit_l.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 9,
+   "name": "memory.dmidecode_16_17",
+   "category": "memory",
+   "command": "dmidecode -t 16,17",
+   "requires": [
+    "dmidecode"
+   ],
+   "root_mode": "root",
+   "run_as": "not-run",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": null,
+   "duration_s": 0.01,
+   "output_file": "probes/009_memory.dmidecode_16_17.txt",
+   "status": "needs-root",
+   "note": "requires root; not run (rerun as root or with --sudo)"
+  },
+  {
+   "seq": 10,
+   "name": "board.dmidecode_0_1_2_3",
+   "category": "board",
+   "command": "dmidecode -t 0,1,2,3",
+   "requires": [
+    "dmidecode"
+   ],
+   "root_mode": "root",
+   "run_as": "not-run",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": null,
+   "duration_s": 0.01,
+   "output_file": "probes/010_board.dmidecode_0_1_2_3.txt",
+   "status": "needs-root",
+   "note": "requires root; not run (rerun as root or with --sudo)"
+  },
+  {
+   "seq": 11,
+   "name": "board.dmi_sysfs",
+   "category": "board",
+   "command": "bash /synthetic/scripts/diag/probes_sysfs.sh dmi",
+   "requires": [
+    "/sys/class/dmi/id"
+   ],
+   "root_mode": "none",
+   "run_as": "user",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/011_board.dmi_sysfs.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 12,
+   "name": "bmc.ipmitool_mc_info",
+   "category": "bmc",
+   "command": "ipmitool -I open mc info",
+   "requires": [
+    "ipmitool",
+    "/dev/ipmi0|/dev/ipmi/0|/dev/ipmidev/0"
+   ],
+   "root_mode": "root",
+   "run_as": "not-run",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": null,
+   "duration_s": 0.01,
+   "output_file": "probes/012_bmc.ipmitool_mc_info.txt",
+   "status": "not-available",
+   "note": "not found: ipmitool /dev/ipmi0|/dev/ipmi/0|/dev/ipmidev/0"
+  },
+  {
+   "seq": 13,
+   "name": "gpu.nvidia_smi",
+   "category": "gpu",
+   "command": "nvidia-smi",
+   "requires": [
+    "nvidia-smi"
+   ],
+   "root_mode": "none",
+   "run_as": "not-run",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": null,
+   "duration_s": 0.01,
+   "output_file": "probes/013_gpu.nvidia_smi.txt",
+   "status": "not-available",
+   "note": "not found: nvidia-smi"
+  },
+  {
+   "seq": 14,
+   "name": "gpu.query_csv",
+   "category": "gpu",
+   "command": "nvidia-smi --query-gpu=... --format=csv",
+   "requires": [
+    "nvidia-smi"
+   ],
+   "root_mode": "none",
+   "run_as": "not-run",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": null,
+   "duration_s": 0.01,
+   "output_file": "probes/014_gpu.query_csv.txt",
+   "status": "not-available",
+   "note": "not found: nvidia-smi"
+  },
+  {
+   "seq": 15,
+   "name": "gpu.topo_p2p_r",
+   "category": "gpu",
+   "command": "nvidia-smi topo -p2p r",
+   "requires": [
+    "nvidia-smi"
+   ],
+   "root_mode": "none",
+   "run_as": "not-run",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": null,
+   "duration_s": 0.01,
+   "output_file": "probes/015_gpu.topo_p2p_r.txt",
+   "status": "not-available",
+   "note": "not found: nvidia-smi"
+  },
+  {
+   "seq": 16,
+   "name": "pcie.sysfs_links",
+   "category": "pcie",
+   "command": "bash /synthetic/scripts/diag/probes_sysfs.sh pci-links",
+   "requires": [
+    "/sys/bus/pci/devices"
+   ],
+   "root_mode": "none",
+   "run_as": "user",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": 0,
+   "duration_s": 0.01,
+   "output_file": "probes/016_pcie.sysfs_links.txt",
+   "status": "ok",
+   "note": ""
+  },
+  {
+   "seq": 17,
+   "name": "storage.nvme_sysfs",
+   "category": "storage",
+   "command": "bash /synthetic/scripts/diag/probes_sysfs.sh nvme",
+   "requires": [
+    "/sys/class/nvme"
+   ],
+   "root_mode": "none",
+   "run_as": "not-run",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": null,
+   "duration_s": 0.01,
+   "output_file": "probes/017_storage.nvme_sysfs.txt",
+   "status": "not-available",
+   "note": "not found: /sys/class/nvme"
+  },
+  {
+   "seq": 18,
+   "name": "software.nvcc",
+   "category": "software",
+   "command": "nvcc --version",
+   "requires": [
+    "nvcc"
+   ],
+   "root_mode": "none",
+   "run_as": "not-run",
+   "started_utc": "2026-01-01T00:00:00Z",
+   "exit_code": null,
+   "duration_s": 0.01,
+   "output_file": "probes/018_software.nvcc.txt",
+   "status": "not-available",
+   "note": "not found: nvcc"
+  }
+ ]
+}

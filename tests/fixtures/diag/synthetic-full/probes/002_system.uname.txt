@@ -1,0 +1,18 @@
+===== PROBE =====
+name: system.uname
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: uname
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+uname -a
+===== STDOUT =====
+Linux synthetic-host 6.8.12-4-pve #1 SMP PREEMPT_DYNAMIC PMX x86_64 GNU/Linux
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

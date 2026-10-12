@@ -64,9 +64,16 @@ def select_cells(scores, top_k, kpool=4):
     return out
 
 
-def mla_attention(q_abs, latent, cells, wv_b, k_mla):
-    """q_abs (T, H, L); latent (S, L); wv_b (H, v, L). Returns (T, H * v)."""
+def mla_attention(q_abs, latent, cells, wv_b, k_mla, modes=None):
+    """q_abs (T, H, L); latent (S, L); wv_b (H, v, L). Returns (T, H * v).
+    modes: None = float64 softmax; else the ref/fattn.py attention mode of every query row (an f16 latent cache,
+    flash attention): the latent is the key and the value (one kv head), then W_v_b per head."""
     T, H, _ = q_abs.shape
+    if modes is not None:
+        from ref.fattn import attend_rows
+        lat = np.asarray(latent, dtype=np.float64)[:, None, :]
+        ctx = attend_rows(q_abs, lat, lat, cells, 1.0 / np.sqrt(k_mla), modes)       # (T, H, L)
+        return np.einsum("hvl,thl->thv", np.asarray(wv_b, dtype=np.float64), ctx).reshape(T, -1)
     out = np.empty((T, H * wv_b.shape[1]))
     for t in range(T):
         kv = latent[cells[t]]

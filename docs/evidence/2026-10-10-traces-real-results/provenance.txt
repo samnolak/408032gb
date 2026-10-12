@@ -1,0 +1,26 @@
+$ gh run view 38079738013 --repo samnolak/408032gb --json status,conclusion,headSha,createdAt,updatedAt,jobs
+{'status': 'completed', 'conclusion': 'success', 'headSha': '7a0bf02aa53a3f8906580613eb29406574ccd9f9', 'createdAt': '2026-10-10T19:25:26Z', 'updatedAt': '2026-10-10T23:53:20Z'}
+job 114293998620 traces success 2026-10-10T19:25:30Z 2026-10-10T23:53:19Z
+  step  1 Set up job                                                                                      success 2026-10-10T19:25:30Z 2026-10-10T19:25:31Z
+  step  2 Run actions/checkout@v4                                                                         success 2026-10-10T19:25:31Z 2026-10-10T19:25:32Z
+  step  3 free disk for one ~19 GB model at a time                                                        success 2026-10-10T19:25:32Z 2026-10-10T19:27:08Z
+  step  4 deps                                                                                            success 2026-10-10T19:27:08Z 2026-10-10T19:27:15Z
+  step  5 llama.cpp at the REQUEST.json pin                                                               success 2026-10-10T19:27:15Z 2026-10-10T19:27:18Z
+  step  6 build tools/g0 (trace, probe) and llama-server for this CPU                                     success 2026-10-10T19:27:18Z 2026-10-10T19:33:23Z
+  step  7 smoke - the same tools on a tiny qwen3moe before any download (scripts/traces/smoke_tiny.sh)    success 2026-10-10T19:33:23Z 2026-10-10T19:33:24Z
+  step  8 traces, probes, predictors and cache policies per model                                         success 2026-10-10T19:33:24Z 2026-10-10T23:53:13Z
+  step  9 commit and push the results to this branch                                                      success 2026-10-10T23:53:13Z 2026-10-10T23:53:17Z
+  step 18 Post Run actions/checkout@v4                                                                    success 2026-10-10T23:53:17Z 2026-10-10T23:53:18Z
+  step 19 Complete job                                                                                    success 2026-10-10T23:53:18Z 2026-10-10T23:53:18Z
+(JSON printed through a python formatter: run fields and every step; nothing else cut)
+
+$ git rev-parse 0914244 0914244^
+091424485311dec9faed34a3f6d946ab49e5b9aa
+506c14c68de3e7b7bd6b52f34ecfd3775becf30d
+$ git log --oneline -1 7a0bf02 && git merge-base --is-ancestor 7a0bf02 0914244 && echo ancestor
+7a0bf02 [parity-qa] tiny qwen3moe GGUF and scripts/traces/smoke_tiny.sh (ci and traces-real); evidence of the trace fix
+ancestor
+$ git diff --stat 7a0bf02 0914244^ -- tools/g0 scripts/traces data/traces/real/REQUEST.json .github/workflows/traces-real.yml
+ .github/workflows/traces-real.yml | 37 ++++++++++++++++++++++---------------
+ scripts/traces/smoke_tiny.sh      |  5 ++++-
+ 2 files changed, 26 insertions(+), 16 deletions(-)

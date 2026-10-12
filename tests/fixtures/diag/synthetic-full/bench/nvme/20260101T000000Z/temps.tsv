@@ -1,0 +1,3 @@
+utc	label	controller	source	temp_c
+2026-01-01T00:00:00Z	solo-d0-rr4k_qd1 before	nvme0	sysfs_hwmon	41.9
+2026-01-01T00:00:35Z	solo-d0-rr4k_qd1 after	nvme0	sysfs_hwmon	74.0

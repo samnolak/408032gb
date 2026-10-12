@@ -1,0 +1,173 @@
+{
+ "request_path": "data/gguf-headers/glm-5.3-flash-ggml-org-q4_k/REQUEST.json",
+ "request_sha256": "ba833a5150c208802c85a8a5dee80f166ff09f216edec038d08449618b827258",
+ "request": {
+  "_doc": "N18 (c): the glm5-next GGUF of ggml-org for llama.cpp mainline, Q4_K (2 shards: metadata-only 00001 of 9429952 B, tensors 00002 of 181363033792 B), at the revision of the N15 listing (third_party/gguf-headers/discover-glm-mimo/LISTING.json:860-861: ggml-org/GLM-5.3-Flash-GGUF @c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa; its hub-parsed total of 313326811966 params is 7432592416 below the unsloth file's, PROVISIONAL: the NextN block, which this repo ships separately). Headers only, by Range reads (scripts/gguf_headers_fetch.py). docs/reassessment/CORRECTNESS.md gap 9.",
+  "repo": "ggml-org/GLM-5.3-Flash-GGUF",
+  "revision": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+  "files": [
+   "GLM-5.3-Flash-Q4_K-0000?-of-00002.gguf"
+  ],
+  "expect_count": 2,
+  "max_header_bytes": 33554432,
+  "initial_bytes": 262144,
+  "analysis": {
+   "graph": "glm5-next",
+   "tiny": "glm5next",
+   "hf_chat_template": "third_party/hf/glm-5.3-flash-chat/chat_template.jinja",
+   "hf_config": "third_party/hf/glm-5.3-flash-chat/config.json"
+  },
+  "kind": "headers"
+ },
+ "repo": "ggml-org/GLM-5.3-Flash-GGUF",
+ "requested_revision": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+ "max_header_bytes": 33554432,
+ "initial_bytes": 262144,
+ "endpoint": "https://huggingface.co",
+ "tool": "scripts/gguf_headers_fetch.py",
+ "workflow_sha": "8c0b42453ec58d19973a305e6294384f28a0c8bd",
+ "fetched_utc": "2026-10-11T14:03:51Z",
+ "revision": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+ "gated": false,
+ "license_tags": [
+  "license:other"
+ ],
+ "gguf_listing": [
+  {
+   "path": "GLM-5.3-Flash-Q2_K-00001-of-00002.gguf",
+   "size": 9430240,
+   "lfs_sha256": "f334b5b84890a5c2ff7081c99ebe31aa7815250936bc5d96d19e31eab04da831"
+  },
+  {
+   "path": "GLM-5.3-Flash-Q2_K-00002-of-00002.gguf",
+   "size": 133799626432,
+   "lfs_sha256": "1527038a649a11d74a5cfb9f66d5a23f8f5be587929124253233bff81bea3747"
+  },
+  {
+   "path": "GLM-5.3-Flash-Q2_K_S-00001-of-00002.gguf",
+   "size": 9430240,
+   "lfs_sha256": "f334b5b84890a5c2ff7081c99ebe31aa7815250936bc5d96d19e31eab04da831"
+  },
+  {
+   "path": "GLM-5.3-Flash-Q2_K_S-00002-of-00002.gguf",
+   "size": 110017922752,
+   "lfs_sha256": "61ed849acb67dc7832eda82e9fad0f0257edcd20ced1fc7640e5e329ed6951b4"
+  },
+  {
+   "path": "GLM-5.3-Flash-Q4_K-00001-of-00002.gguf",
+   "size": 9429952,
+   "lfs_sha256": "7d658490f34f56ac9eb3b46ceb4778599ec39f4e1a77c63e456a1240efc64ed3"
+  },
+  {
+   "path": "GLM-5.3-Flash-Q4_K-00002-of-00002.gguf",
+   "size": 181363033792,
+   "lfs_sha256": "27636dd16f76d39aa95db1de081cf458f705f1c78f8f1010b2fac3edc416c116"
+  },
+  {
+   "path": "mmproj-GLM-5.3-Flash-Q8_0.gguf",
+   "size": 652829376,
+   "lfs_sha256": "b15ac9937afb0f6f89f0619edad57439dea658101b65e68cbcb63abec3700d73"
+  },
+  {
+   "path": "mtp-GLM-5.3-Flash-Q4_0.gguf",
+   "size": 4947287104,
+   "lfs_sha256": "7a36bad56b6b11542f898d660821a82a580eb6d319c0380566fb737e3bb2ad78"
+  },
+  {
+   "path": "mtp-GLM-5.3-Flash-Q8_0.gguf",
+   "size": 9284197440,
+   "lfs_sha256": "17a89535ce31a2e6aebbf50eb44ba850ec0e8263805d97004c85ac3ab06c636f"
+  }
+ ],
+ "status": "ok",
+ "files": [
+  {
+   "path": "GLM-5.3-Flash-Q4_K-00001-of-00002.gguf",
+   "size": 9429952,
+   "lfs_sha256": "7d658490f34f56ac9eb3b46ceb4778599ec39f4e1a77c63e456a1240efc64ed3",
+   "lfs_size": 9429952,
+   "git_oid": "c93321d48c44e8f8ab4eea86b3bfddeee74fabf9",
+   "xet_hash": "9258938a275d61b2d607ef22e92f7a131651429999b6d75ce8bef7e0e142347f",
+   "header_bytes": 9429951,
+   "header_sha256": "c845390f795b286f49f490291cc5ae98ad0963e5f59bf8fd819ed1eb3fbccc64",
+   "header_gz": "GLM-5.3-Flash-Q4_K-00001-of-00002.gguf.header.gz",
+   "header_gz_bytes": 2486966,
+   "header_gz_sha256": "c00654e3e9aaff728b9eda01e149b373309780505348fd285c0072c98b215e68",
+   "summary": "GLM-5.3-Flash-Q4_K-00001-of-00002.gguf.summary.json",
+   "bytes_fetched": 9429952,
+   "range_requests": [
+    [
+     0,
+     262143
+    ],
+    [
+     262144,
+     524287
+    ],
+    [
+     524288,
+     1048575
+    ],
+    [
+     1048576,
+     2097151
+    ],
+    [
+     2097152,
+     4194303
+    ],
+    [
+     4194304,
+     8388607
+    ],
+    [
+     8388608,
+     9429951
+    ]
+   ],
+   "resolve_redirect": {
+    "x_linked_etag": "7d658490f34f56ac9eb3b46ceb4778599ec39f4e1a77c63e456a1240efc64ed3",
+    "x_repo_commit": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+    "x_linked_size": "9429952",
+    "hops": 1
+   },
+   "etag_matches_lfs_sha256": true,
+   "repo_commit_matches": true,
+   "tensor_offsets": "contiguous",
+   "size_check": "exact (no tensors: the writer's padding after the KV block)"
+  },
+  {
+   "path": "GLM-5.3-Flash-Q4_K-00002-of-00002.gguf",
+   "size": 181363033792,
+   "lfs_sha256": "27636dd16f76d39aa95db1de081cf458f705f1c78f8f1010b2fac3edc416c116",
+   "lfs_size": 181363033792,
+   "git_oid": "df827bdc6fff91c3c2f8b50fdbbe8e65b6a51f2f",
+   "xet_hash": "9094009427cc330c42e3df5042d1ef7c5708f4cbb1cf2f84106de01d8c8c7bf5",
+   "header_bytes": 86720,
+   "header_sha256": "afcd96c0576ab0116fc05c35563344dd7ebd6f65063ef20e5375942235c4de3f",
+   "header_gz": "GLM-5.3-Flash-Q4_K-00002-of-00002.gguf.header.gz",
+   "header_gz_bytes": 11512,
+   "header_gz_sha256": "29e03ba5e318faca65367d9246bbcf4996d7a19bd8ec9d964622038dbfb00d50",
+   "summary": "GLM-5.3-Flash-Q4_K-00002-of-00002.gguf.summary.json",
+   "bytes_fetched": 262144,
+   "range_requests": [
+    [
+     0,
+     262143
+    ]
+   ],
+   "resolve_redirect": {
+    "x_linked_etag": "27636dd16f76d39aa95db1de081cf458f705f1c78f8f1010b2fac3edc416c116",
+    "x_repo_commit": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+    "x_linked_size": "181363033792",
+    "hops": 1
+   },
+   "etag_matches_lfs_sha256": true,
+   "repo_commit_matches": true,
+   "tensor_offsets": "contiguous",
+   "size_check": "exact"
+  }
+ ],
+ "bytes_fetched": 9692096,
+ "committed_bytes": 2498478
+}

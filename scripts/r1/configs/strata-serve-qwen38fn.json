@@ -1,0 +1,118 @@
+{
+  "_label": "PROVISIONAL template, NOT RUN. Strata upstream serve (Niko1221/Strata, pin fb58e0d / v0.1.41, docs/reassessment/research/R2-engines.md:61) on Qwen3.8-Flash-Next UD-Q4_K_XL split over 4 GPUs, per docs/reassessment/BRINGUP-qwen38fn.md step 4: the server JSON and the launch line are Strata docs/UNSLOTH_Q4.md:107-136 @fb58e0d (read by perf-bench from a sparse clone whose main ref is fb58e0d) with BRINGUP's changes: \"gpu\": [0,1,2,3] and \"layer_split\": \"auto\" (UNSLOTH_Q4.md:31-37), NO --resident-budget-gib (the split refuses it), --spec 4 --mtp mtp/rt, --max-context = CTX. Every Strata statement is REPORTED by its docs, not measured here. Whether serve.server --help lists --engine/--config/--port, whether /health exists (this template polls /v1/models) and whether the API returns usage/SSE as tools/bench expects are UNKNOWN (BENCH_PROTOCOL.md section 6): check on the server.",
+  "_notes": {
+    "safety_rules": "scripts/r1/safety_rules.py checks this file before any step (run_r1.py refuses a violating config, exit 2); the rules are section (v) of docs/reassessment/PHASE-CLOSE-2026-10-11.md, accepted by the owner, applied as configuration guards only (no upstream patch in the R1 build). The llama-server rules (1, 2, 4) do not apply to this engine argv; rule 5 (no speculation for MiMo) would. Rule 3: clients never send \"reasoning_content\": null; tools/gateway/gateway.py drops it. Rule 7 (our own engine, not llama-server; PROVISIONAL from code, N16, N19-N21): roll back r tokens only when the last call fed the sequence >= r + 1 tokens (assert); seq_cp only after the source is decoded; handle false from seq_rm by restoring a checkpoint; for MiMo the rollback depth is <= C - n_swa + 1; place the MTP call once for all heads. Rule 8: weights_verify must pass before the engine starts (model.weights_manifest). Rule 11: do not change reasoning_effort inside a session (full re-processing, N14); where reasoning is not needed use enable_thinking false.",
+    "experiment": "B0 (docs/reassessment/EXPERIMENTS.md): Strata upstream on Qwen3.8-Flash-Next UD-Q4_K_XL; KV f16 here (ADR-012 D5); the int8 KV comparison run is a copy of this file with \"--kv\", \"int8\" added to the engine args (UNSLOTH_Q4.md:156)",
+    "STRATA_DIR": "the Strata checkout at the pin (serve/ and tools/ run from it; build_engine.py --src-root /srv/llm/engines-src gives /srv/llm/engines-src/strata, current-strata points there); the packs/, data/ and mtp/rt paths are relative to it; engine_build_check requires its git HEAD to be the pin",
+    "STRATA_BUILD": "the sm_89 build of scripts/engines/build_engine.py --engine strata (/srv/llm/engines-build/strata); its strata binary replaces upstream's self-built build/strata (UNSLOTH_Q4.md:138) in the server JSON. the commit is engine.pin = tools/engines/pins.json[strata] (fb58e0dbc, ggml 3cf03257f); step engine_build_check compares ${STRATA_BUILD}/build-info.json with the pin (sha, sm_89 cubins, sha256 of every built file) and does not start the engine on a mismatch. Build: python3 scripts/engines/build_engine.py --engine strata --arch 89 --src-root /srv/llm/engines-src --build-root /srv/llm/engines-build",
+    "STRATA_PACK": "the pack built by BRINGUP step 3: tools/iq_pack.py --gguf <shard 1> --out packs/ud-q4_k_xl --compat-bf16",
+    "RAM": "the split loads all 77 GB of experts into RAM (UNSLOTH_Q4.md:31-37); setup recommends ~135 GB, the server has 128 GB (BRINGUP, E9): watch free -g / MemAvailable (after_ready below)",
+    "CTX": "262144 = native window (BRINGUP 'Окно контекста', reading (a)); prompt + output <= CTX through --length-mode total",
+    "mode": "PROVISIONAL: hit 1.0 (all experts resident, ROOFLINE.md table 2), overlap yes (Strata overlaps CPU and GPU expert work), spec_k 4 as --spec 4, spec_accept 0.55 (ROOFLINE.md section 3: REPORTED Strata 52.8-59.9%); the measured acceptance replaces it after the run",
+    "bpw": "experts 5.10 / dense 10 (PROVISIONAL, ROOFLINE.md table 2); the pack converts 195 Q8_0 projections to BF16 (UNSLOTH_Q4.md:84-87)",
+    "supports_slots": "false: saving state to NVMe is UNKNOWN for Strata (BRINGUP-qwen38fn.md; DEPLOY.md 2b); RAM checkpoints exist but are not the /slots API",
+    "version": "git rev-parse HEAD of STRATA_DIR (the engine's own version flag is UNKNOWN here); engine_build_check compares it with the pin before the start"
+  },
+  "name": "strata-qwen38fn",
+  "vars": {
+    "STRATA_DIR": "/srv/llm/engines/current-strata",
+    "STRATA_BUILD": "/srv/llm/engines/current-strata-build",
+    "STRATA_PY": "${STRATA_DIR}/.venv/bin/python",
+    "STRATA_PACK": "${STRATA_DIR}/packs/ud-q4_k_xl",
+    "WEIGHTS_DIR": "/srv/llm/models/qwen3.8-flash-next/38bb39ee97821de2c9009abb7e93950eec396e66",
+    "CTX": "262144",
+    "SPEC_K": "4",
+    "SPEC_ACCEPT": "0.55",
+    "HEALTH_TIMEOUT_S": "3600",
+    "EXPERT_BPW": "5.10",
+    "DENSE_BPW": "10",
+    "HIT": "1.0",
+    "EXTRA_BODY": "{}",
+    "REFERENCE_URL": "",
+    "CORPUS": ""
+  },
+  "engine": {
+    "name": "Strata serve (Niko1221/Strata upstream)",
+    "pin": "strata",
+    "build_info": "${STRATA_BUILD}/build-info.json",
+    "binary": "${STRATA_BUILD}/strata",
+    "source_dir": "${STRATA_DIR}",
+    "argv": ["${STRATA_PY}", "-m", "serve.server", "--engine", "strata",
+             "--config", "${ENGINE_DIR}/strata-ud-q4_k_xl.json", "--port", "${PORT}"],
+    "cwd": "${STRATA_DIR}",
+    "config_files": {
+      "strata-ud-q4_k_xl.json": {
+        "exe": "${STRATA_BUILD}/strata",
+        "args": ["--pack", "${STRATA_PACK}", "--native", "${MODEL}",
+                 "--expert-profile", "data/expert-profile.bin", "--expert-cache", "auto",
+                 "--prefill", "auto", "--spec", "${SPEC_K}", "--spec-min-p", "0.5",
+                 "--mtp", "mtp/rt", "--max-context", "${CTX}"],
+        "cwd": "${STRATA_DIR}",
+        "tokenizer": "${STRATA_PACK}/tokenizer",
+        "model_name": "qwen3.8-flash-next-ud-q4_k_xl",
+        "log": "${ENGINE_DIR}/strata-ud-q4_k_xl.log",
+        "host": "${HOST}",
+        "port": "${PORT}",
+        "gpu": [0, 1, 2, 3],
+        "layer_split": "auto"
+      }
+    },
+    "version_argv": ["git", "-C", "${STRATA_DIR}", "rev-parse", "HEAD"],
+    "help_argv": ["${STRATA_PY}", "-m", "serve.server", "--help"],
+    "help_ignore": ["-m"],
+    "env": {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
+    "health": {"url": "http://${HOST}:${PORT}/v1/models", "timeout_s": "${HEALTH_TIMEOUT_S}", "interval_s": 5,
+               "expect_status": 200},
+    "after_ready": [["free", "-g"], ["${NVIDIA_SMI}", "--query-gpu=index,memory.used,memory.total", "--format=csv"]],
+    "stop": {"timeout_s": 60},
+    "supports_slots": false
+  },
+  "model": {
+    "desc": "Qwen3.8-Flash-Next UD-Q4_K_XL (unsloth/Qwen3.8-Flash-Next-GGUF @38bb39ee97821de2c9009abb7e93950eec396e66, 4 files; Strata pack --compat-bf16)",
+    "files": ["${WEIGHTS_DIR}/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+              "${WEIGHTS_DIR}/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf",
+              "${WEIGHTS_DIR}/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf",
+              "${WEIGHTS_DIR}/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf"],
+    "weights_manifest": "models/weights/qwen3.8-flash-next-UD-Q4_K_XL.manifest.json",
+    "weights_dest": "${WEIGHTS_DIR}"
+  },
+  "roofline": {
+    "spec": "models/specs/qwen3.8-flash-next.json",
+    "hw": "hardware/target-4x4080-32g.unverified.json",
+    "expert_bpw": "${EXPERT_BPW}",
+    "dense_bpw": "${DENSE_BPW}",
+    "kv_bytes": 2.0
+  },
+  "mode": {"overlap": "yes", "strategy": "pp", "miss": "cpu", "hit": "${HIT}", "spec_k": "${SPEC_K}",
+           "spec_accept": "${SPEC_ACCEPT}"},
+  "reference": {"url": "${REFERENCE_URL}"},
+  "steps": {
+    "matrix": {"runs": [
+      {"name": "smoke-2k",
+       "args": ["--inputs", "2048", "--outputs", "128", "--states", "cold,warm", "--concurrency", "1", "--repeats", "1",
+                "--scenarios", "matrix", "--seed", "0", "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-2k",
+       "args": ["--inputs", "2048", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-32k",
+       "args": ["--inputs", "32768", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-128k",
+       "args": ["--inputs", "131072", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "filled-262k",
+       "args": ["--inputs", "262144", "--length-mode", "total", "--outputs", "512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix,agent", "--agent-target-tokens",
+                "131072", "--seed", "0", "--extra-body", "${EXTRA_BODY}"]}
+    ]},
+    "probes": {"runs": [
+      {"name": "32k-128k-262k",
+       "args": ["--contexts", "32768,131072,262144", "--length-mode", "total", "--answer-tokens", "1024", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]}
+    ]},
+    "logprob_compare": {"corpus": ["${CORPUS}"], "args": ["--prefixes", "200", "--top-k", "20"]}
+  }
+}

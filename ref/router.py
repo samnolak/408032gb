@@ -48,3 +48,19 @@ def moe_forward(x, logits, bias, w_gate, w_up, w_down, k, limit=10.0, w_scale=2.
             h = swiglu_clamp(w_gate[e] @ x[t], w_up[e] @ x[t], limit)
             out[t] += w[t, j] * (w_down[e] @ h)
     return out, ids, w
+
+
+def moe_tie_variant(sel_row, ids, k, rtol):
+    """Whether the expert set `ids` is a valid top-k of one token's selection scores sel_row (route(): probs + bias)
+    up to rtol: k distinct experts, none of them below a left-out expert by more than rtol * max(1, |left-out score|)
+    (the order among (near-)equal scores is the arg-sort's, unspecified for exact ties). Returns (ok, reason)."""
+    sel_row = np.asarray(sel_row, dtype=np.float64)
+    ids = sorted(int(e) for e in ids)
+    if len(set(ids)) != k:
+        return False, "not k distinct experts"
+    left = sorted(set(range(sel_row.shape[0])) - set(ids))
+    if left:
+        edge = sel_row[left].max()
+        if sel_row[ids].min() < edge - rtol * max(1.0, abs(edge)):
+            return False, "not a top-k"
+    return True, ""

@@ -1,0 +1,59 @@
+# Fetches small text files (chat templates, tokenizer configs - never weights) of Hugging Face repos for the
+# data/hf-requests/*/REQUEST.json files (written by agents: scripts/hooks/guard-upstream.sh keeps third_party/ read-only
+# for them) and the older third_party/hf/*/REQUEST.json ones that have no PIN.json yet, and commits them byte-exact to
+# third_party/hf/<name>/ on the claude/* branch that triggered the run (scripts/vendor_hf_new.py). vendor-hf.yml (main)
+# vendors only third_party/hf/*/REQUEST.json and pushes to main; this one never touches main (AGENTS.md "Git and sync":
+# agents publish only claude/* branches). The agent sandbox cannot reach huggingface.co.
+# N23: a request may also pin LFS tokenizer files ("lfs_files"): downloaded, sha256-checked against the LFS oid and
+# recorded in PIN.json, never committed (scripts/vendor_hf_files.py, scripts/hf_lfs_fetch.py).
+name: vendor-hf-branch
+on:
+  workflow_dispatch:
+  push:
+    branches: ['claude/**']
+    paths: ['data/hf-requests/*/REQUEST.json', 'third_party/hf/*/REQUEST.json']
+permissions:
+  contents: write
+concurrency:
+  group: vendor-hf-branch-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  vendor:
+    if: startsWith(github.ref_name, 'claude/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: fetch the pending requests from Hugging Face, verify git blob ids
+        run: python3 scripts/vendor_hf_new.py
+      - name: commit and push to this claude/* branch
+        # the branch name reaches the script through the environment, never expanded into the script text
+        env:
+          REF: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add third_party/hf
+          if git diff --cached --quiet; then echo "::notice::nothing to commit"; exit 0; fi
+          git commit -q -m "[infra-ops] vendor: Hugging Face text files under third_party/hf for $REF (workflow vendor-hf-branch, run $RUN_ID)"
+          for i in 1 2 3; do
+            if git pull -q --rebase origin "$REF" && git push origin HEAD:"$REF"; then
+              echo "::notice::vendor commit $(git rev-parse HEAD)"; exit 0
+            fi
+            sleep 15
+          done
+          exit 1
+  # N23: the token-level checks on the branch as the vendor job left it (with the tokenizer pins it may just have
+  # committed: that push does not start workflows by itself, and a workflow that is not on main cannot be dispatched).
+  # Read-only; the called workflow only warns while the pins are missing.
+  token-level:
+    needs: vendor
+    if: startsWith(github.ref_name, 'claude/')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/token-level.yml
+    with:
+      ref: ${{ github.ref_name }}

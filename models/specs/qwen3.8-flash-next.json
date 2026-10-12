@@ -1,0 +1,59 @@
+{
+ "name": "Qwen3.8-Flash-Next",
+ "hf_repo": "Qwen/Qwen3.8-Flash-Next",
+ "spec_version": 2,
+ "n_layers": 48,
+ "hidden": 2560,
+ "vocab": null,
+ "moe": {
+  "layers": 48,
+  "mtp_layers": 0,
+  "n_experts": 512,
+  "top_k": 10,
+  "n_shared": 1,
+  "expert_ff": 640,
+  "expert_mats": 3
+ },
+ "dense_params": {
+  "non_routed_active": 3640704000.0,
+  "embedding": 600000000.0
+ },
+ "attention": [
+  {
+   "kind": "linear",
+   "layers": 36,
+   "state_bytes": 3145728,
+   "kv_heads": 48
+  },
+  {
+   "kind": "indexed",
+   "layers": 12,
+   "kv_elems_per_token": 1024,
+   "aux_bytes_per_token": 320,
+   "pool": 4,
+   "scan_bytes_per_entry": 256,
+   "selected_entries": 2051,
+   "kv_heads": 2
+  }
+ ],
+ "side_table": {
+  "name": "PLE n-gram",
+  "params_b": 51.2,
+  "gib_at_4.5bpw": 26.8,
+  "tier": "ram"
+ },
+ "native_context": 262144,
+ "_labels": {
+  "geometry": "CONFIRMED: Strata include/strata/core/layout.hpp @c499bd1 (docs/strata-map.md): n_embd 2560, 48 layers, QSA every 4th layer (12) + 36 GDN, GDN 48 v-heads, QSA 2 KV heads x 256, 512 experts x 640, top-10, shared expert",
+  "dense_params.non_routed_active": "PROVISIONAL: 6B active (vendor figure, REPORTED by research/R1-models.md and web search 2026-10-09) minus routed active 10 x 48 x 4.92M = 2.36B",
+  "dense_params.embedding": "PROVISIONAL placeholder (vocab not read here)",
+  "attention.indexed": "PROVISIONAL: indexer k-pool 4, top-k 2048, dim 128 (ADR-001 table, Strata qsa.hpp:95-112 @c499bd1); stored indexer bytes assumed like GLM's",
+  "side_table": "the 51.2B PLE n-gram table (Strata ngram.hpp; 29 GB shard at IQ4_NL) is served from RAM/SSD and not modelled per token here",
+  "native_context": "REPORTED: 262,144 native (vLLM recipe via research/R1-models.md; web search 2026-10-09)",
+  "draft": "PROVISIONAL: one MTP layer ~0.08B (2560-wide attention + shared expert) + lm_head (placeholder 0.6B, vocab not read) + top-10 of its experts"
+ },
+ "draft": {
+  "dense_params": 680000000.0,
+  "experts": 10
+ }
+}

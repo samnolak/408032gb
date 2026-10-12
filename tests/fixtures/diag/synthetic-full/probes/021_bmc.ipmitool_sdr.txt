@@ -1,0 +1,20 @@
+===== PROBE =====
+name: bmc.ipmitool_sdr
+started_utc: 2026-01-01T00:00:00Z
+root_mode: root
+run_as: root
+requires: ipmitool /dev/ipmi0|/dev/ipmi/0|/dev/ipmidev/0
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+ipmitool -I open sdr list
+===== STDOUT =====
+CPU Temp         | 45 degrees C      | ok
+FAN1             | 0 RPM             | cr
+PSU2 Status      | 0x00              | ns
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

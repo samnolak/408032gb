@@ -1,0 +1,15 @@
+{
+ "_doc": "N18 (c): the glm5-next GGUF of ggml-org for llama.cpp mainline, Q4_K (2 shards: metadata-only 00001 of 9429952 B, tensors 00002 of 181363033792 B), at the revision of the N15 listing (third_party/gguf-headers/discover-glm-mimo/LISTING.json:860-861: ggml-org/GLM-5.3-Flash-GGUF @c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa; its hub-parsed total of 313326811966 params is 7432592416 below the unsloth file's, PROVISIONAL: the NextN block, which this repo ships separately). Headers only, by Range reads (scripts/gguf_headers_fetch.py). docs/reassessment/CORRECTNESS.md gap 9.",
+ "repo": "ggml-org/GLM-5.3-Flash-GGUF",
+ "revision": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+ "files": ["GLM-5.3-Flash-Q4_K-0000?-of-00002.gguf"],
+ "expect_count": 2,
+ "max_header_bytes": 33554432,
+ "initial_bytes": 262144,
+ "analysis": {
+  "graph": "glm5-next",
+  "tiny": "glm5next",
+  "hf_chat_template": "third_party/hf/glm-5.3-flash-chat/chat_template.jinja",
+  "hf_config": "third_party/hf/glm-5.3-flash-chat/config.json"
+ }
+}

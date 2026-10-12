@@ -1,0 +1,101 @@
+{
+  "_label": "PROVISIONAL template, NOT RUN on the 4x4080 server. ik_llama.cpp llama-server, GLM-5.3-Flash UD-Q4_K_XL (architecture string glm5next, which ik_llama loads: docs/reassessment/research/R2-engines.md:137). Flags are those of the command that ran on the 3x3090 host (scripts/run-glm-3090-1gpu.sh:29-34; PROBLEMS.md:105, pp 166.8 / tg 15.0 tok/s on 1x3090 there, REPORTED), changed for 4 GPUs: -sm layer and -ts instead of -sm none, -t/--threads-batch for the 48-core EPYC 7H43, KV f16 (ADR-012 D5) instead of q8_0. ik_llama's -sm graph does not support glm5next (R2-engines.md:116). Check every flag against `llama-server --help` of the ik_llama build on the server (artifacts/engine/flags_check.json); N12 ran this pin's CPU build with a tiny glm5next GGUF (CONFIRMED there, docs/evidence/2026-10-11-n12-ik-glm5next-cpu.md on branch claude/n12-ik-glm5next-cpu; not re-run here): /tokenize gives llama.cpp's ids but ignores with_pieces; ignore_eos and n_predict work; /v1/completions logprobs use llama.cpp's layout (what logprob_compare reads), /completion n_probs the old one; on a CPU build -ngl/-sm/-ts are absent from --help and -ts fails with one device (irrelevant on the GPU server). --help prints the usage to stdout and exits 1 (common/common.cpp:2716-2719 and 1016-1019, examples/server/server.cpp:480-482 @5194a9e, read here), hence help_ok_codes [0, 1]. For B1: ik does not compute the same function as llama.cpp's glm5-next (SwiGLU clamp after vs before SiLU, DSA tail slots padded with cell 0, indexer LayerNorm eps, expert_group_count not read for glm5next; N12), so differences between the two engines are expected even with correct kernels.",
+  "_notes": {
+    "safety_rules": "scripts/r1/safety_rules.py checks this file before any step (run_r1.py refuses a violating config, exit 2); the rules are section (v) of docs/reassessment/PHASE-CLOSE-2026-10-11.md, accepted by the owner, applied as configuration guards only (no upstream patch in the R1 build). Rule 1: --parallel 1 stays explicit (ik's own default is 1, common/common.h:323@5194a9e; the rule asks for it written out); no speculation in this template. Rule 2: --chat-template-file ${REPO}/templates/glm-5.3-flash/chat_template.jinja (ik supports the flag: common/common.cpp:2935 and :3454@5194a9e; N26a started this pin's CPU build with it and the template rendered without the reasoning leak, docs/evidence/2026-10-12-n26a-r1-safety-rules.md); model.chat_template_sha256 is checked and recorded. Rule 3: clients never send \"reasoning_content\": null; tools/gateway/gateway.py drops it. Rule 6: if slots are enabled later, restore only through tools/kv/session_store.py. Rule 8: no manifest yet, so model.weights_unverified_reason marks every run UNVERIFIED; a GGUF from the epyc-ai host only after tools/hostcheck/glm_gguf_check.sh. Rule 9: ik_llama.cpp is NOT a parity reference for GLM: differences from llama.cpp are expected even with correct kernels (6 differences, N12); until the SwiGLU experiment the default semantics is clamp BEFORE SiLU (PROVISIONAL, N24), which ik does not compute.",
+    "experiment": "B1 row 'ik_llama.cpp, the same GGUF' (docs/reassessment/EXPERIMENTS.md); ik_llama pin 5194a9e (R2-engines.md:66)",
+    "IK_BIN": "bin/ of the ik_llama.cpp build of scripts/engines/build_engine.py (/srv/llm/engines/current-ik_llama -> /srv/llm/engines-build/ik_llama.cpp); the commit is engine.pin = tools/engines/pins.json[ik_llama.cpp] (5194a9e14); step engine_build_check compares ${IK_BIN}/../build-info.json with the pin (sha, sm_89 cubins, sha256 of every built file) and does not start the engine on a mismatch. Build: python3 scripts/engines/build_engine.py --engine ik_llama.cpp --arch 89 --src-root /srv/llm/engines-src --build-root /srv/llm/engines-build",
+    "WEIGHTS_DIR": "the UD-Q4_K_XL files: 6 shards, 185.983 GiB on the 3090 host (AGENTS.md); the choice of weights for the 4x4080 server is open (ADR-005/ADR-009), the HF revision and manifest are UNKNOWN here, so weights_verify is skipped until model.weights_manifest is set",
+    "NCMOE": "PROVISIONAL: 17 of 42 MoE layers on the CPU, from the uniform-routing placement of tools/roofline.py (UD-Q4_K_XL, experts 4.89 bpw: resident 60.7% at 262144 tokens); tune on the server (the 3090 host used 39 of 42 with one 24 GB card)",
+    "HIT": "PROVISIONAL: (42 - NCMOE) / 42 = 0.595 with uniform routing; keep it equal to the placement when NCMOE changes",
+    "bpw": "experts 4.89 / dense 8.04 (PROVISIONAL, docs/reassessment/ROOFLINE.md table 2 for GLM UD-Q4_K_XL); replace with this run's quant_audit.json",
+    "mode": "overlap no (as llama.cpp: tools/roofline.py decode() docstring), miss cpu (-ncmoe: the CPU computes its layers' experts)",
+    "THREADS": "PROVISIONAL: 48 physical cores of the EPYC 7H43 (AGENTS.md); the 3090 host used -t 96 --threads-batch 90 on its own CPU",
+    "supports_slots": "false: on the CPU build /slots save and restore work once --slot-save-path is given, and restoring the save of an EMPTY slot crashes the server (GGML_ASSERT src/llama.cpp:11739 @5194a9e; N12, reproduced twice there); slot_persist saves only after a completion. Add --slot-save-path ${SLOT_DIR} and set true after a check on the GPU build",
+    "INDEXER_KV_TYPE": "the DSA indexer K-cache has its own type (-ictk, default f16 whatever -ctk is: common/common.h:495, common/common.cpp:2035-2037 @5194a9e); set it with KV_TYPE when K2 is meant to cover the indexer cache"
+  },
+  "name": "ik-llamacpp-glm53f",
+  "vars": {
+    "IK_BIN": "/srv/llm/engines/current-ik_llama/bin",
+    "WEIGHTS_DIR": "/srv/llm/models/glm-5.3-flash/REVISION-UNKNOWN",
+    "CTX": "262144",
+    "TENSOR_SPLIT": "1,1,1,1",
+    "KV_TYPE": "f16",
+    "INDEXER_KV_TYPE": "f16",
+    "NCMOE": "17",
+    "THREADS": "48",
+    "THREADS_BATCH": "48",
+    "HEALTH_TIMEOUT_S": "3600",
+    "EXPERT_BPW": "4.89",
+    "DENSE_BPW": "8.04",
+    "HIT": "0.595",
+    "EXTRA_BODY": "{}",
+    "REFERENCE_URL": "",
+    "CORPUS": ""
+  },
+  "engine": {
+    "name": "ik_llama.cpp llama-server",
+    "pin": "ik_llama.cpp",
+    "build_info": "${IK_BIN}/../build-info.json",
+    "argv": ["${IK_BIN}/llama-server", "-m", "${MODEL}", "--host", "${HOST}", "--port", "${PORT}",
+             "--ctx-size", "${CTX}", "--parallel", "1", "--jinja",
+             "--chat-template-file", "${REPO}/templates/glm-5.3-flash/chat_template.jinja", "-ngl", "999", "-sm", "layer", "-ts", "${TENSOR_SPLIT}",
+             "-ncmoe", "${NCMOE}", "-fa", "on", "--dsa", "-ctk", "${KV_TYPE}", "-ctv", "${KV_TYPE}", "-ictk", "${INDEXER_KV_TYPE}",
+             "-t", "${THREADS}", "--threads-batch", "${THREADS_BATCH}", "-b", "2048", "-ub", "1024", "-muge"],
+    "version_argv": ["${IK_BIN}/llama-server", "--version"],
+    "help_argv": ["${IK_BIN}/llama-server", "--help"],
+    "help_ok_codes": [0, 1],
+    "env": {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
+    "health": {"url": "http://${HOST}:${PORT}/health", "timeout_s": "${HEALTH_TIMEOUT_S}", "interval_s": 5,
+               "expect_status": 200},
+    "after_ready": [["free", "-g"], ["${NVIDIA_SMI}", "--query-gpu=index,memory.used,memory.total", "--format=csv"]],
+    "stop": {"timeout_s": 60},
+    "supports_slots": false
+  },
+  "model": {
+    "desc": "GLM-5.3-Flash UD-Q4_K_XL (Unsloth GGUF, 6 shards, architecture glm5next; HF revision UNKNOWN)",
+    "files": ["${WEIGHTS_DIR}/UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00001-of-00006.gguf"],
+    "weights_manifest": null,
+    "weights_unverified_reason": "R1 safety rule 8: the weights for the 4x4080 server are not chosen (ADR-005/ADR-009) and no sha256 manifest exists for them; every run of this template is UNVERIFIED (weights_verify skipped, V2 NOT RUN) until model.weights_manifest is set and this reason is removed",
+    "weights_dest": "${WEIGHTS_DIR}",
+    "chat_template_sha256": "5d47ac8e48510b5c6543db4000ef145201823bf46bae9cf51ac6a9553a16ef5a"
+  },
+  "roofline": {
+    "spec": "models/specs/glm-5.3-flash.json",
+    "hw": "hardware/target-4x4080-32g.unverified.json",
+    "expert_bpw": "${EXPERT_BPW}",
+    "dense_bpw": "${DENSE_BPW}",
+    "kv_bytes": 2.0
+  },
+  "mode": {"overlap": "no", "strategy": "pp", "miss": "cpu", "hit": "${HIT}", "spec_k": 0, "spec_accept": 0.0},
+  "reference": {"url": "${REFERENCE_URL}"},
+  "steps": {
+    "matrix": {"runs": [
+      {"name": "smoke-2k",
+       "args": ["--inputs", "2048", "--outputs", "128", "--states", "cold,warm", "--concurrency", "1", "--repeats", "1",
+                "--scenarios", "matrix", "--seed", "0", "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-2k",
+       "args": ["--inputs", "2048", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-32k",
+       "args": ["--inputs", "32768", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-128k",
+       "args": ["--inputs", "131072", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "filled-262k",
+       "args": ["--inputs", "262144", "--length-mode", "total", "--outputs", "512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix,agent", "--agent-target-tokens",
+                "131072", "--seed", "0", "--extra-body", "${EXTRA_BODY}"]}
+    ]},
+    "probes": {"runs": [
+      {"name": "32k-128k-262k",
+       "args": ["--contexts", "32768,131072,262144", "--length-mode", "total", "--answer-tokens", "1024", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]}
+    ]},
+    "slot_persist": {"prompt_tokens": 131072, "args": ["--gen", "64", "--repeats", "3"]},
+    "logprob_compare": {"corpus": ["${CORPUS}"], "args": ["--prefixes", "200", "--top-k", "20"]}
+  }
+}

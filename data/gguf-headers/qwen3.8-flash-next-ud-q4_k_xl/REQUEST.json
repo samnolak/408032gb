@@ -1,0 +1,15 @@
+{
+ "_doc": "Qwen3.8-Flash-Next UD-Q4_K_XL, the R1 llama.cpp weights (scripts/r1/configs/llamacpp-server.json:51-55: unsloth/Qwen3.8-Flash-Next-GGUF @38bb39ee97821de2c9009abb7e93950eec396e66, 4 files). Headers only, by Range reads (scripts/gguf_headers_fetch.py, results in third_party/gguf-headers/qwen3.8-flash-next-ud-q4_k_xl/); docs/reassessment/CORRECTNESS.md gap 9.",
+ "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+ "revision": "38bb39ee97821de2c9009abb7e93950eec396e66",
+ "files": ["*Qwen3.8-Flash-Next-UD-Q4_K_XL-0000?-of-00004.gguf"],
+ "expect_count": 4,
+ "max_header_bytes": 67108864,
+ "initial_bytes": 262144,
+ "analysis": {
+  "graph": "qwen4exp",
+  "tiny": "qwen4exp",
+  "hf_chat_template": "third_party/hf/qwen3.8-flash-next-chat/chat_template.jinja",
+  "hf_config": "third_party/hf/qwen3.8-flash-next-chat/config.json"
+ }
+}

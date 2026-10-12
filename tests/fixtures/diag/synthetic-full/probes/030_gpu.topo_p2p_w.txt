@@ -1,0 +1,32 @@
+===== PROBE =====
+name: gpu.topo_p2p_w
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: nvidia-smi
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+nvidia-smi topo -p2p w
+===== STDOUT =====
+ 	GPU0	GPU1	GPU2	GPU3
+ GPU0	X	OK	OK	OK
+ GPU1	OK	X	OK	OK
+ GPU2	OK	OK	X	NS
+ GPU3	OK	OK	OK	X
+
+Legend:
+
+  X    = Self
+  OK   = Status Ok
+  CNS  = Chipset not supported
+  GNS  = GPU not supported
+  TNS  = Topology not supported
+  NS   = Not supported
+  U    = Unknown
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

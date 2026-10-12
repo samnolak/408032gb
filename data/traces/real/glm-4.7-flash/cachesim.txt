@@ -1,0 +1,9 @@
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=4 prompt_readonly=True
+hit rate on gen tokens
+capacity      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+    0.10       0.225       0.366       0.386       0.185       0.282       0.587       0.331       0.337       0.617
+    0.25       0.407       0.635       0.535       0.366       0.588       0.817       0.618       0.618       0.831
+    0.50       0.661       0.867       0.736       0.609       0.830       0.945       0.843       0.839       0.956
+    0.75       0.892       0.958       0.910       0.847       0.954       0.985       0.900       0.898       0.989
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)

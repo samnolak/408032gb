@@ -1,0 +1,20 @@
+===== PROBE =====
+name: vram_check
+started_utc: 2026-01-01T00:00:00Z
+cwd: /synthetic
+===== COMMAND =====
+env CUDA_DEVICE_ORDER=PCI_BUS_ID /synthetic/gpu_vram_check --margin-mib 512
+===== STDOUT =====
+gpu_vram_check: devices 0 1 2 3, margin 512 MiB, chunk 1024 MiB, loops 1, seed 0x408032, patterns addr not_addr alt_5555 alt_aaaa rand not_rand
+RESULT	dev=0	bus=0000:01:00.0	name=SYNTHETIC GPU A	total_global_mem=34355544064	free_before=34000000000	allocated=33470545920	verified_bytes=200823275520	patterns=6	loops=1	mismatches=0	bad_bits=0x0000000000000000
+RESULT	dev=1	bus=0000:21:00.0	name=SYNTHETIC GPU A	total_global_mem=34355544064	free_before=34000000000	allocated=33470545920	verified_bytes=200823275520	patterns=6	loops=1	mismatches=0	bad_bits=0x0000000000000000
+MISMATCH	dev=2	pattern=addr	chunk=3	offset=0x10	addr=0x7f0000000010	expected=0x00007f0000000010	actual=0x00007f0000000011
+RESULT	dev=2	bus=0000:41:00.0	name=SYNTHETIC GPU A	total_global_mem=17171480576	free_before=17000000000	allocated=16642998272	verified_bytes=99857989632	patterns=6	loops=1	mismatches=3	bad_bits=0x0000000000000001
+RESULT	dev=3	bus=0000:61:00.0	name=SYNTHETIC GPU A	total_global_mem=34355544064	free_before=34000000000	allocated=33470545920	verified_bytes=200823275520	patterns=6	loops=1	mismatches=0	bad_bits=0x0000000000000000
+
+overall: MISMATCHES FOUND
+===== STDERR =====
+===== RESULT =====
+exit_code: 1
+duration_s: 300
+status: failed

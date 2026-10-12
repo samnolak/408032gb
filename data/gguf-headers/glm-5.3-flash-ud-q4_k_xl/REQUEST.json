@@ -1,0 +1,15 @@
+{
+ "_doc": "GLM-5.3-Flash UD-Q4_K_XL, the only real weights on the 3090 host (AGENTS.md: GLM-5.3-Flash-GGUF/UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-*-of-00006.gguf, 185.983 GiB, architecture glm5next). The repo id is UNKNOWN: the host path suggests unsloth/GLM-5.3-Flash-GGUF; a 401/403/404 is recorded as repo_unavailable and the discover-glm-mimo listing shows the candidates. Headers only, by Range reads (scripts/gguf_headers_fetch.py, results in third_party/gguf-headers/glm-5.3-flash-ud-q4_k_xl/); docs/reassessment/CORRECTNESS.md gap 9.",
+ "repo": "unsloth/GLM-5.3-Flash-GGUF",
+ "revision": "main",
+ "files": ["*GLM-5.3-Flash-UD-Q4_K_XL-0000?-of-00006.gguf"],
+ "expect_count": 6,
+ "max_header_bytes": 67108864,
+ "initial_bytes": 262144,
+ "analysis": {
+  "graph": "glm5-next",
+  "tiny": "glm5next",
+  "hf_chat_template": "third_party/hf/glm-5.3-flash-chat/chat_template.jinja",
+  "hf_config": "third_party/hf/glm-5.3-flash-chat/config.json"
+ }
+}

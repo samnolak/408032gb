@@ -1,0 +1,67 @@
+# Reads ONLY the GGUF headers (KV metadata + tensor infos, up to the aligned data offset) of Hugging Face GGUF files
+# with HTTP Range requests, for the data/gguf-headers/<name>/REQUEST.json files (written by agents) that have no
+# result yet, and commits the header bytes (gzip), a JSON summary per file and PIN.json to third_party/gguf-headers/
+# <name>/ (CI-fetched upstream bytes) on the claude/* branch that triggered the run (docs/reassessment/CORRECTNESS.md
+# gap 9). Never downloads a whole file: every file has a byte cap (64 MiB at most,
+# scripts/gguf_headers_fetch.py), a header that needs more is an error, and the --plan step fails before any download
+# when a request asks for more. Same branch guards as vendor-hf-branch.yml: this workflow never touches main
+# (AGENTS.md "Git and sync": agents publish only claude/* branches). The agent sandbox cannot reach huggingface.co.
+name: gguf-headers
+on:
+  workflow_dispatch:
+  push:
+    branches: ['claude/**']
+    paths: ['data/gguf-headers/*/REQUEST.json']
+permissions:
+  contents: write
+concurrency:
+  group: gguf-headers-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  headers:
+    if: startsWith(github.ref_name, 'claude/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: gguf-py of llama.cpp at the CI pin and numpy, PyYAML (for the self-test)
+        run: |
+          git init -q ../llama.cpp
+          git -C ../llama.cpp fetch -q --depth 1 https://github.com/ggml-org/llama.cpp ec7630a640789c393694fb194f1bbbf0369fc62d
+          git -C ../llama.cpp checkout -q FETCH_HEAD
+          pip install -q numpy pyyaml
+      - name: self-test of the fetcher against a local Range server (no network; fails on any skip but llama-tokenize's)
+        # the one allowed skip needs a llama.cpp build (LLAMA_TOKENIZE_BIN), which this job does not make
+        shell: bash
+        run: |
+          LLAMA_CPP_GGUF_PY=../llama.cpp/gguf-py python3 -m unittest tests.test_gguf_headers -v 2>&1 | tee t.log
+          skips=$(grep -E ' \.\.\. skipped ' t.log | grep -v '^test_llama_tokenize_runs_on_the_vocab_only_file ' || true)
+          if [ -n "$skips" ]; then echo "::error::self-test skipped tests: $skips"; exit 1; fi
+          rm -f t.log
+      - name: check the pending requests against the byte caps (fetches nothing; fails on a cap violation)
+        run: python3 scripts/gguf_headers_fetch.py --plan
+      - name: read the GGUF headers with Range requests
+        id: fetch
+        run: python3 scripts/gguf_headers_fetch.py
+      - name: commit and push to this claude/* branch
+        # runs after a failed fetch too, so that ERROR.json and the requests that did succeed reach the branch; the job
+        # stays failed. The branch name reaches the script through the environment, never expanded into the script text.
+        if: ${{ !cancelled() }}
+        env:
+          REF: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add third_party/gguf-headers
+          if git diff --cached --quiet; then echo "::notice::nothing to commit"; exit 0; fi
+          git commit -q -m "[model-analyst] gguf-headers: GGUF headers by Range reads under third_party/gguf-headers for $REF (workflow gguf-headers, run $RUN_ID)"
+          for i in 1 2 3; do
+            if git pull -q --rebase origin "$REF" && git push origin HEAD:"$REF"; then
+              echo "::notice::headers commit $(git rev-parse HEAD)"; exit 0
+            fi
+            sleep 15
+          done
+          exit 1

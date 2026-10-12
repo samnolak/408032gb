@@ -1,0 +1,20 @@
+===== PROBE =====
+name: software.nvcc
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: nvcc
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+nvcc --version
+===== STDOUT =====
+nvcc: NVIDIA (R) Cuda compiler driver
+Copyright (c) 2005-2026 NVIDIA Corporation
+Cuda compilation tools, release 99.9, V99.9.1
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

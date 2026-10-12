@@ -1,0 +1,22 @@
+===== PROBE =====
+name: system.dmesg_filtered
+started_utc: 2026-01-01T00:00:00Z
+root_mode: partial
+run_as: root
+requires: dmesg
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+out=$(dmesg -T) || exit $?
+...
+===== STDOUT =====
+[Thu Jan  1 00:00:01 2026] pci 0000:21:00.0: 63.012 Gb/s available PCIe bandwidth, limited by 8.0 GT/s PCIe x8 link at 0000:20:01.1 (capable of 252.048 Gb/s with 16.0 GT/s PCIe x16 link)
+[Thu Jan  1 00:00:02 2026] pcieport 0000:40:01.0: AER: Corrected error message received from 0000:41:00.0
+[Thu Jan  1 00:00:03 2026] NVRM: Xid (PCI:0000:41:00): 79, pid='<unknown>', name=<unknown>, GPU has fallen off the bus.
+[Thu Jan  1 00:00:04 2026] nvidia-nvlink: Nvlink Core is being initialized
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

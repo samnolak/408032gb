@@ -1,0 +1,17 @@
+===== PROBE =====
+name: memory.dmidecode_16_17
+started_utc: 2026-01-01T00:00:00Z
+root_mode: root
+run_as: not-run
+requires: dmidecode
+timeout_s: 120
+runner: (not run)
+===== COMMAND =====
+dmidecode -t 16,17
+===== STDOUT =====
+===== STDERR =====
+===== RESULT =====
+exit_code: not-run
+duration_s: 0.010
+status: needs-root
+note: requires root; not run (rerun as root or with --sudo)

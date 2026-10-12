@@ -1,0 +1,23 @@
+===== PROBE =====
+name: gpu.nvidia_smi
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: nvidia-smi
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+nvidia-smi
+===== STDOUT =====
+Thu Jan  1 00:00:00 2026
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 999.99.99              Driver Version: 999.99.99      CUDA Version: 99.9     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
++-----------------------------------------+------------------------+----------------------+
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

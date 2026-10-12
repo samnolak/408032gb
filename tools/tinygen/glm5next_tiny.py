@@ -5,6 +5,32 @@ Purpose: exercise every GLM mechanism (mHC + Sinkhorn, KDA, DSA with k-pool inde
 noaux_tc router, shared expert, clamped SwiGLU, leading dense layer) through llama.cpp's real
 graph on a CPU in seconds, so oracles in ref/ and our engine can be checked without a GPU.
 
+No MTP block by default (nextn_predict_layers = 0). --mtp appends one (nextn_predict_layers = 1, block_count + 1):
+an MLA/DSA layer with a full indexer, MoE + shared expert and blk.<L>.nextn.{eh_proj,enorm,hnorm}, no mHC tensors
+(llama.cpp @79e2e74 src/models/glm5-next.cpp:79-80, 85-92, 143, 175-182 load_arch_tensors; graph_mtp 543-666); its weights
+are drawn after the trunk's, so the trunk equals the default model and the default output is unchanged.
+--text-vocab writes a byte-level BPE vocabulary instead of the id-only one (tools/tinygen/text_vocab.py) so that a
+llama-server on the model accepts text; --ctx sets context_length (the server caps each slot at it). Defaults unchanged.
+
+--quant-dims (N10, gap 2 of docs/reassessment/CORRECTNESS.md) writes the same architecture with the input width of
+every matrix llama-quantize may quantize a multiple of QK_K = 256 (src/llama-quant.cpp tensor_allows_quantization
+keeps hc_*, the indexer, ssm_f_*/ssm_g_*/ssm_beta, attn_kv_a_mqa, attn_k_b and attn_v_b of glm5-next unquantized;
+tensor_type_fallback gives a 32-block type or F16 to rows not divisible by the block size): n_embd 256, KDA
+head_dim 64 (d_inner = 4 * 64 = 256, the input of the KDA attn_output), q_lora 256 (attn_q_b), v_mla 64 (the DSA
+attn_output reads n_head * v_mla = 256), expert, shared-expert and dense FFN widths 256.
+
+--dialect ik (N12, gap 5 of docs/reassessment/CORRECTNESS.md) writes the file ik_llama.cpp is run on in R1: the
+architecture string "glm5next" of the Unsloth UD files (as --arch glm5next) plus "glm5next.expert_group_count" = 1. That
+key is PROVISIONALLY part of the UD schema (base B requires it and reads the UD files,
+docs/evidence/2026-10-03-lighttransport-fork.md:92-105); the real value is UNKNOWN. ik_llama.cpp @5194a9e does not read
+it for glm5next (src/llama-hparams.cpp:2458-2574, the GLM5NEXT block; it reads it only for other architectures, :1655,
+1680). llama.cpp @79e2e74 reads it for every architecture (src/llama-model.cpp:1362) and, with more than one group,
+restricts glm5-next's routing to the top groups (build_moe_ffn, src/llama-graph.cpp:2145-2163, called at
+src/models/glm5-next.cpp:621, 743). The value 1 written here has no effect in either engine; a real value above 1
+would be a possible further routing difference between the two (UNKNOWN). ik reads every other key and tensor the
+default file has under either name (the "glm5-next" alias resolves to GLM5NEXT, src/llama-model-loader.h:149-151
+@5194a9e). Tensors and weights are those of the default file.
+
 Key and tensor names: llama.cpp @ec7630a src/llama-arch.cpp; shapes: src/models/glm5-next.cpp
 load_arch_tensors. numpy shapes are ggml ne reversed.
 Needs gguf-py from the same llama.cpp checkout on PYTHONPATH.
@@ -13,6 +39,8 @@ import argparse
 
 import numpy as np
 from gguf import GGUFWriter
+
+from text_vocab import N_TEXT_VOCAB, write_byte_bpe_vocab
 
 ARCH = "glm5-next"
 
@@ -25,24 +53,31 @@ DEFAULT = dict(
     w_scale=2.5, swiglu_limit=0.5, hc=4, sinkhorn_iters=20, hc_eps=1e-6, rms_eps=1e-5,
 )
 
+# --quant-dims: every input width llama-quantize may quantize is a multiple of 256 (see the module docstring)
+QUANT = dict(DEFAULT, n_embd=256, kda_head_dim=64, q_lora=256, v_mla=64, n_ff_exp=256, n_ff=256)
+
 
 def layer_is_dsa(i):
     return i % 4 == 3                                        # GLM pattern: layers 3, 7, ...
 
 
-def build(path, cfg=DEFAULT, seed=0):
+def build(path, cfg=DEFAULT, seed=0, mtp=False, dialect=None, text_vocab=False):
     c = dict(cfg)
     rng = np.random.default_rng(seed)
     w = GGUFWriter(path, ARCH)
     p = ARCH
     E, L, H = c["n_embd"], c["n_layer"], c["n_head"]
     hc = c["hc"]
+    n_all = L + int(mtp)                                     # block_count counts the MTP block
+    dsa_all = [layer_is_dsa(i) for i in range(L)] + [True] * int(mtp)   # the MTP block is MLA/DSA
     w.add_uint32(f"{p}.context_length", c["ctx"])
     w.add_uint32(f"{p}.embedding_length", E)
-    w.add_uint32(f"{p}.block_count", L)
+    w.add_uint32(f"{p}.block_count", n_all)
+    if mtp:
+        w.add_nextn_predict_layers(1)
     w.add_uint32(f"{p}.feed_forward_length", c["n_ff"])
     w.add_uint32(f"{p}.attention.head_count", H)
-    w.add_array(f"{p}.attention.head_count_kv", [1 if layer_is_dsa(i) else 0 for i in range(L)])  # MLA latent = 1 MQA head; 0 = recurrent
+    w.add_array(f"{p}.attention.head_count_kv", [1 if d else 0 for d in dsa_all])  # MLA latent = 1 MQA head; 0 = recurrent
     w.add_float32(f"{p}.attention.layer_norm_rms_epsilon", c["rms_eps"])
     w.add_uint32(f"{p}.attention.key_length_mla", c["k_mla"])
     w.add_uint32(f"{p}.attention.value_length_mla", c["v_mla"])
@@ -56,13 +91,15 @@ def build(path, cfg=DEFAULT, seed=0):
     w.add_float32(f"{p}.kda.gate_lower_bound", c["kda_lower_bound"])
     w.add_uint32(f"{p}.expert_count", c["n_expert"])
     w.add_uint32(f"{p}.expert_used_count", c["n_expert_used"])
+    if dialect == "ik":                                       # UD-schema key; 1 = no group step (docstring)
+        w.add_uint32(f"{p}.expert_group_count", 1)
     w.add_uint32(f"{p}.expert_feed_forward_length", c["n_ff_exp"])
     w.add_uint32(f"{p}.expert_shared_count", c["n_shared"])
     w.add_uint32(f"{p}.leading_dense_block_count", c["n_dense_lead"])
     w.add_float32(f"{p}.expert_weights_scale", c["w_scale"])
     w.add_bool(f"{p}.expert_weights_norm", True)
     w.add_uint32(f"{p}.expert_gating_func", 2)               # LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID
-    w.add_array(f"{p}.swiglu_clamp_exp", [float(c["swiglu_limit"])] * L)
+    w.add_array(f"{p}.swiglu_clamp_exp", [float(c["swiglu_limit"])] * n_all)
     w.add_uint32(f"{p}.attention.indexer.head_count", c["idx_heads"])
     w.add_uint32(f"{p}.attention.indexer.key_length", c["idx_dim"])
     w.add_uint32(f"{p}.attention.indexer.top_k", c["idx_top_k"])
@@ -71,16 +108,19 @@ def build(path, cfg=DEFAULT, seed=0):
     w.add_uint32(f"{p}.hyper_connection.count", hc)
     w.add_uint32(f"{p}.hyper_connection.sinkhorn_iterations", c["sinkhorn_iters"])
     w.add_float32(f"{p}.hyper_connection.epsilon", c["hc_eps"])
-    # minimal SPM vocab: tokens are fed as ids, the strings never matter
-    toks = ["<unk>", "<s>", "</s>"] + [f"t{i}" for i in range(3, c["n_vocab"])]
-    w.add_tokenizer_model("llama")
-    w.add_token_list(toks)
-    w.add_token_scores([0.0] * len(toks))
-    w.add_token_types([2, 3, 3] + [1] * (len(toks) - 3))
-    w.add_bos_token_id(1)
-    w.add_eos_token_id(2)
-    w.add_unk_token_id(0)
-    w.add_add_bos_token(False)
+    if text_vocab:                                           # byte-level BPE: the model accepts text (text_vocab.py)
+        assert write_byte_bpe_vocab(w, bos=1, eos=2) == c["n_vocab"]
+    else:
+        # minimal SPM vocab: tokens are fed as ids, the strings never matter
+        toks = ["<unk>", "<s>", "</s>"] + [f"t{i}" for i in range(3, c["n_vocab"])]
+        w.add_tokenizer_model("llama")
+        w.add_token_list(toks)
+        w.add_token_scores([0.0] * len(toks))
+        w.add_token_types([2, 3, 3] + [1] * (len(toks) - 3))
+        w.add_bos_token_id(1)
+        w.add_eos_token_id(2)
+        w.add_unk_token_id(0)
+        w.add_add_bos_token(False)
 
     def t(name, *shape, scale=None, ones=False, value=None):
         if value is not None:
@@ -98,15 +138,15 @@ def build(path, cfg=DEFAULT, seed=0):
     t("output_norm.weight", E, ones=True)
     t("output.weight", V, E)
     mix = (2 + hc) * hc
-    for i in range(L):
+    for i in range(n_all):
         b = f"blk.{i}"
         t(f"{b}.attn_norm.weight", E, ones=True)
         t(f"{b}.ffn_norm.weight", E, ones=True)
-        for k in ("attn", "ffn"):
+        for k in ("attn", "ffn") if i < L else ():           # no mHC tensors in the MTP block
             t(f"{b}.hc_{k}_fn.weight", mix, hc * E, scale=0.3)
             t(f"{b}.hc_{k}_base.weight", mix, scale=0.5)
             t(f"{b}.hc_{k}_scale.weight", 3, ones=True)
-        if not layer_is_dsa(i):                               # KDA
+        if not dsa_all[i]:                                    # KDA
             for q in ("q", "k", "v"):
                 t(f"{b}.ssm_conv1d_{q}.weight", d_inner, 1, c["d_conv"], scale=0.5)
                 t(f"{b}.attn_{q}.weight", d_inner, E)
@@ -151,6 +191,10 @@ def build(path, cfg=DEFAULT, seed=0):
             t(f"{b}.ffn_gate_shexp.weight", F * S, E)
             t(f"{b}.ffn_up_shexp.weight", F * S, E)
             t(f"{b}.ffn_down_shexp.weight", E, F * S)
+        if i == L:                                            # MTP block (glm5-next.cpp:175-182 @79e2e74)
+            t(f"{b}.nextn.eh_proj.weight", E, 2 * E)            # ggml {2*n_embd, n_embd}: [e_norm ; h_norm] -> n_embd
+            t(f"{b}.nextn.enorm.weight", E, ones=True)
+            t(f"{b}.nextn.hnorm.weight", E, ones=True)
     w.write_header_to_file()
     w.write_kv_data_to_file()
     w.write_tensors_to_file()
@@ -166,7 +210,21 @@ if __name__ == "__main__":
     ap.add_argument("--arch", default=ARCH,
                     help="GGUF architecture string and key prefix: glm5-next (llama.cpp master, default) or "
                          "glm5next (Unsloth UD files; what lighttransport/Strata reads, ADR-009)")
+    ap.add_argument("--mtp", action="store_true", help="append the MTP block (nextn_predict_layers = 1)")
+    ap.add_argument("--dialect", choices=("ik",), default=None,
+                    help="ik: the file ik_llama.cpp is run on (arch glm5next + glm5next.expert_group_count, see the "
+                         "module docstring); implies --arch glm5next")
+    ap.add_argument("--quant-dims", action="store_true",
+                    help="input widths divisible by QK_K = 256 so that llama-quantize gives k-quants (QUANT)")
+    ap.add_argument("--text-vocab", action="store_true",
+                    help="byte-level BPE vocabulary (%d tokens, tools/tinygen/text_vocab.py) instead of the minimal "
+                         "id-only one, so that a server on this model accepts text; changes token_embd/output shapes "
+                         "and therefore every weight drawn after them" % N_TEXT_VOCAB)
+    ap.add_argument("--ctx", type=int, default=DEFAULT["ctx"],
+                    help="context_length written to the GGUF (llama-server caps each slot at it); default %(default)s")
     a = ap.parse_args()
-    ARCH = a.arch
-    build(a.out, cfg=dict(DEFAULT, n_layer=a.layers), seed=a.seed)
+    ARCH = "glm5next" if a.dialect == "ik" else a.arch
+    cfg = dict(QUANT if a.quant_dims else DEFAULT, n_layer=a.layers, ctx=a.ctx,
+               **({"n_vocab": N_TEXT_VOCAB} if a.text_vocab else {}))
+    build(a.out, cfg=cfg, seed=a.seed, mtp=a.mtp, dialect=a.dialect, text_vocab=a.text_vocab)
     print("wrote", a.out)

@@ -1,0 +1,26 @@
+===== PROBE =====
+name: memory.meminfo
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: user
+requires: /proc/meminfo
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+cat /proc/meminfo
+===== STDOUT =====
+MemTotal:       131833964 kB
+MemFree:        120000000 kB
+MemAvailable:   125000000 kB
+HugePages_Total:       0
+HugePages_Free:        0
+HugePages_Rsvd:        0
+HugePages_Surp:        0
+Hugepagesize:       2048 kB
+Hugetlb:               0 kB
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

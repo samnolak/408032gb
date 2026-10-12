@@ -1,0 +1,114 @@
+[
+ {
+  "name": "c00_en_cachesim_py",
+  "n_tokens": 1924,
+  "rendered_sha256": "2db398135e352b92a7e9467b4a00847142411d3dd0cbd1ed4caaabe9ed2a99f3",
+  "ids_sha256": "e430a76682625e958074911895f2bd2c4f44e7d9202269660ec81cef2f55f7a7",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c01_en_roofline_py",
+  "n_tokens": 2004,
+  "rendered_sha256": "b5c453dae5e114631f0a07314475a04b3ca4e02eb0111682cdf74354e1c607bc",
+  "ids_sha256": "4718d14018ca244aac00fce92f59b3c8a424f229ba252369c2201d3173808116",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c02_en_gateway_py",
+  "n_tokens": 1891,
+  "rendered_sha256": "b610352e5347f652329ae0154eb9e4f4426bd68de010d1fb75f37f3ebf462688",
+  "ids_sha256": "f381218551a197cf7c90ffdcc051e8cd47c3745f4428bf8dfe103cbe3601af5e",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c03_en_run_matrix_py",
+  "n_tokens": 1884,
+  "rendered_sha256": "175b12cae68f410210fa1e196cd2f6686d3c47c5cba344948d5e5c9d6354a136",
+  "ids_sha256": "6f81772d7852660d8c87d470957eb9474ff75ebb2273422898576bb3b30567c1",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c04_en_qwen4exp_py",
+  "n_tokens": 2431,
+  "rendered_sha256": "5adb492f5cca2e1378b33d4bd6ff3f42c7cdabe2825f80b1b44e92f9849c0519",
+  "ids_sha256": "8db0081f4c457b1611572a0345142694c288249d7d9a87de9f2f02aa167d6735",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c05_en_dsa_py",
+  "n_tokens": 1314,
+  "rendered_sha256": "76e640e2b6da0925944080ae82708596672e475ec91b3795e47b521ecdb20ba2",
+  "ids_sha256": "8f08fc61e56af6d6aba51bc036231f12d6fb4cffbe48aad316c6ac3f98f4c0e0",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c06_en_expert_trace_cpp",
+  "n_tokens": 2110,
+  "rendered_sha256": "e17b4dc9d9ddaacd9efbd4fe4f08b81d1a04dbeb9499c976580b1727d236fd3b",
+  "ids_sha256": "7ef11a847ad376365d7ecaf9397105310638b042b39d321ab84b047c7b14b590",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c07_en_slot_persist_py",
+  "n_tokens": 1607,
+  "rendered_sha256": "a549328af075d3e64ccb82d8af0998fab47d5b3336273cb5bb4eaaa28f7fa8fc",
+  "ids_sha256": "3a9c5597ecc8a21e64da068108265d9055c395d030887dfb30925cae9625ec33",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c08_en_run_eval_py",
+  "n_tokens": 1850,
+  "rendered_sha256": "8aad175c0f536ebee6da0b10f93db858bdac45d421c1510f18a7df680bf377bd",
+  "ids_sha256": "5d9d3ebc5746ff6ec9ed395519bf25ccbca3f0335decde589f77f58c7d174865",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c09_en_run_r1_py",
+  "n_tokens": 1954,
+  "rendered_sha256": "7d99c331485cff7d076b2c96270c19889f6a8fe400a1e8bc8ab5b62127237368",
+  "ids_sha256": "2ce4958f69b5df1754c98ae85c9a3805367383099baad919b6b44dc6d03ff2a6",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c10_en_pack_py",
+  "n_tokens": 2069,
+  "rendered_sha256": "84dddeac54bb12c48b2f1b8201936654f7ac8c2aec6aa62fdf66b2b11ab4cca7",
+  "ids_sha256": "f0f6b935a1315bcf1601625b368681d99406582184d3c55fa596e8871993c9ad",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c11_en_test_gateway_py",
+  "n_tokens": 1809,
+  "rendered_sha256": "c9a03ed01e26c94c9a4883d04c5d6c6470108b86d3e04e431fc77d5b88f72f5d",
+  "ids_sha256": "2175d03e4d268296bf09b96a5454cf8ee143993fcde197c5c2de0bfc831814ad",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c12_ru_ADR-012-reassessment_md",
+  "n_tokens": 2855,
+  "rendered_sha256": "1f11426846a342e7564648baf30fb4489daaf062020514abd31b85856068b049",
+  "ids_sha256": "f6311c778e7f616f65a8cb7e3691e47294bd97d171e83bc3ef684472b8760ed2",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c13_ru_ROADMAP_md",
+  "n_tokens": 2706,
+  "rendered_sha256": "492dae7565d4a48b11684176cecde6d6448b55af799ef7a2a35fe8d6ac7d2a74",
+  "ids_sha256": "dc6f27b5a35c2ecd251c970380eb240b0b7caf0a63f1c056205a5b6e37e05557",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c14_ru_kda_py",
+  "n_tokens": 1354,
+  "rendered_sha256": "0cd47e2b4f83b551b0be49dff3d41f0ef26d0a272069c55f4c8f3f891c2a676b",
+  "ids_sha256": "244851079eed156762b5ede6611df425d8511482290b024e8a28ea5a46d293a0",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ },
+ {
+  "name": "c15_ru_gguf_quant_audit_py",
+  "n_tokens": 2442,
+  "rendered_sha256": "15b3e953482b816003591349d414c6ff445ca9ad82cadd3ad0540f7e9fadba39",
+  "ids_sha256": "6bad67172f1f1f61ead5fa7584439167523b7d05507c13bceaa271ec5cf8a807",
+  "rendered_head": "[gMASK]<sop><|system|>You are a careful coding agent working inside the git repository 408032gb (local LLM inference research). You can call tools: read_file(pa"
+ }
+]

@@ -1,0 +1,18 @@
+{
+  "id": "SYNTHETIC-code_fix-002",
+  "category": "code_fix",
+  "synthetic": true,
+  "description": "SYNTHETIC: duration parser rejects hours; reference answer is a whole-file FILE: block.",
+  "messages": [
+    {"role": "system", "content": "You are a careful software engineer working in a Python repository."},
+    {"role": "user", "content": "parse_duration('1h30m') raises ValueError but should return 5400. Fix durations.py so that all tests pass; do not change the tests.\n\ndurations.py:\n```python\n{{file:durations.py}}```\n\ntest_durations.py:\n```python\n{{file:test_durations.py}}```\n\n{{answer_protocol}}"}
+  ],
+  "fixture": "fixtures/durations",
+  "check": {
+    "type": "code_tests",
+    "command": ["{python}", "-m", "unittest", "-q"],
+    "timeout_s": 30,
+    "allowed_paths": ["durations.py"]
+  },
+  "reference_answer": {"file": "reference/SYNTHETIC-code_fix-002.md"}
+}

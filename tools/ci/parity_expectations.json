@@ -1,0 +1,276 @@
+{
+  "comment": [
+    "What every CI parity step must print, per step and per commit of the checkout its dumps come from (gap 11 (a) of",
+    "docs/reassessment/CORRECTNESS.md). Read by tools/ci/check_unittest.py: the step fails unless its unittest run is OK",
+    "with exactly 'ran' tests and exactly the listed skips (test id equal, reason matching the regex in full).",
+    "Keys of 'expect' are full commits: ec7630a640789c393694fb194f1bbbf0369fc62d is the llama.cpp pin of AGENTS.md",
+    "(.github/workflows/ci.yml), 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6 the llama.cpp R1 pin and",
+    "5194a9e1451b885e24dd5a065f650864e8807c59 the ik_llama.cpp R1 pin of tools/engines/pins.json",
+    "(.github/workflows/parity-r1-pin.yml). A commit without an entry fails the step: after a pin change, run the step",
+    "once, review the counts and add them here with their source. tests/test_check_unittest.py checks that every parity",
+    "step goes through the checker and that an entry exists for the commit the step runs at.",
+    "'modules' are the unittest modules the step runs (checked against the driver's python3 -m unittest line)."
+  ],
+  "steps": {
+    "ggml-gdn": {
+      "pin": "llama.cpp",
+      "driver": "inline in ci.yml: tests/ggml_parity/gdn_harness built from ggml at the pin",
+      "modules": ["tests.test_kda_vs_ggml", "tests.test_fitplan"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 18, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (3 test_kda_vs_ggml + 15 test_fitplan)"
+        }
+      }
+    },
+    "g1-glm": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity.sh",
+      "modules": ["tests.test_glm_tiny_parity"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 9, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (8 op-by-op tests of G1 + GlmTinyWholeModel of N9)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 9, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md"
+        }
+      }
+    },
+    "g1-mimo": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_mimo.sh",
+      "modules": ["tests.test_mimo_tiny_parity"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 5, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 5, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md"
+        }
+      }
+    },
+    "n2-qwen4exp": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_qwen4exp.sh",
+      "modules": ["tests.test_qwen4exp_tiny_parity"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 17, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 17, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md"
+        }
+      }
+    },
+    "n6-qwen4exp-decode": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_qwen4exp_decode.sh",
+      "modules": ["tests.test_qwen4exp_decode_parity", "tests.test_qwen4exp_mtp_parity", "tests.test_qwen4exp_chunked_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 54, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (40 decode + 6 MTP + 8 chunked)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 54, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (40 decode + 6 MTP + 8 chunked)"
+        }
+      }
+    },
+    "n9-glm5next-decode": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_glm5next_decode.sh",
+      "modules": ["tests.test_glm5next_decode_parity", "tests.test_glm5next_mtp_parity", "tests.test_glm5next_chunked_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 52,
+          "skipped": [
+            {
+              "test": "tests.test_glm5next_mtp_parity.Mtp.setUpClass",
+              "reason": "no MTP run under .+ \\(llama\\.cpp ec7630a: no glm5-next MTP graph at ec7630a, see the module docstring\\)",
+              "why": "ec7630a has no glm5-next MTP graph (src/models/glm5-next.cpp throws 'GLM5-Next NextN graph not implemented yet'); the driver then produces no MTP run"
+            }
+          ],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (45 decode + 7 chunked, MTP class skipped)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 58, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (45 decode + 6 MTP + 7 chunked)"
+        }
+      }
+    },
+    "n10-f16fa": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_f16fa.sh",
+      "modules": ["tests.test_qwen4exp_f16fa_parity", "tests.test_glm5next_f16fa_parity", "tests.test_fattn_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 170, "skipped": [],
+          "source": "N13 run (PARITY_KV=f16 PARITY_FA=on, the driver's defaults), docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (75 qwen4exp + 84 glm5-next + 11 fattn_ref)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 170, "skipped": [],
+          "source": "N13 run (PARITY_KV=f16 PARITY_FA=on, the driver's defaults), docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (75 qwen4exp + 84 glm5-next + 11 fattn_ref)"
+        }
+      }
+    },
+    "n10-quant": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_quant.sh",
+      "modules": ["tests.test_qwen4exp_quant_parity", "tests.test_glm5next_quant_parity", "tests.test_quant_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 99, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (48 qwen4exp + 40 glm5-next + 11 quant_ref)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 99, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (48 qwen4exp + 40 glm5-next + 11 quant_ref)"
+        }
+      }
+    },
+    "n16-mimo2-decode": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_mimo2_decode.sh",
+      "modules": ["tests.test_mimo2_decode_parity", "tests.test_mimo2_mtp_parity", "tests.test_mimo2_chunked_ref", "tests.test_mimo2_quant_parity", "tests.test_mxfp4_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 92, "skipped": [],
+          "source": "N16 run, docs/evidence/2026-10-11-n16-mimo-decode-parity.md (49 decode + 4 MTP + 7 chunked_ref + 28 MXFP4 products + 4 mxfp4_ref; this pin has the mimo2 MTP graph)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 92, "skipped": [],
+          "source": "N16 run, docs/evidence/2026-10-11-n16-mimo-decode-parity.md (49 decode + 4 MTP + 7 chunked_ref + 28 MXFP4 products + 4 mxfp4_ref)"
+        }
+      }
+    },
+    "n17-mimo2-mtp-heads-fa": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_mimo2_n17.sh",
+      "modules": ["tests.test_mimo2_mtp_heads_parity", "tests.test_mimo2_f16fa_parity", "tests.test_mimo2_heads_ref", "tests.test_fattn_sinks_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 70, "skipped": [],
+          "source": "N17 run, docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md (6 MTP heads f32 + 7 MTP heads f16/FA + 40 f16/FA trunk (5 runs x 8) + 8 heads_ref + 9 fattn_sinks_ref; this pin has the mimo2 MTP graph with nextn_layer_offset)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 70, "skipped": [],
+          "source": "N17 run, docs/evidence/2026-10-11-n17-mimo-mtp-heads-fa.md (6 MTP heads f32 + 7 MTP heads f16/FA + 40 f16/FA trunk (5 runs x 8) + 8 heads_ref + 9 fattn_sinks_ref)"
+        }
+      }
+    },
+    "n19-qwen4exp-multiseq": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_qwen4exp_multiseq.sh",
+      "modules": ["tests.test_qwen4exp_multiseq_parity", "tests.test_qwen4exp_multiseq_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 72, "skipped": [],
+          "source": "N19 run, docs/evidence/2026-10-11-n19-qwen4exp-multiseq.md (9 runs x 7 dump tests + 9 multiseq_ref)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 72, "skipped": [],
+          "source": "N19 run, docs/evidence/2026-10-11-n19-qwen4exp-multiseq.md (9 runs x 7 dump tests + 9 multiseq_ref)"
+        }
+      }
+    },
+    "n20-qwen4exp-rs-guard": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_qwen4exp_rs_guard.sh",
+      "modules": ["tests.test_qwen4exp_multiseq_parity", "tests.test_qwen4exp_rs_guard_parity", "tests.test_qwen4exp_multiseq_ref", "tests.test_qwen4exp_rs_guard_ref"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 110, "skipped": [],
+          "source": "N20 run, docs/evidence/2026-10-11-n20-recurrent-rollback-guard.md (patched copy: 9 N19 + 4 N20 runs x 7 dump tests + GuardLog 1 + 9 multiseq_ref + 9 rs_guard_ref)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 110, "skipped": [],
+          "source": "N20 run, docs/evidence/2026-10-11-n20-recurrent-rollback-guard.md (patched copy: 9 N19 + 4 N20 runs x 7 dump tests + GuardLog 1 + 9 multiseq_ref + 9 rs_guard_ref)"
+        }
+      }
+    },
+    "gguf-audit": {
+      "pin": "llama.cpp",
+      "driver": "inline in ci.yml: the pinned gguf-py through LLAMA_CPP_GGUF_PY",
+      "modules": ["tests.test_roofline", "tests.test_cachesim", "tests.test_gguf_quant_audit", "tests.test_offline_weights"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 52, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md (26 roofline + 14 cachesim + 7 gguf_quant_audit + 5 offline_weights)"
+        }
+      }
+    },
+    "n12-ik-glm5next": {
+      "pin": "ik_llama.cpp",
+      "driver": "tools/tinygen/run_parity_ik_glm5next.sh",
+      "modules": ["tests.test_ik_glm5next_parity"],
+      "expect": {
+        "5194a9e1451b885e24dd5a065f650864e8807c59": {
+          "ran": 43, "skipped": [],
+          "source": "N13 run, docs/evidence/2026-10-11-n13-ci-no-silent-skips.md; the same count as N12, docs/evidence/2026-10-11-n12-ik-glm5next-cpu.md"
+        }
+      }
+    },
+    "n21-mimo2-mtp-fix": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_mimo2_n21.sh",
+      "modules": ["tests.test_mimo2_mtp_fix_parity", "tests.test_mimo2_mtp_fix_ref", "tests.test_gguf_mtp_heads"],
+      "expect": {
+        "ec7630a640789c393694fb194f1bbbf0369fc62d": {
+          "ran": 32,
+          "skipped": [
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFix.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFixB.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFixF16FA.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.ReplayRefusal.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.SpecReplay.test_fix_changes_drafts", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.SpecReplay.test_target_independent_of_the_mtp_order", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"}
+          ],
+          "source": "N21 run, docs/evidence/2026-10-11-n21-mimo-mtp-heads-fix.md (7 MtpUpstream + 7 MtpUpstreamB + 6 SpecReplay + 9 test_mimo2_mtp_fix_ref + 3 test_gguf_mtp_heads; no patch here: the three fixed classes and ReplayRefusal skip in setUpClass, SpecReplay.test_fix_changes_drafts and .test_target_independent_of_the_mtp_order skip)"
+        },
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 32,
+          "skipped": [
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFix.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFixB.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.MtpFixF16FA.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.ReplayRefusal.setUpClass", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.SpecReplay.test_fix_changes_drafts", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"},
+            {"test": "tests.test_mimo2_mtp_fix_parity.SpecReplay.test_target_independent_of_the_mtp_order", "reason": "no patched build: the fixed runs need llama\\.cpp with patches/llama\\.cpp/0001-mtp-heads-slot-replay\\.patch",
+             "why": "the runs of patches/llama.cpp/0001-mtp-heads-slot-replay.patch exist only on a patched copy (job n21-patched of parity-r1-pin.yml, step n21-mimo2-mtp-fix-patched); here the driver writes n21.json with patched false"}
+          ],
+          "source": "N21 run, docs/evidence/2026-10-11-n21-mimo-mtp-heads-fix.md (7 MtpUpstream + 7 MtpUpstreamB + 6 SpecReplay + 9 test_mimo2_mtp_fix_ref + 3 test_gguf_mtp_heads; no patch here: the three fixed classes and ReplayRefusal skip in setUpClass, SpecReplay.test_fix_changes_drafts and .test_target_independent_of_the_mtp_order skip)"
+        }
+      }
+    },
+    "n21-mimo2-mtp-fix-patched": {
+      "pin": "llama.cpp",
+      "driver": "tools/tinygen/run_parity_mimo2_n21.sh",
+      "where": "job n21-patched of parity-r1-pin.yml: ../llama.cpp is a copy of the R1 pin with patches/llama.cpp/0001-mtp-heads-slot-replay.patch applied (HEAD stays the pin)",
+      "modules": ["tests.test_mimo2_mtp_fix_parity", "tests.test_mimo2_mtp_fix_ref", "tests.test_gguf_mtp_heads"],
+      "expect": {
+        "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6": {
+          "ran": 57, "skipped": [],
+          "source": "N21 run on the patched copy, docs/evidence/2026-10-11-n21-mimo-mtp-heads-fix.md (45 test_mimo2_mtp_fix_parity + 9 test_mimo2_mtp_fix_ref + 3 test_gguf_mtp_heads)"
+        }
+      }
+    }
+  }
+}

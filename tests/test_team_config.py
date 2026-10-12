@@ -33,9 +33,15 @@ def _frontmatter(path):
     return out
 
 
+def _team_md():
+    """Agent and skill files; .claude/worktrees/ holds other checkouts of the repo (agent worktrees), not team config."""
+    base = ROOT / ".claude"
+    return sorted(p for p in base.rglob("*.md") if "worktrees" not in p.relative_to(base).parts)
+
+
 class TeamConfig(unittest.TestCase):
     def test_agents_and_skills_parse(self):
-        files = sorted((ROOT / ".claude").rglob("*.md"))
+        files = _team_md()
         self.assertGreaterEqual(len(files), 13)
         names = set()
         for f in files:
@@ -49,7 +55,7 @@ class TeamConfig(unittest.TestCase):
             names.add(fm["name"])
 
     def test_descriptions_are_quoted(self):
-        for f in sorted((ROOT / ".claude").rglob("*.md")):
+        for f in _team_md():
             for line in FM.match(f.read_text(encoding="utf-8")).group(1).splitlines():
                 if line.startswith("description:"):
                     self.assertTrue(line.startswith('description: "'), f"{f}: quote the description")

@@ -1,0 +1,60 @@
+{
+ "name": "GLM-5.3-Flash",
+ "hf_repo": "zai-org/GLM-5.3-Flash",
+ "spec_version": 2,
+ "n_layers": 45,
+ "hidden": 4096,
+ "vocab": 154880,
+ "moe": {
+  "layers": 42,
+  "mtp_layers": 1,
+  "n_experts": 288,
+  "top_k": 8,
+  "n_shared": 1,
+  "expert_ff": 2048,
+  "expert_mats": 3
+ },
+ "dense_params": {
+  "kda_attention": 4682897792,
+  "dsa_attention": 1374033408,
+  "dense_ffn": 452984832,
+  "shared_experts": 1056964608,
+  "routers": 49545216,
+  "mhc": 35391870,
+  "lm_head": 634388480,
+  "embedding": 634388480,
+  "mtp": 185598518,
+  "vision": 560000000
+ },
+ "attention": [
+  {
+   "kind": "linear",
+   "layers": 34,
+   "state_bytes": 4489216,
+   "prefill_flops_per_token": 4194304,
+   "kv_heads": 64
+  },
+  {
+   "kind": "indexed",
+   "layers": 11,
+   "kv_elems_per_token": 512,
+   "aux_bytes_per_token": 320,
+   "pool": 4,
+   "scan_bytes_per_entry": 256,
+   "selected_entries": 2051,
+   "prefill_flops_coef": 2048.0,
+   "prefill_flops_per_token": 268828672,
+   "kv_heads": 1
+  }
+ ],
+ "native_context": null,
+ "_labels": {
+  "geometry": "CONFIRMED: HF config.json (docs/models/glm-5.3-flash.md, retrieved 2026-10-01) and tensor shapes in llama.cpp src/models/glm5-next.cpp:60-155 @ec7630a",
+  "dense_params": "PROVISIONAL: summed from the tensor shapes in glm5-next.cpp @ec7630a (norms and biases below 0.01% ignored); total with routed experts and vision = 321.3B, matching the 321.3B in llama.cpp PR #27754 as quoted in docs/prompts/GLM53-TZ.md",
+  "attention.linear.state_bytes": "PROVISIONAL: 64 heads x 128 x 128 fp32 state + 3 short-conv states (8192 ch x 3 x fp32), as llama.cpp keeps them",
+  "attention.indexed": "PROVISIONAL from glm5-next.cpp:320-345 @ec7630a: decode gathers kpool*min(n_pool, top_k/kpool) + (kpool-1) = 2051 latents of 512; the indexer scans one pooled 128-dim f16 key per pool of 4 (pool_cells); aux = per-token f16 indexer key + pooled key share",
+  "native_context": "UNKNOWN here; Z.ai announcement reports 1M (web search 2026-10-09, see research/R1-models.md)",
+  "kv_heads": "KDA state is per head (64, divisible under TP); the MLA latent (512) and the indexer key are shared by all heads (1, replicated under TP) - adversarial review item 6",
+  "kv_store_note": "llama.cpp stores key|gate|pooled (3x128) per token and 12 DSA layers incl. MTP (src/llama-memory-hybrid-idx.cpp:56-58 @79e2e74, research/R1 \u00a73): up to ~8 GB at 262K vs ~3.75 GiB here (review item 14)"
+ }
+}

@@ -1,0 +1,66 @@
+{
+  "_label": "MOCK: tools/bench/mock_server.py stands in for the engine and scripts/r1/make_mock_model.py writes a SYNTHETIC header-only GGUF. Nothing this config produces is evidence about any engine or model; the verification pack of such a run is NOT RUN (reason mock) by construction. Used by tests/test_r1_orchestration.py and as a dry run of the orchestrator on a host without GPUs.",
+  "_notes": {
+    "safety_rules": "scripts/r1/safety_rules.py checks this file before any step (run_r1.py refuses a violating config, exit 2); the rules are section (v) of docs/reassessment/PHASE-CLOSE-2026-10-11.md, accepted by the owner, applied as configuration guards only (no upstream patch in the R1 build). Rule 10: this is the only committed config that declares a SYNTHETIC model (tests/test_r1_safety_rules.py); a synthetic pack run is declared only by \"synthetic_run\": true in the criteria file plus the SYNTHETIC marker in model_desc and never counts as acceptance (tools/verify/pack.py). As a mock config it is exempt from rule 8's manifest-or-reason requirement and from the weights gate of run_r1.py (the pack of a mock run is NOT RUN by construction).",
+    "MOCK_MODEL_DIR": "create it first: python3 scripts/r1/make_mock_model.py <RUNS_ROOT>/mock-model (or pass --set MOCK_MODEL_DIR=...)",
+    "roofline": "the prediction uses a real spec only so that the step runs end to end; it says nothing about the mock",
+    "sizes": "contexts are small (1K/4K) so the run takes seconds; the filled-context criteria of the pack are 262144 tokens, so they could not pass even without the mock rule"
+  },
+  "name": "mock",
+  "mock": true,
+  "vars": {
+    "MOCK_MODEL_DIR": "${RUNS_ROOT}/mock-model",
+    "PREFILL_S_PER_1K": "0.02",
+    "DECODE_S_PER_TOKEN": "0.001",
+    "MOCK_CTX": "65536",
+    "HEALTH_TIMEOUT_S": "30"
+  },
+  "engine": {
+    "name": "tools/bench/mock_server.py (MOCK, not an engine)",
+    "commit": "this repository (meta.json git.sha of each run)",
+    "argv": ["${PYTHON}", "${REPO}/tools/bench/mock_server.py", "--host", "${HOST}", "--port", "${PORT}",
+             "--prefill-s-per-1k", "${PREFILL_S_PER_1K}", "--decode-s-per-token", "${DECODE_S_PER_TOKEN}",
+             "--max-context", "${MOCK_CTX}"],
+    "version_argv": ["${PYTHON}", "--version"],
+    "help_argv": ["${PYTHON}", "${REPO}/tools/bench/mock_server.py", "--help"],
+    "env": {"PYTHONUNBUFFERED": "1"},
+    "health": {"url": "http://${HOST}:${PORT}/health", "timeout_s": "${HEALTH_TIMEOUT_S}", "interval_s": 0.1,
+               "expect_status": 200},
+    "stop": {"timeout_s": 10},
+    "supports_slots": false
+  },
+  "model": {
+    "desc": "SYNTHETIC mock model (scripts/r1/make_mock_model.py), NOT EVIDENCE",
+    "files": ["${MOCK_MODEL_DIR}/SYNTHETIC-mock-model-Q4_K.gguf"],
+    "weights_manifest": "${MOCK_MODEL_DIR}/SYNTHETIC-mock-model.manifest.json",
+    "weights_dest": "${MOCK_MODEL_DIR}"
+  },
+  "roofline": {
+    "spec": "models/specs/qwen3.8-flash-next.json",
+    "hw": "hardware/target-4x4080-32g.unverified.json",
+    "expert_bpw": 4.5,
+    "dense_bpw": 8.5,
+    "kv_bytes": 2.0
+  },
+  "mode": {"overlap": "no", "strategy": "pp", "miss": "cpu", "hit": 1.0, "spec_k": 0, "spec_accept": 0.0},
+  "reference": null,
+  "steps": {
+    "matrix": {"runs": [
+      {"name": "smoke-1k",
+       "args": ["--inputs", "1024", "--outputs", "32", "--states", "cold,warm", "--concurrency", "1", "--repeats", "1",
+                "--scenarios", "matrix", "--seed", "0", "--timeout", "60"]},
+      {"name": "filled-4k",
+       "args": ["--inputs", "4096", "--outputs", "64", "--states", "cold,warm", "--concurrency", "1", "--repeats", "3",
+                "--length-mode", "total", "--scenarios", "matrix,agent", "--agent-target-tokens", "3000",
+                "--agent-tool-tokens", "300,600", "--seed", "0", "--timeout", "60"]}
+    ]},
+    "probes": {"runs": [
+      {"name": "4k",
+       "args": ["--contexts", "4096", "--length-mode", "total", "--answer-tokens", "256", "--seed", "0",
+                "--timeout", "60"]}
+    ]},
+    "slot_persist": {"prompt_tokens": 3000, "args": ["--gen", "8", "--repeats", "1", "--timeout", "10"]},
+    "logprob_compare": {"corpus": [], "args": ["--prefixes", "5", "--top-k", "5"]}
+  },
+  "orchestrator": {"child_grace_s": 10}
+}

@@ -1,0 +1,101 @@
+{
+  "_doc": "Engines measured in R1 (docs/reassessment/ROADMAP.md R1.4, track N1). Built by scripts/engines/build_engine.py, in CI (.github/workflows/engines-sm89.yml, compile only, no GPU) and on the server. ${ARCH}, ${NVCC}, ${CUDA_ROOT}, ${DEP_GGML} are substituted by the script. \"kind\": \"torch-extension\" (ExLlamaV3) builds a Python wheel with its CUDA extension instead of CMake; its \"python\" block pins torch and the CUDA it was built with, which the extension's ABI depends on. \"r1_template\" says why an engine has no scripts/r1 config yet. Pins are full commit SHAs; move a pin only in its own commit with the reason.",
+  "engines": {
+    "llama.cpp": {
+      "repo": "https://github.com/ggml-org/llama.cpp",
+      "sha": "79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6",
+      "why": "master 2026-10-09; contains d6cf9acb2 (--moe-cache-mib) and c811cb8f0 (multi-GPU expert cache); code read for research/R2 at this commit",
+      "cmake": [
+        "-DGGML_CUDA=ON",
+        "-DCMAKE_CUDA_ARCHITECTURES=${ARCH}",
+        "-DCMAKE_CUDA_COMPILER=${NVCC}",
+        "-DCUDAToolkit_ROOT=${CUDA_ROOT}",
+        "-DGGML_NATIVE=OFF",
+        "-DLLAMA_CURL=OFF",
+        "-DCMAKE_BUILD_TYPE=Release"
+      ],
+      "targets": [
+        "llama-server",
+        "llama-bench"
+      ],
+      "bins": [
+        "bin/llama-server",
+        "bin/llama-bench"
+      ]
+    },
+    "ik_llama.cpp": {
+      "repo": "https://github.com/ikawrakow/ik_llama.cpp",
+      "sha": "5194a9e1451b885e24dd5a065f650864e8807c59",
+      "why": "main 2026-10-09; glm5-next alias (research/R2 §3.5), -muge / -ncmoe expert offload measured on the 3090 host",
+      "cmake": [
+        "-DGGML_CUDA=ON",
+        "-DCMAKE_CUDA_ARCHITECTURES=${ARCH}",
+        "-DCMAKE_CUDA_COMPILER=${NVCC}",
+        "-DCUDAToolkit_ROOT=${CUDA_ROOT}",
+        "-DGGML_NATIVE=OFF",
+        "-DLLAMA_CURL=OFF",
+        "-DCMAKE_BUILD_TYPE=Release"
+      ],
+      "targets": [
+        "llama-server",
+        "llama-bench"
+      ],
+      "bins": [
+        "bin/llama-server",
+        "bin/llama-bench"
+      ]
+    },
+    "strata": {
+      "repo": "https://github.com/Niko1221/Strata",
+      "sha": "fb58e0dbc8399662c0e47c76578c6e878b14f6cf",
+      "why": "upstream HEAD read 2026-10-08 for the reassessment (Qwen3.8-Flash-Next engine, candidate #1, BRINGUP-qwen38fn.md); flags as its setup.py / Dockerfile build the engine",
+      "deps": {
+        "ggml": {
+          "repo": "https://github.com/ggml-org/llama.cpp",
+          "sha": "3cf03257f219afbe7334045ff7c6a06ac68c627d",
+          "why": "LLAMA_CPP_COMMIT in Strata setup.py@fb58e0d:166"
+        }
+      },
+      "cmake": [
+        "-DSTRATA_ENABLE_CUDA=ON",
+        "-DSTRATA_BUILD_TESTS=OFF",
+        "-DCMAKE_CUDA_ARCHITECTURES=${ARCH}",
+        "-DCMAKE_CUDA_COMPILER=${NVCC}",
+        "-DCUDAToolkit_ROOT=${CUDA_ROOT}",
+        "-DSTRATA_GGML_DIR=${DEP_GGML}",
+        "-DCMAKE_BUILD_TYPE=Release"
+      ],
+      "targets": [
+        "strata"
+      ],
+      "bins": [
+        "strata"
+      ]
+    },
+    "exllamav3": {
+      "repo": "https://github.com/turboderp-org/exllamav3",
+      "sha": "151539c77abc7ab7425d30da7a4e8e3c5c154e7b",
+      "why": "master 2026-10-07, v1.6.0 (docs/reassessment/research/R2-engines.md:71,96): engine of experiment B5 (TP over 4 GPUs without P2P, 'native' backend: R2-engines.md:121); model classes glm5_next, mimo_v2, deepseek_v4, qwen4_exp with MTP (R2-engines.md:141)",
+      "kind": "torch-extension",
+      "python": {
+        "torch": "2.14.1",
+        "cuda": "13.0",
+        "install": [
+          "torch==2.14.1",
+          "cuda-toolkit[nvcc,cudart,cublas,cccl]==13.0.3",
+          "setuptools>=77",
+          "wheel",
+          "ninja"
+        ],
+        "_note": "torch 2.14.1 on PyPI requires cuda-toolkit 13.0.3 (pypi.org/pypi/torch/2.14.1/json, read 2026-10-10), so nvcc comes from the same pip toolkit (<venv>/lib/python3.*/site-packages/nvidia/cu13/bin/nvcc) or a CUDA 13.0 install; setup.py@151539c compiles exllamav3_ext with torch.utils.cpp_extension for TORCH_CUDA_ARCH_LIST (exllamav3/util/arch_list.py); the server is offline, so torch, its CUDA wheels and the built exllamav3 wheel travel with the bundle"
+      },
+      "targets": [
+        "exllamav3_ext"
+      ],
+      "bins": [
+        "ext/exllamav3_ext.so"
+      ],
+      "r1_template": "none yet: B5 serves through TabbyAPI (AGPL-3.0, R2-engines.md:72) and needs an EXL3 quant >= 4.0 bpw made from safetensors (EXPERIMENTS.md B5); both are UNKNOWN until the weights choice (ADR-005/ADR-009)"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+$ python3 tools/fitplan.py models/glm-5.3-flash.json --quant Q4_K --ctx 262144 | grep -v ceiling
+# fitplan: GLM-5.3-Flash  experts=Q4_K (4.5000 bpw)  dense=Q8_0  ctx=262144
+All figures PROVISIONAL (see tools/fitplan.py docstring).
+experts: 12384 x 25.17M params = 163.3 GiB (13.50 MiB each)
+dense 7.7 GiB | KV 7.50 GiB | recurrent state 0.57 GiB
+  GPU0: 32.0 GiB = fixed 5.69 + expert cache 26.31
+  GPU1: 32.0 GiB = fixed 5.69 + expert cache 26.31
+  GPU2: 32.0 GiB = fixed 5.69 + expert cache 26.31
+  GPU3: 32.0 GiB = fixed 5.69 + expert cache 26.31
+VRAM-resident experts: 64.5% (7982)  | spill to RAM: 58.0 GiB of 116 usable
+Strata mode (all experts in RAM): DOES NOT FIT | disjoint VRAM/RAM: fits
+decode traffic per token: GPU 10171 MiB, CPU 1612 MiB  (hit 64.5%, uniform routing (worst case for a frequency cache))
+$ python3 tools/fitplan.py models/qwen3.8-flash-next.json --quant Q4_K --ctx 262144 | grep -v ceiling
+# fitplan: Qwen3.8-Flash-Next (Strata reference)  experts=Q4_K (4.5000 bpw)  dense=Q8_0  ctx=262144
+All figures PROVISIONAL (see tools/fitplan.py docstring).
+experts: 24576 x 4.92M params = 63.3 GiB (2.64 MiB each)
+dense 4.2 GiB | KV 0.00 GiB | recurrent state 0.00 GiB
+  GPU0: 32.0 GiB = fixed 2.79 + expert cache 29.21
+  GPU1: 32.0 GiB = fixed 2.79 + expert cache 29.21
+  GPU2: 32.0 GiB = fixed 2.79 + expert cache 29.21
+  GPU3: 32.0 GiB = fixed 2.79 + expert cache 29.21
+VRAM-resident experts: 100.0% (24576)  | spill to RAM: 0.0 GiB of 116 usable
+Strata mode (all experts in RAM): fits | disjoint VRAM/RAM: fits
+n-gram/Engram tables on NVMe: 26.8 GiB
+decode traffic per token: GPU 5525 MiB, CPU 0 MiB  (hit 100.0%, uniform routing (worst case for a frequency cache))

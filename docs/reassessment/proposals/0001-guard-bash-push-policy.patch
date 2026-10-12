@@ -1,0 +1,75 @@
+diff --git a/scripts/hooks/guard-bash.sh b/scripts/hooks/guard-bash.sh
+index 624d48f..636e603 100755
+--- a/scripts/hooks/guard-bash.sh
++++ b/scripts/hooks/guard-bash.sh
+@@ -1,13 +1,64 @@
+ #!/usr/bin/env bash
+-# PreToolUse hook for Bash: blocks pushes (sync is by git bundle, AGENTS.md) and
+-# history rewrites. Reads the hook JSON on stdin; exit 2 blocks the call.
++# PreToolUse hook for Bash: blocks pushes and history rewrites. Reads the hook JSON on stdin;
++# exit 2 blocks the call.
++#
++# Push policy (docs/reassessment/ADR-012-push-policy.md, 2026-10-09):
++#   - the isolated inference VM syncs by git bundle only (skill bundle-sync); it has no remote to push to;
++#   - a cloud agent session may push ONLY a plain fast-forward of a `claude/*` branch to `origin`
++#     (`git push [-u|--set-upstream] origin [HEAD:]claude/<name>`), so that work survives the ephemeral
++#     container. No other remote, no other branch (never main), no force/mirror/delete/tags/options.
++#   - history rewrites stay blocked everywhere.
+ cmd=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("tool_input",{}).get("command",""))' 2>/dev/null)
+-if printf '%s' "$cmd" | grep -Eq '(^|[;&|[:space:]])git[[:space:]]+push([[:space:]]|$)'; then
+-  echo "Blocked: no git push from agents. Sync is by git bundle (skill bundle-sync)." >&2
+-  exit 2
+-fi
+ if printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+(reset[[:space:]]+--hard|push[[:space:]].*--force|filter-branch|rebase[[:space:]]+-i)'; then
+   echo "Blocked: history rewrite is not allowed (AGENTS.md, Git and sync)." >&2
+   exit 2
+ fi
++if printf '%s' "$cmd" | grep -Eq '(^|[;&|[:space:]])git([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+push([[:space:]]|$)'; then
++  verdict=$(CMD="$cmd" python3 - <<'PY'
++import os, re, shlex
++cmd = os.environ["CMD"]
++try:
++    toks = shlex.split(cmd, posix=True)
++except ValueError:
++    print("block: unparsable command"); raise SystemExit
++SEP = {"&&", "||", ";", "|", "&"}
++# split into simple commands; shlex keeps "a&&b" glued, so also split glued separators
++segs, cur = [], []
++for t in toks:
++    parts = re.split(r"(&&|\|\||;|\||&)", t)
++    for p in parts:
++        if p == "":
++            continue
++        if p in SEP:
++            segs.append(cur); cur = []
++        else:
++            cur.append(p)
++segs.append(cur)
++BR = re.compile(r"^(HEAD:)?(refs/heads/)?claude/[A-Za-z0-9._/-]+$")
++pushes = 0
++for s in segs:
++    if not s or s[0] != "git":
++        continue
++    # git global options before the subcommand are not allowed with push (e.g. -C, -c)
++    if "push" not in s:
++        continue
++    i = s.index("push")
++    if i != 1:
++        print("block: git options before push are not allowed"); raise SystemExit
++    args = s[2:]
++    flags = [a for a in args if a.startswith("-")]
++    pos = [a for a in args if not a.startswith("-")]
++    if any(f not in ("-u", "--set-upstream") for f in flags):
++        print("block: push flags other than -u are not allowed"); raise SystemExit
++    if len(pos) != 2 or pos[0] != "origin" or not BR.match(pos[1]) or pos[1].startswith("+"):
++        print("block: only `git push [-u] origin claude/<branch>` is allowed"); raise SystemExit
++    pushes += 1
++print("allow" if pushes else "block: no recognisable git push")
++PY
++)
++  if [ "$verdict" != "allow" ]; then
++    echo "Blocked: ${verdict#block: }. Pushes: only a plain push of a claude/* branch to origin from a cloud session; the VM syncs by git bundle (skill bundle-sync)." >&2
++    exit 2
++  fi
++fi
+ exit 0

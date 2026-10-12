@@ -1,0 +1,19 @@
+===== PROBE =====
+name: pcie.iommu_groups
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: /sys/kernel/iommu_groups
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+bash /synthetic/scripts/diag/probes_sysfs.sh iommu
+===== STDOUT =====
+group 20	0000:01:00.0	class=0x030000	id=0x10de:0x0000	driver=nvidia
+# iommu groups: 42 (0 groups usually means the IOMMU is off or not exposed)
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

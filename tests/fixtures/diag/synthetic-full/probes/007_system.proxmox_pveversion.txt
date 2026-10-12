@@ -1,0 +1,19 @@
+===== PROBE =====
+name: system.proxmox_pveversion
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: pveversion
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+pveversion -v
+===== STDOUT =====
+proxmox-ve: 0.0-synthetic (running kernel: 6.8.12-4-pve)
+pve-manager: 0.0-synthetic
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

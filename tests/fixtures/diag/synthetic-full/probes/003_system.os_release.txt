@@ -1,0 +1,21 @@
+===== PROBE =====
+name: system.os_release
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: /etc/os-release
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+cat /etc/os-release
+===== STDOUT =====
+PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+NAME="Debian GNU/Linux"
+VERSION_ID="12"
+ID=debian
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

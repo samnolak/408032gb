@@ -1,0 +1,49 @@
+{
+ "name": "MiMo-V2.6-Flash",
+ "hf_repo": "XiaomiMiMo/MiMo-V2.6-Flash-RL",
+ "spec_version": 2,
+ "n_layers": 48,
+ "hidden": 4096,
+ "vocab": 152576,
+ "moe": {
+  "layers": 47,
+  "mtp_layers": 0,
+  "n_experts": 256,
+  "top_k": 8,
+  "n_shared": 0,
+  "expert_ff": 2048,
+  "expert_mats": 3
+ },
+ "dense_params": {
+  "attention_global": 802160640,
+  "attention_swa": 3680501760,
+  "dense_ffn": 201326592,
+  "routers": 49283072,
+  "lm_head": 624951296,
+  "embedding": 624951296
+ },
+ "attention": [
+  {
+   "kind": "full",
+   "layers": 9,
+   "kv_elems_per_token": 1280,
+   "prefill_flops_coef": 40960,
+   "kv_heads": 4
+  },
+  {
+   "kind": "sliding",
+   "layers": 39,
+   "window": 128,
+   "kv_elems_per_token": 2560,
+   "prefill_flops_coef": 40960,
+   "kv_heads": 8
+  }
+ ],
+ "native_context": null,
+ "_labels": {
+  "geometry": "docs/models/mimo-v2.6-flash.md: layers/experts CONFIRMED (vLLM recipe), head dims QK 192 / V 128 PROVISIONAL (V2 report), 64 q heads, 8 SWA / 4 global KV heads CONFIRMED (deploy notes)",
+  "dense_params": "PROVISIONAL: from the head geometry; dense FFN width 16384 is an ASSUMPTION (UNKNOWN); sum with routed = 308.8B vs 309B model card",
+  "mtp": "a 5-layer DFlash-style drafter exists (vLLM recipe); its size is not modelled",
+  "native_context": "UNKNOWN here; see research/R1-models.md"
+ }
+}

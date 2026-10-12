@@ -1,0 +1,20 @@
+{
+  "name": "host epyc-ai (3x RTX 3090; ONE card used by the ik_llama run in PROBLEMS.md) - PARTIAL, for roofline calibration only",
+  "gpus": [
+    {"name": "RTX 3090", "vram_gib": 24.0, "hbm_bw_gbs": 936.0, "bw_eff": 0.75, "mma_eff": 0.5, "sm": "sm_86",
+     "tflops_tc_fp16_fp32acc": 71.0}
+  ],
+  "gpu_reserve_gib": 1.5,
+  "pcie": {"gen": 4, "width": 16, "h2d_gbs": 25.0, "latency_us": 10.0, "allreduce_us": 30.0, "p2p": null},
+  "ram": {"gib": 251.0, "reserve_gib": 12.0, "channels": null, "assume_channels": 8,
+          "bw_gbs_by_channels": {"4": 102.4, "8": 204.8}, "bw_eff": 0.7},
+  "cpu": {"model": "EPYC (96 threads), SKU UNKNOWN", "cores": 48, "avx2": true, "avx512": null},
+  "nvme": [{"model": null, "tib": null, "seq_read_gbs": 7.0}],
+  "nvme_eff": 0.6,
+  "_labels": {
+    "gpus": "PROVISIONAL: RTX 3090 spec 936 GB/s; one card (PROBLEMS.md: GPU2)",
+    "ram.gib": "PROBLEMS.md (251 GiB, measured there)",
+    "ram.channels": "UNKNOWN - this is why the calibration cannot separate channels from efficiency",
+    "tflops_tc_fp16_fp32acc": "PROVISIONAL: RTX 3090 dense FP16 tensor with FP32 accumulate (GeForce rate); not used by the decode bound"
+  }
+}

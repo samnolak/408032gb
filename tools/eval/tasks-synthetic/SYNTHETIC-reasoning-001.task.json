@@ -1,0 +1,11 @@
+{
+  "id": "SYNTHETIC-reasoning-001",
+  "category": "reasoning",
+  "synthetic": true,
+  "description": "SYNTHETIC: multi-step time arithmetic; normalized exact answer on the ANSWER line.",
+  "messages": [
+    {"role": "user", "content": "A train leaves at 09:40. It travels 210 km at 84 km/h, waits 15 minutes at a station, then travels 96 km at 64 km/h. At what time does it arrive? Think step by step, then finish with a line 'ANSWER: HH:MM'."}
+  ],
+  "check": {"type": "normalized", "answers": ["13:55"], "extract": "answer_line"},
+  "reference_answer": "210/84 = 2.5 h -> 12:10; +15 min -> 12:25; 96/64 = 1.5 h -> 13:55.\nANSWER: 13:55"
+}

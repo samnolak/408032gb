@@ -1,0 +1,100 @@
+{
+  "_label": "PROVISIONAL template, NOT RUN. llama.cpp llama-server, --moe-cache-mib variant: GLM-5.3-Flash with the experts of the first NCMOE layers in RAM (-ncmoe) and a GPU cache for them (--moe-cache-mib, LRU, misses copied over PCIe; split among the GPUs like the layers). Flags: llama.cpp tools/server/README.md @79e2e74 (82 -ncmoe, 83 --moe-cache-mib, the rest as in llamacpp-server.json); the cache exists only in builds >= c811cb8f0 (ROADMAP R1.4). llama.cpp mainline knows only the 'glm5-next' architecture string (src/llama-arch.cpp:158 @79e2e74, read here), not the 'glm5next' of the GGUF on the 3x3090 host (AGENTS.md; docs/reassessment/research/R2-engines.md:136), so this template needs a glm5-next GGUF (set GLM_GGUF; the weights for the 4x4080 server are an owner decision, ADR-005/ADR-009). Check every flag against `llama-server --help` on the server (artifacts/engine/flags_check.json).",
+  "_notes": {
+    "safety_rules": "scripts/r1/safety_rules.py checks this file before any step (run_r1.py refuses a violating config, exit 2); the rules are section (v) of docs/reassessment/PHASE-CLOSE-2026-10-11.md, accepted by the owner, applied as configuration guards only (no upstream patch in the R1 build). Rule 1: -np 1 stays explicit; no speculation in this template. Rule 2: --chat-template-file ${REPO}/templates/glm-5.3-flash/chat_template.jinja after --jinja (the built-in template leaks the previous turn's reasoning: risk matrix item 1); model.chat_template_sha256 is checked against the file and recorded in artifacts/orchestrator/safety_rules.json. Rule 3: clients never send \"reasoning_content\": null (HTTP 500 at common/chat.cpp:422-423@79e2e74); tools/gateway/gateway.py drops it. Rule 6: slot files are restored only through tools/kv/session_store.py, never by a raw /slots?action=restore of an unchecked file (N8). Rule 8: no manifest yet, so model.weights_unverified_reason marks every run UNVERIFIED; set the manifest and drop the reason before a run that is meant to count; a GGUF from the epyc-ai host only after tools/hostcheck/glm_gguf_check.sh.",
+    "cache_reuse": "--cache-reuse is left out: at llama.cpp 79e2e74 it is inert for qwen4exp (IMRoPE: n_pos_per_embd > 1, so get_can_shift() is false and the server disables it, src/llama-kv-cache.cpp:1208-1217, tools/server/server-context.cpp:1318-1327, checked by the lead) and on glm5-next it shifts the reused chunk and then re-processes the whole prompt (CONFIRMED on CPU by N7, docs/evidence/2026-10-10-n7-server-hybrid-cpu.md finding 5, branch claude/n7-server-hybrid-cpu); prefix reuse of these hybrid models comes from the context checkpoints",
+    "LLAMA_BIN": "bin/ of the llama.cpp build of scripts/engines/build_engine.py (/srv/llm/engines/current-llamacpp -> /srv/llm/engines-build/llama.cpp); the commit is engine.pin = tools/engines/pins.json[llama.cpp] (79e2e74eb, contains c811cb8f0 and d6cf9acb2); step engine_build_check compares ${LLAMA_BIN}/../build-info.json with the pin (sha, sm_89 cubins, sha256 of every built file) and does not start the engine on a mismatch. Build: python3 scripts/engines/build_engine.py --engine llama.cpp --arch 89 --src-root /srv/llm/engines-src --build-root /srv/llm/engines-build",
+    "experiment": "B1 'separately with --moe-cache-mib' (docs/reassessment/EXPERIMENTS.md) and D1-moe-cache-policy.md; the same command without --moe-cache-mib is the baseline row (copy this file and drop the two tokens)",
+    "GLM_GGUF": "first shard of a glm5-next GGUF with experts >= 4 bpw; the default path is a placeholder that does not exist, so weights_verify is skipped (no manifest) and quant_audit fails until it is set. Candidates from N15 (GGUF headers read by HTTP range on a CI runner, no weights downloaded; docs/evidence/2026-10-11-n15-gguf-headers.md on branch claude/n15-gguf-headers, not re-read here: Hugging Face is not reachable from this sandbox): unsloth/GLM-5.3-Flash-GGUF @a38483c8 UD-Q4_K_XL is glm5-next (185.983 GiB, experts 4.874 bpw, lowest matrix 4.5 bpw, expert_group_count 1), so the host's glm5next files are PROVISIONAL an earlier upload (compare the sha256 of shard 1 with the LFS sha256 b59c0300...); ggml-org/GLM-5.3-Flash-GGUF @c259a9f Q4_K (168.9 GiB, MTP in separate files). Set the revision and a manifest before a run",
+    "NCMOE": "PROVISIONAL: more layers on the CPU than the plain -ncmoe row (17 of 42 MoE layers fit the uniform-routing placement of tools/roofline.py for UD-Q4_K_XL: resident 60.7%) to leave VRAM for the cache; tune on the server",
+    "MOE_CACHE_MIB": "PROVISIONAL: 24 GiB in total over 4 GPUs; must fit next to the layers and KV",
+    "HIT": "PROVISIONAL preregistered input: share of expert reads served from VRAM. Static share (42-24)/42 = 0.43 plus cache hits, which are UNKNOWN until measured (M1/M2); 0.6 is an assumption. vs_roofline uses the same value: a measured/bound ratio above 1 means this input is wrong",
+    "bpw": "PROVISIONAL: Q4_K experts 4.5 bpw, dense 8.5; replace with the class bpw of this run's artifacts/quant/quant_audit.json",
+    "mode": "overlap no: llama.cpp computes a layer's CPU experts or copies cached experts, without overlapping them with the GPU part (tools/roofline.py decode() docstring); miss pcie: misses are copied over PCIe (D1-moe-cache-policy.md)",
+    "KV_TYPE": "f16 (ADR-012 D5)"
+  },
+  "name": "llamacpp-glm53f-moecache",
+  "vars": {
+    "LLAMA_BIN": "/srv/llm/engines/current-llamacpp/bin",
+    "GLM_GGUF": "/srv/llm/models/glm-5.3-flash-glm5-next/UNKNOWN-set-GLM_GGUF.gguf",
+    "CTX": "262144",
+    "TENSOR_SPLIT": "1,1,1,1",
+    "KV_TYPE": "f16",
+    "NCMOE": "24",
+    "MOE_CACHE_MIB": "24576",
+    "SLOT_DIR": "/srv/llm/state/slots",
+    "HEALTH_TIMEOUT_S": "3600",
+    "EXPERT_BPW": "4.5",
+    "DENSE_BPW": "8.5",
+    "HIT": "0.6",
+    "EXTRA_BODY": "{}",
+    "REFERENCE_URL": "",
+    "CORPUS": ""
+  },
+  "engine": {
+    "name": "llama.cpp llama-server (mainline, --moe-cache-mib)",
+    "pin": "llama.cpp",
+    "build_info": "${LLAMA_BIN}/../build-info.json",
+    "argv": ["${LLAMA_BIN}/llama-server", "-m", "${MODEL}", "--host", "${HOST}", "--port", "${PORT}",
+             "-c", "${CTX}", "-np", "1", "-ngl", "all", "-sm", "layer", "-ts", "${TENSOR_SPLIT}", "-fa", "on",
+             "-ctk", "${KV_TYPE}", "-ctv", "${KV_TYPE}", "-ncmoe", "${NCMOE}", "--moe-cache-mib", "${MOE_CACHE_MIB}",
+             "--jinja", "--chat-template-file", "${REPO}/templates/glm-5.3-flash/chat_template.jinja", "--metrics",
+             "--slot-save-path", "${SLOT_DIR}"],
+    "version_argv": ["${LLAMA_BIN}/llama-server", "--version"],
+    "help_argv": ["${LLAMA_BIN}/llama-server", "--help"],
+    "env": {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
+    "mkdirs": ["${SLOT_DIR}"],
+    "health": {"url": "http://${HOST}:${PORT}/health", "timeout_s": "${HEALTH_TIMEOUT_S}", "interval_s": 5,
+               "expect_status": 200},
+    "after_ready": [["free", "-g"], ["${NVIDIA_SMI}", "--query-gpu=index,memory.used,memory.total", "--format=csv"]],
+    "stop": {"timeout_s": 60},
+    "supports_slots": true
+  },
+  "model": {
+    "desc": "GLM-5.3-Flash, glm5-next GGUF (file, quant and revision UNKNOWN: set GLM_GGUF)",
+    "files": ["${GLM_GGUF}"],
+    "weights_manifest": null,
+    "weights_unverified_reason": "R1 safety rule 8: the glm5-next GGUF for the 4x4080 server is not chosen (GLM_GGUF, ADR-005/ADR-009) and no sha256 manifest exists for it; every run of this template is UNVERIFIED (weights_verify skipped, V2 NOT RUN) until model.weights_manifest is set and this reason is removed",
+    "weights_dest": null,
+    "chat_template_sha256": "5d47ac8e48510b5c6543db4000ef145201823bf46bae9cf51ac6a9553a16ef5a"
+  },
+  "roofline": {
+    "spec": "models/specs/glm-5.3-flash.json",
+    "hw": "hardware/target-4x4080-32g.unverified.json",
+    "expert_bpw": "${EXPERT_BPW}",
+    "dense_bpw": "${DENSE_BPW}",
+    "kv_bytes": 2.0
+  },
+  "mode": {"overlap": "no", "strategy": "pp", "miss": "pcie", "hit": "${HIT}", "spec_k": 0, "spec_accept": 0.0},
+  "reference": {"url": "${REFERENCE_URL}"},
+  "steps": {
+    "matrix": {"runs": [
+      {"name": "smoke-2k",
+       "args": ["--inputs", "2048", "--outputs", "128", "--states", "cold,warm", "--concurrency", "1", "--repeats", "1",
+                "--scenarios", "matrix", "--seed", "0", "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-2k",
+       "args": ["--inputs", "2048", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-32k",
+       "args": ["--inputs", "32768", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "ctx-128k",
+       "args": ["--inputs", "131072", "--length-mode", "total", "--outputs", "128,512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]},
+      {"name": "filled-262k",
+       "args": ["--inputs", "262144", "--length-mode", "total", "--outputs", "512,2048", "--states", "cold,warm",
+                "--concurrency", "1", "--repeats", "3", "--scenarios", "matrix,agent", "--agent-target-tokens",
+                "131072", "--seed", "0", "--extra-body", "${EXTRA_BODY}"]}
+    ]},
+    "probes": {"runs": [
+      {"name": "32k-128k-262k",
+       "args": ["--contexts", "32768,131072,262144", "--length-mode", "total", "--answer-tokens", "1024", "--seed", "0",
+                "--extra-body", "${EXTRA_BODY}"]}
+    ]},
+    "slot_persist": {"prompt_tokens": 131072, "args": ["--gen", "64", "--repeats", "3"]},
+    "logprob_compare": {"corpus": ["${CORPUS}"], "args": ["--prefixes", "200", "--top-k", "20"]}
+  }
+}

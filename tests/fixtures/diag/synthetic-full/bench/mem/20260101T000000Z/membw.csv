@@ -1,0 +1,7 @@
+variant,threads,omp_proc_bind,omp_places,numactl,kernel,best_GBps,median_GBps,min_s,median_s,max_s,array_bytes,timed_runs,log
+t1,1,close,cores,,copy,11.000,10.500,0.390000,0.400000,0.410000,2147483648,10,run-t1.txt
+t1,1,close,cores,,triad,12.000,11.500,0.530000,0.540000,0.550000,2147483648,10,run-t1.txt
+t1,1,close,cores,,read,13.000,12.500,0.160000,0.170000,0.180000,2147483648,10,run-t1.txt
+cores_spread,48,spread,cores,,copy,91.000,90.000,0.047000,0.048000,0.049000,2147483648,10,run-cores_spread.txt
+cores_spread,48,spread,cores,,triad,92.000,91.000,0.070000,0.071000,0.072000,2147483648,10,run-cores_spread.txt
+cores_spread,48,spread,cores,,read,93.000,92.000,0.023000,0.024000,0.025000,2147483648,10,run-cores_spread.txt

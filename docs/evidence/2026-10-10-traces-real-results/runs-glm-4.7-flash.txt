@@ -1,0 +1,630 @@
+# Literal outputs of the sensitivity runs, one block per run: the command line ($ ...), its stdout+stderr, and
+# [exit=<code> seconds=<wall> commit=<HEAD of the worktree when it ran>]. Written by runjob.sh (this directory).
+# S=/tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis (agent scratch; the traces there are gunzip -c of data/traces/real/<model>/traces/*.trace.gz)
+
+## glm-4.7-flash/cs_fine
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.05,0.1,0.15,0.2,0.25,0.3,0.35,0.4,0.45,0.5,0.546,0.55,0.6,0.607,0.65,0.7,0.746,0.75,0.8,0.85,0.9 --holdout-every 4 -o /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/out/glm-4.7-flash/cs_fine.json
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=4 prompt_readonly=True
+hit rate on gen tokens
+capacity      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+    0.05       0.149       0.116       0.274       0.119       0.107       0.421       0.000       0.000       0.463
+    0.10       0.225       0.366       0.386       0.185       0.282       0.587       0.331       0.337       0.617
+    0.15       0.305       0.501       0.450       0.256       0.454       0.709       0.488       0.485       0.732
+    0.20       0.355       0.571       0.492       0.311       0.536       0.770       0.556       0.556       0.789
+    0.25       0.407       0.635       0.535       0.366       0.588       0.817       0.618       0.618       0.831
+    0.30       0.456       0.692       0.576       0.412       0.645       0.854       0.674       0.673       0.869
+    0.35       0.505       0.744       0.617       0.457       0.692       0.884       0.725       0.722       0.899
+    0.40       0.566       0.801       0.665       0.516       0.749       0.914       0.778       0.778       0.927
+    0.45       0.615       0.837       0.700       0.563       0.795       0.931       0.815       0.809       0.943
+    0.50       0.661       0.867       0.736       0.609       0.830       0.945       0.843       0.839       0.956
+    0.55       0.707       0.891       0.771       0.652       0.865       0.956       0.864       0.859       0.967
+    0.55       0.707       0.891       0.771       0.652       0.865       0.956       0.864       0.859       0.967
+    0.60       0.755       0.912       0.805       0.697       0.892       0.966       0.880       0.874       0.975
+    0.61       0.770       0.917       0.816       0.712       0.902       0.969       0.884       0.878       0.977
+    0.65       0.809       0.934       0.850       0.758       0.922       0.975       0.892       0.888       0.983
+    0.70       0.851       0.947       0.881       0.800       0.941       0.981       0.898       0.894       0.987
+    0.75       0.892       0.958       0.910       0.847       0.954       0.985       0.900       0.898       0.989
+    0.75       0.892       0.958       0.910       0.847       0.954       0.985       0.900       0.898       0.989
+    0.80       0.922       0.968       0.935       0.888       0.966       0.989       0.900       0.899       0.992
+    0.85       0.949       0.978       0.957       0.924       0.976       0.993       0.900       0.900       0.993
+    0.90       0.978       0.989       0.981       0.967       0.988       0.996       0.900       0.900       0.998
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=370 commit=830106e]
+
+## glm-4.7-flash/cs_warm
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.1,0.25,0.5,0.75 --holdout-every 4 --warm
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=True session=False devices=4 prompt_readonly=True
+hit rate on gen tokens
+capacity      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+    0.10       0.225       0.366       0.386       0.185       0.282       0.587       0.331       0.337       0.617
+    0.25       0.407       0.635       0.535       0.366       0.588       0.817       0.618       0.618       0.831
+    0.50       0.661       0.867       0.736       0.609       0.830       0.945       0.843       0.839       0.956
+    0.75       0.892       0.958       0.910       0.847       0.954       0.985       0.900       0.898       0.989
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=84 commit=830106e]
+
+## glm-4.7-flash/cs_session
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.1,0.25,0.5,0.75 --holdout-every 4 --session
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=True devices=4 prompt_readonly=True
+hit rate on gen tokens
+capacity      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+    0.10       0.225       0.366       0.387       0.189       0.282       0.587       0.332       0.338       0.617
+    0.25       0.407       0.635       0.538       0.373       0.588       0.817       0.625       0.624       0.831
+    0.50       0.661       0.867       0.741       0.617       0.830       0.945       0.868       0.864       0.956
+    0.75       0.892       0.958       0.912       0.856       0.954       0.985       0.958       0.955       0.989
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=83 commit=830106e]
+
+## glm-4.7-flash/cs_warm_session
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.1,0.25,0.5,0.75 --holdout-every 4 --warm --session
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=True session=True devices=4 prompt_readonly=True
+hit rate on gen tokens
+capacity      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+    0.10       0.225       0.366       0.387       0.189       0.282       0.587       0.332       0.338       0.617
+    0.25       0.407       0.635       0.538       0.373       0.588       0.817       0.625       0.624       0.831
+    0.50       0.661       0.867       0.741       0.617       0.830       0.945       0.868       0.864       0.956
+    0.75       0.892       0.958       0.912       0.856       0.954       0.985       0.958       0.955       0.989
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=88 commit=830106e]
+
+## glm-4.7-flash/cs_prompt_updates
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.1,0.25,0.5,0.75 --holdout-every 4 --prompt-updates
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=4 prompt_readonly=False
+hit rate on gen tokens
+capacity      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+    0.10       0.225       0.366       0.386       0.185       0.282       0.587       0.337       0.342       0.617
+    0.25       0.407       0.635       0.535       0.366       0.588       0.817       0.631       0.630       0.831
+    0.50       0.661       0.867       0.736       0.609       0.830       0.945       0.880       0.874       0.956
+    0.75       0.892       0.958       0.910       0.847       0.954       0.985       0.967       0.964       0.989
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=90 commit=830106e]
+
+## glm-4.7-flash/cs_devices1
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.607,0.75 --holdout-every 4 --policies lru_global,lru_device --devices 1
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=1 prompt_readonly=True
+hit rate on gen tokens
+capacity  lru_global  lru_device
+    0.25       0.618       0.618
+    0.50       0.843       0.843
+    0.61       0.884       0.884
+    0.75       0.900       0.900
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=14 commit=830106e]
+
+## glm-4.7-flash/cs_devices1_prompt_updates
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.607,0.75 --holdout-every 4 --policies lru_global,lru_device --devices 1 --prompt-updates
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=1 prompt_readonly=False
+hit rate on gen tokens
+capacity  lru_global  lru_device
+    0.25       0.631       0.631
+    0.50       0.880       0.880
+    0.61       0.932       0.932
+    0.75       0.967       0.967
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=15 commit=830106e]
+
+## glm-4.7-flash/cs_devices2
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.607,0.75 --holdout-every 4 --policies lru_global,lru_device --devices 2
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=2 prompt_readonly=True
+hit rate on gen tokens
+capacity  lru_global  lru_device
+    0.25       0.618       0.619
+    0.50       0.843       0.841
+    0.61       0.884       0.881
+    0.75       0.900       0.899
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=15 commit=830106e]
+
+## glm-4.7-flash/cs_devices2_prompt_updates
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.607,0.75 --holdout-every 4 --policies lru_global,lru_device --devices 2 --prompt-updates
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=2 prompt_readonly=False
+hit rate on gen tokens
+capacity  lru_global  lru_device
+    0.25       0.631       0.631
+    0.50       0.880       0.877
+    0.61       0.932       0.929
+    0.75       0.967       0.967
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=16 commit=830106e]
+
+## glm-4.7-flash/cs_devices3
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.607,0.75 --holdout-every 4 --policies lru_global,lru_device --devices 3
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=3 prompt_readonly=True
+hit rate on gen tokens
+capacity  lru_global  lru_device
+    0.25       0.618       0.619
+    0.50       0.843       0.838
+    0.61       0.884       0.877
+    0.75       0.900       0.897
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=15 commit=830106e]
+
+## glm-4.7-flash/cs_devices3_prompt_updates
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.607,0.75 --holdout-every 4 --policies lru_global,lru_device --devices 3 --prompt-updates
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=3 prompt_readonly=False
+hit rate on gen tokens
+capacity  lru_global  lru_device
+    0.25       0.631       0.631
+    0.50       0.880       0.873
+    0.61       0.932       0.924
+    0.75       0.967       0.964
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=17 commit=830106e]
+
+## glm-4.7-flash/cs_devices4
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.607,0.75 --holdout-every 4 --policies lru_global,lru_device --devices 4
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=4 prompt_readonly=True
+hit rate on gen tokens
+capacity  lru_global  lru_device
+    0.25       0.618       0.618
+    0.50       0.843       0.839
+    0.61       0.884       0.878
+    0.75       0.900       0.898
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=14 commit=830106e]
+
+## glm-4.7-flash/cs_devices4_prompt_updates
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.607,0.75 --holdout-every 4 --policies lru_global,lru_device --devices 4 --prompt-updates
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=4 prompt_readonly=False
+hit rate on gen tokens
+capacity  lru_global  lru_device
+    0.25       0.631       0.630
+    0.50       0.880       0.874
+    0.61       0.932       0.925
+    0.75       0.967       0.964
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=16 commit=830106e]
+
+## glm-4.7-flash/cs_devices8
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.607,0.75 --holdout-every 4 --policies lru_global,lru_device --devices 8
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=8 prompt_readonly=True
+hit rate on gen tokens
+capacity  lru_global  lru_device
+    0.25       0.618       0.618
+    0.50       0.843       0.835
+    0.61       0.884       0.876
+    0.75       0.900       0.896
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=14 commit=830106e]
+
+## glm-4.7-flash/cs_devices8_prompt_updates
+$ python3 tools/g0/cachesim.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.607,0.75 --holdout-every 4 --policies lru_global,lru_device --devices 8 --prompt-updates
+# cachesim: 16 traces, held-out every 4th file: 12 train / 4 test; warm=False session=False devices=8 prompt_readonly=False
+hit rate on gen tokens
+capacity  lru_global  lru_device
+    0.25       0.631       0.630
+    0.50       0.880       0.870
+    0.61       0.932       0.924
+    0.75       0.967       0.963
+distinct experts per layer per window [gen]: k=1: 4.00 (indep. 4.00); k=2: 6.72 (indep. 7.75); k=4: 11.07 (indep. 14.56); k=8: 17.63 (indep. 25.81)
+distinct experts per layer per window [prompt]: k=1: 4.00 (indep. 4.00); k=2: 6.80 (indep. 7.75); k=4: 11.24 (indep. 14.56); k=8: 17.80 (indep. 25.81)
+[exit=0 seconds=16 commit=830106e]
+
+## glm-4.7-flash/se_folds_full
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.546,0.607,0.746 --fold all -o /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/out/glm-4.7-flash/se_folds_full.json
+# 16 traces, fold=all (holdout every 4), test_view=full, gen_cap=None, train_part=all, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+   0  c00,c04,c08,c12                     414     0.250   16       0.374       0.642       0.541       0.365       0.585       0.815       0.625       0.624       0.829
+   0  c00,c04,c08,c12                     414     0.500   32       0.644       0.857       0.752       0.627       0.822       0.940       0.827       0.821       0.953
+   0  c00,c04,c08,c12                     414     0.546   35       0.690       0.881       0.788       0.677       0.856       0.952       0.850       0.842       0.963
+   0  c00,c04,c08,c12                     414     0.607   39       0.754       0.908       0.834       0.739       0.893       0.965       0.867       0.860       0.973
+   0  c00,c04,c08,c12                     414     0.746   48       0.881       0.953       0.925       0.873       0.949       0.984       0.884       0.881       0.989
+   1  c01,c05,c09,c13                     512     0.250   16       0.394       0.604       0.545       0.397       0.569       0.800       0.591       0.588       0.814
+   1  c01,c05,c09,c13                     512     0.500   32       0.658       0.851       0.761       0.658       0.817       0.937       0.827       0.822       0.947
+   1  c01,c05,c09,c13                     512     0.546   35       0.705       0.877       0.796       0.701       0.852       0.949       0.848       0.845       0.959
+   1  c01,c05,c09,c13                     512     0.607   39       0.768       0.905       0.839       0.761       0.890       0.963       0.870       0.866       0.970
+   1  c01,c05,c09,c13                     512     0.746   48       0.898       0.951       0.923       0.876       0.947       0.984       0.895       0.893       0.989
+   2  c02,c06,c10,c14                     512     0.250   16       0.431       0.628       0.568       0.431       0.595       0.806       0.616       0.614       0.822
+   2  c02,c06,c10,c14                     512     0.500   32       0.683       0.849       0.780       0.690       0.829       0.936       0.824       0.821       0.947
+   2  c02,c06,c10,c14                     512     0.546   35       0.727       0.874       0.813       0.738       0.861       0.949       0.845       0.842       0.957
+   2  c02,c06,c10,c14                     512     0.607   39       0.786       0.902       0.856       0.793       0.895       0.962       0.867       0.863       0.968
+   2  c02,c06,c10,c14                     512     0.746   48       0.904       0.949       0.931       0.897       0.949       0.983       0.892       0.890       0.987
+   3  c03,c07,c11,c15                     484     0.250   16       0.407       0.635       0.535       0.366       0.588       0.817       0.618       0.618       0.831
+   3  c03,c07,c11,c15                     484     0.500   32       0.661       0.867       0.736       0.609       0.830       0.945       0.843       0.839       0.956
+   3  c03,c07,c11,c15                     484     0.546   35       0.707       0.891       0.771       0.652       0.865       0.956       0.864       0.859       0.967
+   3  c03,c07,c11,c15                     484     0.607   39       0.770       0.917       0.816       0.712       0.902       0.969       0.884       0.878       0.977
+   3  c03,c07,c11,c15                     484     0.746   48       0.892       0.958       0.910       0.847       0.954       0.985       0.900       0.898       0.989
+pooled                                              0.250   16       0.403       0.626       0.547       0.391       0.584       0.809       0.612       0.610       0.824
+pooled                                              0.500   32       0.662       0.856       0.758       0.648       0.825       0.940       0.831       0.826       0.951
+pooled                                              0.546   35       0.708       0.881       0.793       0.693       0.859       0.952       0.852       0.847       0.961
+pooled                                              0.607   39       0.770       0.908       0.837       0.752       0.895       0.965       0.872       0.867       0.972
+pooled                                              0.746   48       0.895       0.953       0.922       0.874       0.950       0.984       0.893       0.891       0.988
+   min                                              0.250   16       0.374       0.604       0.535       0.365       0.569       0.800       0.591       0.588       0.814
+   min                                              0.500   32       0.644       0.849       0.736       0.609       0.817       0.936       0.824       0.821       0.947
+   min                                              0.546   35       0.690       0.874       0.771       0.652       0.852       0.949       0.845       0.842       0.957
+   min                                              0.607   39       0.754       0.902       0.816       0.712       0.890       0.962       0.867       0.860       0.968
+   min                                              0.746   48       0.881       0.949       0.910       0.847       0.947       0.983       0.884       0.881       0.987
+   max                                              0.250   16       0.431       0.642       0.568       0.431       0.595       0.817       0.625       0.624       0.831
+   max                                              0.500   32       0.683       0.867       0.780       0.690       0.830       0.945       0.843       0.839       0.956
+   max                                              0.546   35       0.727       0.891       0.813       0.738       0.865       0.956       0.864       0.859       0.967
+   max                                              0.607   39       0.786       0.917       0.856       0.793       0.902       0.969       0.884       0.878       0.977
+   max                                              0.746   48       0.904       0.958       0.931       0.897       0.954       0.985       0.900       0.898       0.989
+[exit=0 seconds=335 commit=830106e]
+
+## glm-4.7-flash/se_folds_full_warm
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.546,0.607,0.746 --fold all --warm
+# 16 traces, fold=all (holdout every 4), test_view=full, gen_cap=None, train_part=all, per_trace=False, warm=True, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+   0  c00,c04,c08,c12                     414     0.250   16       0.374       0.642       0.541       0.365       0.585       0.815       0.625       0.624       0.829
+   0  c00,c04,c08,c12                     414     0.500   32       0.644       0.857       0.752       0.627       0.822       0.940       0.827       0.821       0.953
+   0  c00,c04,c08,c12                     414     0.546   35       0.690       0.881       0.788       0.677       0.856       0.952       0.850       0.842       0.963
+   0  c00,c04,c08,c12                     414     0.607   39       0.754       0.908       0.834       0.739       0.893       0.965       0.867       0.860       0.973
+   0  c00,c04,c08,c12                     414     0.746   48       0.881       0.953       0.925       0.873       0.949       0.984       0.884       0.881       0.989
+   1  c01,c05,c09,c13                     512     0.250   16       0.394       0.604       0.545       0.397       0.569       0.800       0.591       0.588       0.814
+   1  c01,c05,c09,c13                     512     0.500   32       0.658       0.851       0.761       0.658       0.817       0.937       0.827       0.822       0.947
+   1  c01,c05,c09,c13                     512     0.546   35       0.705       0.877       0.796       0.701       0.852       0.949       0.848       0.845       0.959
+   1  c01,c05,c09,c13                     512     0.607   39       0.768       0.905       0.839       0.761       0.890       0.963       0.870       0.866       0.970
+   1  c01,c05,c09,c13                     512     0.746   48       0.898       0.951       0.923       0.876       0.947       0.984       0.895       0.893       0.989
+   2  c02,c06,c10,c14                     512     0.250   16       0.431       0.628       0.568       0.431       0.595       0.806       0.616       0.614       0.822
+   2  c02,c06,c10,c14                     512     0.500   32       0.683       0.849       0.780       0.690       0.829       0.936       0.824       0.821       0.947
+   2  c02,c06,c10,c14                     512     0.546   35       0.727       0.874       0.813       0.738       0.861       0.949       0.845       0.842       0.957
+   2  c02,c06,c10,c14                     512     0.607   39       0.786       0.902       0.856       0.793       0.895       0.962       0.867       0.863       0.968
+   2  c02,c06,c10,c14                     512     0.746   48       0.904       0.949       0.931       0.897       0.949       0.983       0.892       0.890       0.987
+   3  c03,c07,c11,c15                     484     0.250   16       0.407       0.635       0.535       0.366       0.588       0.817       0.618       0.618       0.831
+   3  c03,c07,c11,c15                     484     0.500   32       0.661       0.867       0.736       0.609       0.830       0.945       0.843       0.839       0.956
+   3  c03,c07,c11,c15                     484     0.546   35       0.707       0.891       0.771       0.652       0.865       0.956       0.864       0.859       0.967
+   3  c03,c07,c11,c15                     484     0.607   39       0.770       0.917       0.816       0.712       0.902       0.969       0.884       0.878       0.977
+   3  c03,c07,c11,c15                     484     0.746   48       0.892       0.958       0.910       0.847       0.954       0.985       0.900       0.898       0.989
+pooled                                              0.250   16       0.403       0.626       0.547       0.391       0.584       0.809       0.612       0.610       0.824
+pooled                                              0.500   32       0.662       0.856       0.758       0.648       0.825       0.940       0.831       0.826       0.951
+pooled                                              0.546   35       0.708       0.881       0.793       0.693       0.859       0.952       0.852       0.847       0.961
+pooled                                              0.607   39       0.770       0.908       0.837       0.752       0.895       0.965       0.872       0.867       0.972
+pooled                                              0.746   48       0.895       0.953       0.922       0.874       0.950       0.984       0.893       0.891       0.988
+   min                                              0.250   16       0.374       0.604       0.535       0.365       0.569       0.800       0.591       0.588       0.814
+   min                                              0.500   32       0.644       0.849       0.736       0.609       0.817       0.936       0.824       0.821       0.947
+   min                                              0.546   35       0.690       0.874       0.771       0.652       0.852       0.949       0.845       0.842       0.957
+   min                                              0.607   39       0.754       0.902       0.816       0.712       0.890       0.962       0.867       0.860       0.968
+   min                                              0.746   48       0.881       0.949       0.910       0.847       0.947       0.983       0.884       0.881       0.987
+   max                                              0.250   16       0.431       0.642       0.568       0.431       0.595       0.817       0.625       0.624       0.831
+   max                                              0.500   32       0.683       0.867       0.780       0.690       0.830       0.945       0.843       0.839       0.956
+   max                                              0.546   35       0.727       0.891       0.813       0.738       0.865       0.956       0.864       0.859       0.967
+   max                                              0.607   39       0.786       0.917       0.856       0.793       0.902       0.969       0.884       0.878       0.977
+   max                                              0.746   48       0.904       0.958       0.931       0.897       0.954       0.985       0.900       0.898       0.989
+[exit=0 seconds=334 commit=830106e]
+
+## glm-4.7-flash/se_folds_genonly
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.546,0.607,0.746 --fold all --test-view gen_only -o /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/out/glm-4.7-flash/se_folds_genonly.json
+# 16 traces, fold=all (holdout every 4), test_view=gen_only, gen_cap=None, train_part=all, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+   0  c00,c04,c08,c12                     414     0.250   16       0.374       0.626       0.658       0.607       0.578       0.820       0.625       0.624       0.832
+   0  c00,c04,c08,c12                     414     0.500   32       0.644       0.815       0.822       0.801       0.804       0.947       0.827       0.821       0.956
+   0  c00,c04,c08,c12                     414     0.546   35       0.690       0.834       0.838       0.821       0.835       0.959       0.850       0.842       0.967
+   0  c00,c04,c08,c12                     414     0.607   39       0.754       0.852       0.854       0.844       0.868       0.973       0.867       0.860       0.979
+   0  c00,c04,c08,c12                     414     0.746   48       0.881       0.875       0.876       0.874       0.917       0.992       0.884       0.881       0.996
+   1  c01,c05,c09,c13                     512     0.250   16       0.394       0.592       0.640       0.591       0.563       0.804       0.591       0.588       0.818
+   1  c01,c05,c09,c13                     512     0.500   32       0.658       0.816       0.821       0.800       0.802       0.943       0.827       0.822       0.950
+   1  c01,c05,c09,c13                     512     0.546   35       0.705       0.838       0.841       0.824       0.835       0.956       0.848       0.845       0.962
+   1  c01,c05,c09,c13                     512     0.607   39       0.768       0.860       0.862       0.850       0.870       0.969       0.870       0.866       0.974
+   1  c01,c05,c09,c13                     512     0.746   48       0.898       0.888       0.889       0.886       0.921       0.990       0.895       0.893       0.992
+   2  c02,c06,c10,c14                     512     0.250   16       0.431       0.615       0.637       0.581       0.589       0.811       0.616       0.614       0.826
+   2  c02,c06,c10,c14                     512     0.500   32       0.683       0.816       0.814       0.787       0.815       0.941       0.824       0.821       0.949
+   2  c02,c06,c10,c14                     512     0.546   35       0.727       0.837       0.832       0.811       0.844       0.954       0.845       0.842       0.960
+   2  c02,c06,c10,c14                     512     0.607   39       0.786       0.857       0.854       0.839       0.876       0.967       0.867       0.863       0.973
+   2  c02,c06,c10,c14                     512     0.746   48       0.904       0.885       0.884       0.880       0.923       0.988       0.892       0.890       0.990
+   3  c03,c07,c11,c15                     484     0.250   16       0.407       0.622       0.675       0.638       0.582       0.822       0.618       0.618       0.835
+   3  c03,c07,c11,c15                     484     0.500   32       0.661       0.831       0.845       0.830       0.815       0.952       0.843       0.839       0.959
+   3  c03,c07,c11,c15                     484     0.546   35       0.707       0.851       0.861       0.849       0.848       0.963       0.864       0.859       0.970
+   3  c03,c07,c11,c15                     484     0.607   39       0.770       0.870       0.876       0.869       0.882       0.976       0.884       0.878       0.981
+   3  c03,c07,c11,c15                     484     0.746   48       0.892       0.892       0.894       0.893       0.927       0.994       0.900       0.898       0.998
+pooled                                              0.250   16       0.403       0.613       0.652       0.603       0.578       0.814       0.612       0.610       0.828
+pooled                                              0.500   32       0.662       0.820       0.825       0.804       0.809       0.946       0.831       0.826       0.953
+pooled                                              0.546   35       0.708       0.840       0.843       0.826       0.841       0.958       0.852       0.847       0.965
+pooled                                              0.607   39       0.770       0.860       0.862       0.851       0.874       0.971       0.872       0.867       0.976
+pooled                                              0.746   48       0.895       0.885       0.886       0.883       0.922       0.991       0.893       0.891       0.994
+   min                                              0.250   16       0.374       0.592       0.637       0.581       0.563       0.804       0.591       0.588       0.818
+   min                                              0.500   32       0.644       0.815       0.814       0.787       0.802       0.941       0.824       0.821       0.949
+   min                                              0.546   35       0.690       0.834       0.832       0.811       0.835       0.954       0.845       0.842       0.960
+   min                                              0.607   39       0.754       0.852       0.854       0.839       0.868       0.967       0.867       0.860       0.973
+   min                                              0.746   48       0.881       0.875       0.876       0.874       0.917       0.988       0.884       0.881       0.990
+   max                                              0.250   16       0.431       0.626       0.675       0.638       0.589       0.822       0.625       0.624       0.835
+   max                                              0.500   32       0.683       0.831       0.845       0.830       0.815       0.952       0.843       0.839       0.959
+   max                                              0.546   35       0.727       0.851       0.861       0.849       0.848       0.963       0.864       0.859       0.970
+   max                                              0.607   39       0.786       0.870       0.876       0.869       0.882       0.976       0.884       0.878       0.981
+   max                                              0.746   48       0.904       0.892       0.894       0.893       0.927       0.994       0.900       0.898       0.998
+[exit=0 seconds=20 commit=830106e]
+
+## glm-4.7-flash/se_folds_genonly_warm
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.546,0.607,0.746 --fold all --test-view gen_only --warm
+# 16 traces, fold=all (holdout every 4), test_view=gen_only, gen_cap=None, train_part=all, per_trace=False, warm=True, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+   0  c00,c04,c08,c12                     414     0.250   16       0.374       0.633       0.666       0.614       0.580       0.820       0.625       0.624       0.832
+   0  c00,c04,c08,c12                     414     0.500   32       0.644       0.846       0.853       0.832       0.815       0.947       0.827       0.821       0.956
+   0  c00,c04,c08,c12                     414     0.546   35       0.690       0.871       0.875       0.858       0.848       0.959       0.850       0.842       0.967
+   0  c00,c04,c08,c12                     414     0.607   39       0.754       0.899       0.902       0.891       0.886       0.973       0.867       0.860       0.979
+   0  c00,c04,c08,c12                     414     0.746   48       0.881       0.950       0.951       0.949       0.947       0.992       0.884       0.881       0.996
+   1  c01,c05,c09,c13                     512     0.250   16       0.394       0.598       0.646       0.597       0.565       0.804       0.591       0.588       0.818
+   1  c01,c05,c09,c13                     512     0.500   32       0.658       0.842       0.847       0.825       0.811       0.943       0.827       0.822       0.950
+   1  c01,c05,c09,c13                     512     0.546   35       0.705       0.869       0.872       0.854       0.846       0.956       0.848       0.845       0.962
+   1  c01,c05,c09,c13                     512     0.607   39       0.768       0.899       0.901       0.889       0.885       0.969       0.870       0.866       0.974
+   1  c01,c05,c09,c13                     512     0.746   48       0.898       0.950       0.951       0.948       0.946       0.990       0.895       0.893       0.992
+   2  c02,c06,c10,c14                     512     0.250   16       0.431       0.621       0.643       0.586       0.591       0.811       0.616       0.614       0.826
+   2  c02,c06,c10,c14                     512     0.500   32       0.683       0.840       0.838       0.811       0.822       0.941       0.824       0.821       0.949
+   2  c02,c06,c10,c14                     512     0.546   35       0.727       0.866       0.862       0.841       0.855       0.954       0.845       0.842       0.960
+   2  c02,c06,c10,c14                     512     0.607   39       0.786       0.895       0.892       0.877       0.889       0.967       0.867       0.863       0.973
+   2  c02,c06,c10,c14                     512     0.746   48       0.904       0.947       0.946       0.941       0.947       0.988       0.892       0.890       0.990
+   3  c03,c07,c11,c15                     484     0.250   16       0.407       0.628       0.682       0.645       0.584       0.822       0.618       0.618       0.835
+   3  c03,c07,c11,c15                     484     0.500   32       0.661       0.859       0.872       0.857       0.824       0.952       0.843       0.839       0.959
+   3  c03,c07,c11,c15                     484     0.546   35       0.707       0.884       0.894       0.882       0.860       0.963       0.864       0.859       0.970
+   3  c03,c07,c11,c15                     484     0.607   39       0.770       0.911       0.918       0.910       0.898       0.976       0.884       0.878       0.981
+   3  c03,c07,c11,c15                     484     0.746   48       0.892       0.956       0.958       0.957       0.952       0.994       0.900       0.898       0.998
+pooled                                              0.250   16       0.403       0.619       0.659       0.610       0.580       0.814       0.612       0.610       0.828
+pooled                                              0.500   32       0.662       0.846       0.852       0.831       0.818       0.946       0.831       0.826       0.953
+pooled                                              0.546   35       0.708       0.872       0.876       0.858       0.852       0.958       0.852       0.847       0.965
+pooled                                              0.607   39       0.770       0.901       0.903       0.892       0.890       0.971       0.872       0.867       0.976
+pooled                                              0.746   48       0.895       0.950       0.951       0.949       0.948       0.991       0.893       0.891       0.994
+   min                                              0.250   16       0.374       0.598       0.643       0.586       0.565       0.804       0.591       0.588       0.818
+   min                                              0.500   32       0.644       0.840       0.838       0.811       0.811       0.941       0.824       0.821       0.949
+   min                                              0.546   35       0.690       0.866       0.862       0.841       0.846       0.954       0.845       0.842       0.960
+   min                                              0.607   39       0.754       0.895       0.892       0.877       0.885       0.967       0.867       0.860       0.973
+   min                                              0.746   48       0.881       0.947       0.946       0.941       0.946       0.988       0.884       0.881       0.990
+   max                                              0.250   16       0.431       0.633       0.682       0.645       0.591       0.822       0.625       0.624       0.835
+   max                                              0.500   32       0.683       0.859       0.872       0.857       0.824       0.952       0.843       0.839       0.959
+   max                                              0.546   35       0.727       0.884       0.894       0.882       0.860       0.963       0.864       0.859       0.970
+   max                                              0.607   39       0.786       0.911       0.918       0.910       0.898       0.976       0.884       0.878       0.981
+   max                                              0.746   48       0.904       0.956       0.958       0.957       0.952       0.994       0.900       0.898       0.998
+[exit=0 seconds=21 commit=830106e]
+
+## glm-4.7-flash/se_pertrace
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.5,0.607 --per-trace
+# 16 traces, fold=last (holdout every 4), test_view=full, gen_cap=None, train_part=all, per_trace=True, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+   3  c03                                 100     0.500   32       0.618       0.879       0.755       0.633       0.825       0.949       0.849       0.844       0.959
+   3  c03                                 100     0.607   39       0.740       0.924       0.830       0.739       0.904       0.969       0.877       0.874       0.977
+   3  c07                                 128     0.500   32       0.666       0.857       0.751       0.644       0.819       0.942       0.833       0.828       0.953
+   3  c07                                 128     0.607   39       0.772       0.914       0.828       0.738       0.896       0.968       0.885       0.877       0.978
+   3  c11                                 128     0.500   32       0.679       0.870       0.731       0.604       0.838       0.947       0.846       0.840       0.960
+   3  c11                                 128     0.607   39       0.787       0.918       0.814       0.708       0.904       0.970       0.889       0.882       0.977
+   3  c15                                 128     0.500   32       0.670       0.865       0.711       0.561       0.837       0.944       0.847       0.843       0.954
+   3  c15                                 128     0.607   39       0.775       0.914       0.796       0.669       0.904       0.968       0.884       0.879       0.977
+pooled                                              0.500   32       0.661       0.867       0.736       0.609       0.830       0.945       0.843       0.839       0.956
+pooled                                              0.607   39       0.770       0.917       0.816       0.712       0.902       0.969       0.884       0.878       0.977
+   min                                              0.500   32       0.618       0.857       0.711       0.561       0.819       0.942       0.833       0.828       0.953
+   min                                              0.607   39       0.740       0.914       0.796       0.669       0.896       0.968       0.877       0.874       0.977
+   max                                              0.500   32       0.679       0.879       0.755       0.644       0.838       0.949       0.849       0.844       0.960
+   max                                              0.607   39       0.787       0.924       0.830       0.739       0.904       0.970       0.889       0.882       0.978
+[exit=0 seconds=34 commit=830106e]
+
+## glm-4.7-flash/se_folds_traingen
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.546,0.607,0.746 --fold all --policies static,hybrid --train-part gen
+# 16 traces, fold=all (holdout every 4), test_view=full, gen_cap=None, train_part=gen, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static      hybrid
+   0  c00,c04,c08,c12                     414     0.250   16       0.624       0.668
+   0  c00,c04,c08,c12                     414     0.500   32       0.856       0.869
+   0  c00,c04,c08,c12                     414     0.546   35       0.885       0.891
+   0  c00,c04,c08,c12                     414     0.607   39       0.914       0.915
+   0  c00,c04,c08,c12                     414     0.746   48       0.962       0.959
+   1  c01,c05,c09,c13                     512     0.250   16       0.599       0.634
+   1  c01,c05,c09,c13                     512     0.500   32       0.835       0.860
+   1  c01,c05,c09,c13                     512     0.546   35       0.865       0.887
+   1  c01,c05,c09,c13                     512     0.607   39       0.897       0.914
+   1  c01,c05,c09,c13                     512     0.746   48       0.952       0.958
+   2  c02,c06,c10,c14                     512     0.250   16       0.545       0.632
+   2  c02,c06,c10,c14                     512     0.500   32       0.784       0.850
+   2  c02,c06,c10,c14                     512     0.546   35       0.819       0.876
+   2  c02,c06,c10,c14                     512     0.607   39       0.858       0.905
+   2  c02,c06,c10,c14                     512     0.746   48       0.925       0.953
+   3  c03,c07,c11,c15                     484     0.250   16       0.652       0.668
+   3  c03,c07,c11,c15                     484     0.500   32       0.880       0.880
+   3  c03,c07,c11,c15                     484     0.546   35       0.904       0.902
+   3  c03,c07,c11,c15                     484     0.607   39       0.931       0.926
+   3  c03,c07,c11,c15                     484     0.746   48       0.970       0.965
+pooled                                              0.250   16       0.603       0.649
+pooled                                              0.500   32       0.837       0.864
+pooled                                              0.546   35       0.867       0.889
+pooled                                              0.607   39       0.899       0.915
+pooled                                              0.746   48       0.951       0.959
+   min                                              0.250   16       0.545       0.632
+   min                                              0.500   32       0.784       0.850
+   min                                              0.546   35       0.819       0.876
+   min                                              0.607   39       0.858       0.905
+   min                                              0.746   48       0.925       0.953
+   max                                              0.250   16       0.652       0.668
+   max                                              0.500   32       0.880       0.880
+   max                                              0.546   35       0.904       0.902
+   max                                              0.607   39       0.931       0.926
+   max                                              0.746   48       0.970       0.965
+[exit=0 seconds=20 commit=830106e]
+
+## glm-4.7-flash/se_folds_trainprompt
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.25,0.5,0.546,0.607,0.746 --fold all --policies static,hybrid --train-part prompt
+# 16 traces, fold=all (holdout every 4), test_view=full, gen_cap=None, train_part=prompt, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static      hybrid
+   0  c00,c04,c08,c12                     414     0.250   16       0.356       0.577
+   0  c00,c04,c08,c12                     414     0.500   32       0.604       0.818
+   0  c00,c04,c08,c12                     414     0.546   35       0.652       0.854
+   0  c00,c04,c08,c12                     414     0.607   39       0.711       0.889
+   0  c00,c04,c08,c12                     414     0.746   48       0.840       0.948
+   1  c01,c05,c09,c13                     512     0.250   16       0.377       0.564
+   1  c01,c05,c09,c13                     512     0.500   32       0.622       0.812
+   1  c01,c05,c09,c13                     512     0.546   35       0.671       0.848
+   1  c01,c05,c09,c13                     512     0.607   39       0.731       0.887
+   1  c01,c05,c09,c13                     512     0.746   48       0.855       0.946
+   2  c02,c06,c10,c14                     512     0.250   16       0.417       0.589
+   2  c02,c06,c10,c14                     512     0.500   32       0.657       0.826
+   2  c02,c06,c10,c14                     512     0.546   35       0.699       0.858
+   2  c02,c06,c10,c14                     512     0.607   39       0.757       0.894
+   2  c02,c06,c10,c14                     512     0.746   48       0.872       0.948
+   3  c03,c07,c11,c15                     484     0.250   16       0.387       0.583
+   3  c03,c07,c11,c15                     484     0.500   32       0.625       0.825
+   3  c03,c07,c11,c15                     484     0.546   35       0.679       0.862
+   3  c03,c07,c11,c15                     484     0.607   39       0.730       0.899
+   3  c03,c07,c11,c15                     484     0.746   48       0.851       0.953
+pooled                                              0.250   16       0.386       0.578
+pooled                                              0.500   32       0.628       0.820
+pooled                                              0.546   35       0.676       0.855
+pooled                                              0.607   39       0.733       0.892
+pooled                                              0.746   48       0.855       0.949
+   min                                              0.250   16       0.356       0.564
+   min                                              0.500   32       0.604       0.812
+   min                                              0.546   35       0.652       0.848
+   min                                              0.607   39       0.711       0.887
+   min                                              0.746   48       0.840       0.946
+   max                                              0.250   16       0.417       0.589
+   max                                              0.500   32       0.657       0.826
+   max                                              0.546   35       0.699       0.862
+   max                                              0.607   39       0.757       0.899
+   max                                              0.746   48       0.872       0.953
+[exit=0 seconds=22 commit=830106e]
+
+## glm-4.7-flash/se_folds_full_gencap30
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.5,0.607 --fold all --gen-cap 30
+# 16 traces, fold=all (holdout every 4), test_view=full, gen_cap=30, train_part=all, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+   0  c00,c04,c08,c12                     120     0.500   32       0.672       0.817       0.743       0.638       0.806       0.924       0.676       0.675       0.942
+   0  c00,c04,c08,c12                     120     0.607   39       0.781       0.873       0.822       0.742       0.870       0.951       0.690       0.689       0.959
+   1  c01,c05,c09,c13                     120     0.500   32       0.677       0.837       0.751       0.656       0.819       0.927       0.699       0.695       0.937
+   1  c01,c05,c09,c13                     120     0.607   39       0.785       0.884       0.829       0.760       0.882       0.952       0.704       0.704       0.958
+   2  c02,c06,c10,c14                     120     0.500   32       0.654       0.820       0.745       0.638       0.815       0.924       0.684       0.683       0.940
+   2  c02,c06,c10,c14                     120     0.607   39       0.762       0.872       0.824       0.756       0.874       0.951       0.692       0.692       0.958
+   3  c03,c07,c11,c15                     120     0.500   32       0.697       0.837       0.745       0.638       0.829       0.931       0.701       0.700       0.947
+   3  c03,c07,c11,c15                     120     0.607   39       0.800       0.885       0.822       0.738       0.887       0.955       0.708       0.708       0.963
+pooled                                              0.500   32       0.675       0.828       0.746       0.643       0.817       0.927       0.690       0.689       0.941
+pooled                                              0.607   39       0.782       0.878       0.824       0.749       0.878       0.952       0.699       0.698       0.959
+   min                                              0.500   32       0.654       0.817       0.743       0.638       0.806       0.924       0.676       0.675       0.937
+   min                                              0.607   39       0.762       0.872       0.822       0.738       0.870       0.951       0.690       0.689       0.958
+   max                                              0.500   32       0.697       0.837       0.751       0.656       0.829       0.931       0.701       0.700       0.947
+   max                                              0.607   39       0.800       0.885       0.829       0.760       0.887       0.955       0.708       0.708       0.963
+[exit=0 seconds=125 commit=830106e]
+
+## glm-4.7-flash/se_folds_full_gencap64
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.5,0.607 --fold all --gen-cap 64
+# 16 traces, fold=all (holdout every 4), test_view=full, gen_cap=64, train_part=all, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+   0  c00,c04,c08,c12                     222     0.500   32       0.657       0.836       0.745       0.627       0.812       0.933       0.764       0.763       0.945
+   0  c00,c04,c08,c12                     222     0.607   39       0.769       0.892       0.828       0.739       0.879       0.960       0.798       0.794       0.969
+   1  c01,c05,c09,c13                     256     0.500   32       0.671       0.834       0.758       0.666       0.816       0.929       0.772       0.768       0.939
+   1  c01,c05,c09,c13                     256     0.607   39       0.781       0.888       0.837       0.768       0.881       0.957       0.809       0.805       0.965
+   2  c02,c06,c10,c14                     256     0.500   32       0.666       0.835       0.758       0.650       0.822       0.931       0.773       0.771       0.941
+   2  c02,c06,c10,c14                     256     0.607   39       0.773       0.889       0.837       0.763       0.884       0.958       0.809       0.805       0.967
+   3  c03,c07,c11,c15                     256     0.500   32       0.685       0.855       0.740       0.625       0.827       0.940       0.798       0.795       0.951
+   3  c03,c07,c11,c15                     256     0.607   39       0.791       0.905       0.817       0.726       0.896       0.963       0.826       0.823       0.972
+pooled                                              0.500   32       0.670       0.840       0.750       0.642       0.819       0.933       0.777       0.775       0.944
+pooled                                              0.607   39       0.779       0.894       0.830       0.749       0.885       0.959       0.811       0.807       0.968
+   min                                              0.500   32       0.657       0.834       0.740       0.625       0.812       0.929       0.764       0.763       0.939
+   min                                              0.607   39       0.769       0.888       0.817       0.726       0.879       0.957       0.798       0.794       0.965
+   max                                              0.500   32       0.685       0.855       0.758       0.666       0.827       0.940       0.798       0.795       0.951
+   max                                              0.607   39       0.791       0.905       0.837       0.768       0.896       0.963       0.826       0.823       0.972
+[exit=0 seconds=127 commit=830106e]
+
+## glm-4.7-flash/se_folds_genonly_gencap30
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.5,0.607 --fold all --test-view gen_only --gen-cap 30
+# 16 traces, fold=all (holdout every 4), test_view=gen_only, gen_cap=30, train_part=all, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+   0  c00,c04,c08,c12                     120     0.500   32       0.672       0.672       0.676       0.666       0.744       0.953       0.676       0.675       0.956
+   0  c00,c04,c08,c12                     120     0.607   39       0.781       0.686       0.686       0.684       0.787       0.986       0.690       0.689       0.999
+   1  c01,c05,c09,c13                     120     0.500   32       0.677       0.691       0.692       0.689       0.757       0.965       0.699       0.695       0.970
+   1  c01,c05,c09,c13                     120     0.607   39       0.785       0.701       0.701       0.700       0.800       0.992       0.704       0.704       1.000
+   2  c02,c06,c10,c14                     120     0.500   32       0.654       0.678       0.681       0.673       0.753       0.956       0.684       0.683       0.959
+   2  c02,c06,c10,c14                     120     0.607   39       0.762       0.689       0.689       0.688       0.793       0.988       0.692       0.692       1.000
+   3  c03,c07,c11,c15                     120     0.500   32       0.697       0.694       0.699       0.695       0.768       0.968       0.701       0.700       0.975
+   3  c03,c07,c11,c15                     120     0.607   39       0.800       0.705       0.706       0.705       0.807       0.992       0.708       0.708       1.000
+pooled                                              0.500   32       0.675       0.684       0.687       0.681       0.756       0.961       0.690       0.689       0.965
+pooled                                              0.607   39       0.782       0.695       0.695       0.694       0.797       0.989       0.699       0.698       1.000
+   min                                              0.500   32       0.654       0.672       0.676       0.666       0.744       0.953       0.676       0.675       0.956
+   min                                              0.607   39       0.762       0.686       0.686       0.684       0.787       0.986       0.690       0.689       0.999
+   max                                              0.500   32       0.697       0.694       0.699       0.695       0.768       0.968       0.701       0.700       0.975
+   max                                              0.607   39       0.800       0.705       0.706       0.705       0.807       0.992       0.708       0.708       1.000
+[exit=0 seconds=4 commit=830106e]
+
+## glm-4.7-flash/se_folds_genonly_gencap64
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.5,0.607 --fold all --test-view gen_only --gen-cap 64
+# 16 traces, fold=all (holdout every 4), test_view=gen_only, gen_cap=64, train_part=all, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru         lfu     tinylfu      hybrid         opt  lru_global  lru_device  opt_global
+   0  c00,c04,c08,c12                     222     0.500   32       0.657       0.757       0.763       0.745       0.778       0.944       0.764       0.763       0.949
+   0  c00,c04,c08,c12                     222     0.607   39       0.769       0.787       0.788       0.782       0.834       0.976       0.798       0.794       0.980
+   1  c01,c05,c09,c13                     256     0.500   32       0.671       0.765       0.769       0.753       0.787       0.940       0.772       0.768       0.945
+   1  c01,c05,c09,c13                     256     0.607   39       0.781       0.799       0.800       0.793       0.842       0.970       0.809       0.805       0.972
+   2  c02,c06,c10,c14                     256     0.500   32       0.666       0.768       0.771       0.745       0.793       0.941       0.773       0.771       0.945
+   2  c02,c06,c10,c14                     256     0.607   39       0.773       0.800       0.799       0.787       0.846       0.970       0.809       0.805       0.972
+   3  c03,c07,c11,c15                     256     0.500   32       0.685       0.787       0.794       0.778       0.798       0.952       0.798       0.795       0.955
+   3  c03,c07,c11,c15                     256     0.607   39       0.791       0.816       0.817       0.812       0.858       0.980       0.826       0.823       0.982
+pooled                                              0.500   32       0.670       0.770       0.775       0.755       0.789       0.944       0.777       0.775       0.948
+pooled                                              0.607   39       0.779       0.801       0.801       0.794       0.845       0.974       0.811       0.807       0.977
+   min                                              0.500   32       0.657       0.757       0.763       0.745       0.778       0.940       0.764       0.763       0.945
+   min                                              0.607   39       0.769       0.787       0.788       0.782       0.834       0.970       0.798       0.794       0.972
+   max                                              0.500   32       0.685       0.787       0.794       0.778       0.798       0.952       0.798       0.795       0.955
+   max                                              0.607   39       0.791       0.816       0.817       0.812       0.858       0.980       0.826       0.823       0.982
+[exit=0 seconds=6 commit=830106e]
+
+## glm-4.7-flash/se_cold_last_full
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.607,0.75,1.0 --policies lru_global,lru_device
+# 16 traces, fold=last (holdout every 4), test_view=full, gen_cap=None, train_part=all, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap  lru_global  lru_device        cold
+   3  c03,c07,c11,c15                     484     0.607   39       0.884       0.878       0.900
+   3  c03,c07,c11,c15                     484     0.750   48       0.900       0.898       0.900
+   3  c03,c07,c11,c15                     484     1.000   64       0.900       0.900       0.900
+[exit=0 seconds=4 commit=8435e8d]
+
+## glm-4.7-flash/se_cold_folds_genonly
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.607,1.0 --policies static,lru,hybrid,lru_global --fold all --test-view gen_only
+# 16 traces, fold=all (holdout every 4), test_view=gen_only, gen_cap=None, train_part=all, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru      hybrid  lru_global        cold
+   0  c00,c04,c08,c12                     414     0.607   39       0.754       0.852       0.868       0.867       0.885
+   0  c00,c04,c08,c12                     414     1.000   64       1.000       0.885       0.949       0.885       0.885
+   1  c01,c05,c09,c13                     512     0.607   39       0.768       0.860       0.870       0.870       0.899
+   1  c01,c05,c09,c13                     512     1.000   64       1.000       0.899       0.953       0.899       0.899
+   2  c02,c06,c10,c14                     512     0.607   39       0.786       0.857       0.876       0.867       0.896
+   2  c02,c06,c10,c14                     512     1.000   64       1.000       0.896       0.953       0.896       0.896
+   3  c03,c07,c11,c15                     484     0.607   39       0.770       0.870       0.882       0.884       0.900
+   3  c03,c07,c11,c15                     484     1.000   64       1.000       0.900       0.955       0.900       0.900
+pooled                                              0.607   39       0.770       0.860       0.874       0.872       0.895
+pooled                                              1.000   64       1.000       0.895       0.953       0.895       0.895
+   min                                              0.607   39       0.754       0.852       0.868       0.867       0.885
+   min                                              1.000   64       1.000       0.885       0.949       0.885       0.885
+   max                                              0.607   39       0.786       0.870       0.882       0.884       0.900
+   max                                              1.000   64       1.000       0.900       0.955       0.900       0.900
+[exit=0 seconds=4 commit=8435e8d]
+
+## glm-4.7-flash/se_cold_folds_genonly_gencap30
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.607,1.0 --policies static,lru,hybrid,lru_global --fold all --test-view gen_only --gen-cap 30
+# 16 traces, fold=all (holdout every 4), test_view=gen_only, gen_cap=30, train_part=all, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru      hybrid  lru_global        cold
+   0  c00,c04,c08,c12                     120     0.607   39       0.781       0.686       0.787       0.690       0.690
+   0  c00,c04,c08,c12                     120     1.000   64       1.000       0.690       0.873       0.690       0.690
+   1  c01,c05,c09,c13                     120     0.607   39       0.785       0.701       0.800       0.704       0.704
+   1  c01,c05,c09,c13                     120     1.000   64       1.000       0.704       0.877       0.704       0.704
+   2  c02,c06,c10,c14                     120     0.607   39       0.762       0.689       0.793       0.692       0.692
+   2  c02,c06,c10,c14                     120     1.000   64       1.000       0.692       0.872       0.692       0.692
+   3  c03,c07,c11,c15                     120     0.607   39       0.800       0.705       0.807       0.708       0.708
+   3  c03,c07,c11,c15                     120     1.000   64       1.000       0.708       0.883       0.708       0.708
+pooled                                              0.607   39       0.782       0.695       0.797       0.699       0.699
+pooled                                              1.000   64       1.000       0.699       0.876       0.699       0.699
+   min                                              0.607   39       0.762       0.686       0.787       0.690       0.690
+   min                                              1.000   64       1.000       0.690       0.872       0.690       0.690
+   max                                              0.607   39       0.800       0.705       0.807       0.708       0.708
+   max                                              1.000   64       1.000       0.708       0.883       0.708       0.708
+[exit=0 seconds=3 commit=8435e8d]
+
+## glm-4.7-flash/se_cold_folds_genonly_gencap64
+$ python3 scripts/traces/cachesim_sensitivity.py /tmp/claude-0/-home-user-408032gb/83634621-ad4f-5747-933c-0d86b3c4b300/scratchpad/traces-analysis/glm-4.7-flash/traces --n-experts 64 --capacity 0.607,1.0 --policies static,lru,hybrid,lru_global --fold all --test-view gen_only --gen-cap 64
+# 16 traces, fold=all (holdout every 4), test_view=gen_only, gen_cap=64, train_part=all, per_trace=False, warm=False, session=False, devices=4, prompt_readonly=True; hit rate on gen tokens
+fold  test                                gen  capacity  cap      static         lru      hybrid  lru_global        cold
+   0  c00,c04,c08,c12                     222     0.607   39       0.769       0.787       0.834       0.798       0.804
+   0  c00,c04,c08,c12                     222     1.000   64       1.000       0.804       0.916       0.804       0.804
+   1  c01,c05,c09,c13                     256     0.607   39       0.781       0.799       0.842       0.809       0.820
+   1  c01,c05,c09,c13                     256     1.000   64       1.000       0.820       0.920       0.820       0.820
+   2  c02,c06,c10,c14                     256     0.607   39       0.773       0.800       0.846       0.809       0.820
+   2  c02,c06,c10,c14                     256     1.000   64       1.000       0.820       0.922       0.820       0.820
+   3  c03,c07,c11,c15                     256     0.607   39       0.791       0.816       0.858       0.826       0.830
+   3  c03,c07,c11,c15                     256     1.000   64       1.000       0.830       0.927       0.830       0.830
+pooled                                              0.607   39       0.779       0.801       0.845       0.811       0.819
+pooled                                              1.000   64       1.000       0.819       0.922       0.819       0.819
+   min                                              0.607   39       0.769       0.787       0.834       0.798       0.804
+   min                                              1.000   64       1.000       0.804       0.916       0.804       0.804
+   max                                              0.607   39       0.791       0.816       0.858       0.826       0.830
+   max                                              1.000   64       1.000       0.830       0.927       0.830       0.830
+[exit=0 seconds=3 commit=8435e8d]

@@ -1,0 +1,17 @@
+===== PROBE =====
+name: gpu.topo_p2p_r
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: not-run
+requires: nvidia-smi
+timeout_s: 120
+runner: (not run)
+===== COMMAND =====
+nvidia-smi topo -p2p r
+===== STDOUT =====
+===== STDERR =====
+===== RESULT =====
+exit_code: not-run
+duration_s: 0.010
+status: not-available
+note: not found: nvidia-smi

@@ -1,0 +1,29 @@
+===== PROBE =====
+name: pcie.sysfs_links
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: root
+requires: /sys/bus/pci/devices
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+bash /synthetic/scripts/diag/probes_sysfs.sh pci-links
+===== STDOUT =====
+role	bdf	vendor	device	class	driver	numa_node	cur_speed	cur_width	max_speed	max_width	iommu_group	aer_cor	aer_nonfatal	aer_fatal	bars	upstream
+gpu	0000:01:00.0	0x10de	0x0000	0x030000	nvidia	0	2.5 GT/s PCIe	16	16.0 GT/s PCIe	16	20	0	0	0	BAR0=16M BAR1=32G BAR3=32M	0000:00:01.1
+gpu	0000:21:00.0	0x10de	0x0000	0x030000	nvidia	0	2.5 GT/s PCIe	8	16.0 GT/s PCIe	8	30	0	0	0	BAR0=16M BAR1=256M BAR3=32M	0000:20:01.1
+gpu	0000:41:00.0	0x10de	0x0000	0x030000	nvidia	0	2.5 GT/s PCIe	16	16.0 GT/s PCIe	16	40	3	0	0	BAR0=16M BAR1=32G BAR3=32M	0000:40:01.1 0000:40:01.0
+gpu	0000:61:00.0	0x10de	0x0000	0x030000	nvidia	0	2.5 GT/s PCIe	16	8.0 GT/s PCIe	16	50	0	0	0	BAR0=16M BAR1=32G BAR3=32M	0000:60:01.1
+nvme	0000:81:00.0	0x144d	0x0000	0x010802	nvme	0	16.0 GT/s PCIe	4	16.0 GT/s PCIe	4	60	0	0	0	BAR0=16K	0000:80:01.1
+nvme	0000:82:00.0	0x144d	0x0000	0x010802	nvme	0	16.0 GT/s PCIe	2	16.0 GT/s PCIe	4	61	12	0	0	BAR0=16K	0000:80:01.2
+nvme	0000:83:00.0	0x144d	0x0000	0x010802	nvme	0	8.0 GT/s PCIe	4	8.0 GT/s PCIe	4	62	0	0	0	BAR0=16K	0000:80:01.3
+nvme	0000:84:00.0	0x144d	0x0000	0x010802	nvme	0	16.0 GT/s PCIe	4	16.0 GT/s PCIe	4	63	0	0	0	BAR0=16K	0000:80:01.4
+bridge	0000:00:01.1	0x1022	0x0000	0x060400	pcieport	0	16.0 GT/s PCIe	16	16.0 GT/s PCIe	16	20	0	0	0	-	-
+bridge	0000:40:01.0	0x1022	0x0000	0x060400	pcieport	0	16.0 GT/s PCIe	16	16.0 GT/s PCIe	16	40	5	0	0	-	-
+# devices listed: 8 (gpu = class 03xx vendor 0x10de, nvme = class 0108); bridges: 2
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

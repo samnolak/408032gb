@@ -1,0 +1,138 @@
+N20 recurrent rollback guard for llama.cpp ec7630a640789c393694fb194f1bbbf0369fc62d (src/llama-memory-recurrent.{h,cpp} only).
+
+llama_memory_recurrent::seq_rm accepted a rollback of r tokens whenever 1 <= r <= n_rs_seq and no rollback was
+pending, without checking that snapshot plane r was written: the graph writes plane j only for j < the tokens of the
+sequence in the ubatch that last wrote the cell (ggml/src/ggml-cpu/ops.cpp "older slots are caller-owned"), and the
+extra-row copy of build_rs rewrites plane 0 only. seq_cp left the destination's rollback index as it was, so a copy
+made while the source's rollback was pending read the pre-rollback plane, and a copy into a sequence with a pending
+rollback read that plane of the source's cell. Both were silent (docs/evidence/2026-10-11-n19-qwen4exp-multiseq.md
+findings 5 and 6, docs/evidence/2026-10-11-n20-recurrent-rollback-guard.md).
+
+- mem_cell::rs_n: the snapshot planes the cell's rows hold, set in find_slot (ubatch cell: min(n_seq_tokens,
+  1 + n_rs_seq); extra cell: kept only if it reads its own row with no pending rollback, else 1), 1 after
+  state_read.
+- seq_rm: a rollback onto a plane >= rs_n returns false (logged) and changes nothing.
+- seq_cp: the destination takes the source's pending rollback index (0 if the source has no cell).
+- s_copy: reading a cell's row resets the pending rollback index of every sequence of the cell, not only of the first:
+  after seq_cp the sharers hold the same index, and when the shared cell is an extra cell the copy into its plane 0
+  applies the rollback for all of them (N20 audit: without this a sharer later read plane r of a row that by then held
+  another sequence's state).
+- seq_rm: a rollback of a cell several sequences hold returns false, as at 79e2e74 (RC:202-205@79e2e74).
+
+Apply to a copy, never in place: patches/llama.cpp/apply.sh <checkout at the pin> <new directory>.
+
+diff --git a/src/llama-memory-recurrent.cpp b/src/llama-memory-recurrent.cpp
+index 53130e8..864c700 100644
+--- a/src/llama-memory-recurrent.cpp
++++ b/src/llama-memory-recurrent.cpp
+@@ -199,6 +199,10 @@ bool llama_memory_recurrent::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos
+ 
+             // partial rollback via per-token snapshot index (bounded by n_rs_seq)
+             if (0 < p0 && p0 <= cell.pos && p1 > cell.pos) {
++                // a cell shared by several sequences cannot move back for only one of them (as at 79e2e74)
++                if (cell.seq_id.size() > 1) {
++                    return false;
++                }
+                 // the filter kept no layer (e.g. an MTP draft context), so only the position moves back
+                 if (is_empty()) {
+                     cell.pos = p0 - 1;
+@@ -207,6 +211,13 @@ bool llama_memory_recurrent::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos
+                 const llama_pos rollback = cell.pos - (p0 - 1);
+                 // pending rollback is single-use
+                 const bool pending = rs_idx[seq_id] != 0;
++                // plane `rollback` must have been written by the last ubatch of this cell: the graph writes plane j
++                // only for j < its tokens of the sequence (ggml_gated_delta_net: "older slots are caller-owned")
++                if (!pending && rollback >= 1 && rollback <= (llama_pos) n_rs_seq && rollback >= (llama_pos) cell.rs_n) {
++                    LLAMA_LOG_WARN("%s: refusing a rollback of %d for sequence %d: its last ubatch wrote %u snapshot plane(s)\n",
++                            __func__, rollback, seq_id, cell.rs_n);
++                    return false;
++                }
+                 if (!pending && rollback >= 1 && rollback <= (llama_pos) n_rs_seq) {
+                     set_rs_idx(seq_id, (uint32_t) rollback);
+                     cell.pos = p0 - 1;
+@@ -292,6 +303,11 @@ void llama_memory_recurrent::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id
+             cell_src.seq_id.insert(seq_id_dst);
+             tail_dst.tail = tail_src.tail;
+         }
++        // the destination continues from the source's logical state: a pending rollback of the source is part of
++        // it (s_copy reads plane rs_idx[seq] of the shared cell), and a pending rollback of the old destination is not
++        if ((uint32_t) seq_id_dst < rs_idx.size() && (uint32_t) seq_id_src < rs_idx.size()) {
++            rs_idx[seq_id_dst] = tail_src.tail >= 0 ? rs_idx[seq_id_src] : 0;
++        }
+     }
+ }
+ 
+@@ -711,6 +727,27 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
+                 // and still make these values available when setting the inputs
+                 cells[i].src0 = cells[i].src;
+             }
++
++            // the snapshot planes row i holds after this graph: a ubatch cell gets planes 0 .. n_seq_tokens - 1
++            // written (ggml_gated_delta_net writes the last min(n_seq_tokens, 1 + n_rs_seq) snapshot slots, the conv
++            // histories of the slots past n_seq_tokens start at the ubatch's first row); an extra cell between them
++            // gets plane 0 only (build_rs copies row s_copy(i) = plane rs_idx of src0 into it), so its other planes
++            // stay valid only if nothing moved: same row, no pending rollback applied
++            if ((uint32_t) (i - min) < n_seqs) {
++                cells[i].rs_n = std::min(n_seq_tokens, 1 + n_rs_seq);
++            } else {
++                uint32_t idx = 0;
++                if (n_rs_seq > 0 && !cells[i].seq_id.empty()) {
++                    const llama_seq_id seq = *cells[i].seq_id.begin(); // the sequence s_copy reads the plane of
++                    if (seq >= 0 && (size_t) seq < rs_idx.size()) {
++                        idx = rs_idx[seq];
++                    }
++                }
++                if (cells[i].src0 != i || idx != 0) {
++                    cells[i].rs_n = 1;
++                }
++            }
++
+             cells[i].src = i; // avoid moving or clearing twice
+         }
+     }
+@@ -891,6 +928,13 @@ void llama_memory_recurrent::state_read(llama_io_read_i & io, llama_seq_id seq_i
+     if (n_rs_seq != 0) {
+         set_rs_idx(seq_id, 0);
+     }
++
++    // a restored state is written to plane 0 only (state_read_data), so no rollback can go behind it
++    for (auto & cell : cells) {
++        if (seq_id == -1 ? !cell.is_empty() : cell.has_seq_id(seq_id)) {
++            cell.rs_n = 1;
++        }
++    }
+ }
+ 
+ void llama_memory_recurrent::state_write_meta(llama_io_write_i & io, const std::vector<std::pair<uint32_t, uint32_t>> & cell_ranges, llama_seq_id seq_id) const {
+@@ -1374,8 +1418,14 @@ int32_t llama_memory_recurrent_context::s_copy(int i) const {
+         const llama_seq_id seq = *mem->cells[cell_idx].seq_id.begin();
+         if (seq >= 0 && (size_t) seq < mem->rs_idx.size()) {
+             idx = mem->rs_idx[seq];
+-            // reset rollback idx
+-            mem->rs_idx[seq] = 0;
++            // reset the rollback idx of every sequence of the cell, not only of the first: after seq_cp they share
++            // the cell with the same pending idx (a shared cell cannot roll back), and once this row is read (and, for
++            // an extra cell, copied into its plane 0) none of them may read plane idx of it again
++            for (const llama_seq_id s : mem->cells[cell_idx].seq_id) {
++                if (s >= 0 && (size_t) s < mem->rs_idx.size()) {
++                    mem->rs_idx[s] = 0;
++                }
++            }
+         }
+     }
+     return (int32_t)(idx * mem->size) + src0;
+diff --git a/src/llama-memory-recurrent.h b/src/llama-memory-recurrent.h
+index 08489a4..63afa53 100644
+--- a/src/llama-memory-recurrent.h
++++ b/src/llama-memory-recurrent.h
+@@ -91,6 +91,10 @@ public:
+         int32_t   src0 = -1; // like src, but only used when setting the inputs (allowing to copy once)
+         int32_t   tail = -1;
+ 
++        // snapshot planes 0 .. rs_n - 1 of this cell's rows hold the state 0 .. rs_n - 1 tokens before pos (set by
++        // find_slot); a plane the last write did not reach is stale, so a rollback onto it must be refused
++        uint32_t  rs_n = 0;
++
+         std::set<llama_seq_id> seq_id;
+ 
+         bool has_seq_id(const llama_seq_id & id) const {

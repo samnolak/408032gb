@@ -1,0 +1,26 @@
+===== PROBE =====
+name: board.dmi_sysfs
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: user
+requires: /sys/class/dmi/id
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+bash /synthetic/scripts/diag/probes_sysfs.sh dmi
+===== STDOUT =====
+bios_date	01/01/2026
+bios_vendor	SYNTHETIC BIOS VENDOR
+bios_version	SYNTH-0.1
+board_name	SYNTHETIC-BOARD
+board_serial	<not readable without root>
+board_vendor	SYNTHETIC
+board_version	0.0
+product_name	SYNTHETIC-VM
+sys_vendor	SYNTHETIC
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

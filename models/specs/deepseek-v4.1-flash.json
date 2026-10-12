@@ -1,0 +1,70 @@
+{
+ "name": "DeepSeek-V4.1-Flash",
+ "hf_repo": "deepseek-ai/DeepSeek-V4.1-Flash",
+ "spec_version": 2,
+ "n_layers": 40,
+ "hidden": 5120,
+ "vocab": 129280,
+ "moe": {
+  "layers": 40,
+  "mtp_layers": 0,
+  "n_experts": 384,
+  "top_k": 6,
+  "n_shared": 1,
+  "expert_ff": 2304,
+  "expert_mats": 3,
+  "extra_stored_params": 13600000000.0
+ },
+ "dense_params": {
+  "attention_dense_routers": 7400000000.0,
+  "lm_head": 661913600,
+  "embedding": 661913600
+ },
+ "kv_store_bytes_per_token": 1162.0,
+ "attention": [
+  {
+   "kind": "indexed",
+   "layers": 1,
+   "kv_elems_per_token": 0,
+   "scan_bytes_per_entry": 68,
+   "selected_entries": 0,
+   "kv_heads": 1
+  },
+  {
+   "kind": "indexed",
+   "layers": 38,
+   "kv_elems_per_token": 512,
+   "kv_bytes_per_elem": 0.5625,
+   "scan_bytes_per_entry": 68,
+   "scan_cap_entries": 16384,
+   "selected_entries": 512,
+   "kv_heads": 1
+  },
+  {
+   "kind": "sliding",
+   "layers": 40,
+   "window": 128,
+   "kv_elems_per_token": 512,
+   "kv_bytes_per_elem": 1.0,
+   "kv_heads": 1
+  }
+ ],
+ "lookup": {
+  "name": "Engram",
+  "rows_per_token": 48,
+  "row_bytes": 264.0,
+  "tier": "ssd",
+  "gib": 188.8
+ },
+ "native_context": null,
+ "_labels": {
+  "geometry": "CONFIRMED: third_party/deepseek-v41-flash/inference/config.json @2cba9e4 (dim 5120, 40 layers, 384 experts top-6, moe_inter_dim 2304, head_dim 512, index 32x128 top-512, candidate 2048 blocks x 8, kv sources 2/8/14/20, compress_ratios, window 128, Engram 8 heads x 256 on layers 1 and 14, max n-gram 4)",
+  "dense_params.attention_dense_routers": "CONFIRMED by the source quoted in models/deepseek-v4.1-flash.json: vLLM recipe memory table 7.4B",
+  "moe.extra_stored_params": "PROVISIONAL: DSpark experts (models/deepseek-v4.1-flash.json)",
+  "kv_store_bytes_per_token": "PROVISIONAL: 4 KV sources with ratios 2,2,2,1 -> 2.5 latents of 512 FP4+E4M3/16 per token, plus 8 index sources (ratios 2,2,2,1,1,1,1,1) -> 6.5 FP4 128-dim keys with E8M0/32 per token; window KV is fixed-size",
+  "attention": "PROVISIONAL reading of inference/model.py: one candidate scan over all index keys at layer 20, then per layer an indexer over 16,384 candidates and attention over 512 selected latents + a 128-token FP8 window",
+  "lookup": "PROVISIONAL: 2 Engram layers x 8 heads x 3 n-gram sizes (2-,3-,4-gram) = 48 rows of 256 FP8 (+E8M0/32) per token; addresses depend only on token ids",
+  "native_context": "config: original_seq_len 65536 with rope_factor 16 (YaRN); claimed context UNKNOWN here"
+ },
+ "kv_override_heads": 1
+}

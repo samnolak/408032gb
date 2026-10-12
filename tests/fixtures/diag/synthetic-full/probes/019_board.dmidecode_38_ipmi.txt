@@ -1,0 +1,25 @@
+===== PROBE =====
+name: board.dmidecode_38_ipmi
+started_utc: 2026-01-01T00:00:00Z
+root_mode: root
+run_as: root
+requires: dmidecode
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+dmidecode -t 38
+===== STDOUT =====
+# dmidecode 3.4
+Getting SMBIOS data from sysfs.
+SMBIOS 3.3.0 present.
+
+Handle 0x0026, DMI type 38, 18 bytes
+IPMI Device Information
+	Interface Type: KCS (Keyboard Control Style)
+	Specification Version: 2.0
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 

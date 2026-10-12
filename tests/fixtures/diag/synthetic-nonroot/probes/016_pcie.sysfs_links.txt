@@ -1,0 +1,19 @@
+===== PROBE =====
+name: pcie.sysfs_links
+started_utc: 2026-01-01T00:00:00Z
+root_mode: none
+run_as: user
+requires: /sys/bus/pci/devices
+timeout_s: 120
+runner: timeout -k 5 120 bash -o pipefail -c <command>
+===== COMMAND =====
+bash /synthetic/scripts/diag/probes_sysfs.sh pci-links
+===== STDOUT =====
+role	bdf	vendor	device	class	driver	numa_node	cur_speed	cur_width	max_speed	max_width	iommu_group	aer_cor	aer_nonfatal	aer_fatal	bars	upstream
+# devices listed: 0 (gpu = class 03xx vendor 0x10de, nvme = class 0108); bridges: 0
+===== STDERR =====
+===== RESULT =====
+exit_code: 0
+duration_s: 0.010
+status: ok
+note: 
