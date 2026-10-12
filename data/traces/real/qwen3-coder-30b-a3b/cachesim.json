@@ -1,0 +1,327 @@
+{
+ "label": "CONFIRMED only for the traces given; routing of a quantized model may differ from the original",
+ "files": [
+  "c00_en_cachesim_py.trace",
+  "c01_en_roofline_py.trace",
+  "c02_en_gateway_py.trace",
+  "c03_en_run_matrix_py.trace",
+  "c04_en_qwen4exp_py.trace",
+  "c05_en_dsa_py.trace",
+  "c06_en_expert_trace_cpp.trace",
+  "c07_en_slot_persist_py.trace",
+  "c08_en_run_eval_py.trace",
+  "c09_en_run_r1_py.trace",
+  "c10_en_pack_py.trace",
+  "c11_en_test_gateway_py.trace",
+  "c12_ru_ADR-012-reassessment_md.trace",
+  "c13_ru_ROADMAP_md.trace",
+  "c14_ru_kda_py.trace",
+  "c15_ru_gguf_quant_audit_py.trace"
+ ],
+ "split": "held-out every 4th file: 12 train / 4 test",
+ "n_experts": 128,
+ "warm": false,
+ "session": false,
+ "devices": 4,
+ "prompt_readonly": true,
+ "hit_rate_by_capacity": {
+  "0.1": {
+   "static": {
+    "all": 0.2474159780825129,
+    "prompt": 0.2453582541211067,
+    "gen": 0.281632016184573,
+    "layer_min": 0.1149789029535865,
+    "layer_max": 0.3495956399437412
+   },
+   "lru": {
+    "all": 0.45019638078215346,
+    "prompt": 0.4448963769466534,
+    "gen": 0.5383253701790633,
+    "layer_min": 0.10982184716361931,
+    "layer_max": 0.6170593061415847
+   },
+   "lfu": {
+    "all": 0.49675333792389437,
+    "prompt": 0.49572648742958914,
+    "gen": 0.5138279097796143,
+    "layer_min": 0.1738748241912799,
+    "layer_max": 0.6468588842006564
+   },
+   "tinylfu": {
+    "all": 0.3646538399554618,
+    "prompt": 0.37647002101971505,
+    "gen": 0.16817320936639119,
+    "layer_min": 0.1965687998124707,
+    "layer_max": 0.48968588842006566
+   },
+   "hybrid": {
+    "all": 0.34470870692686356,
+    "prompt": 0.34079766194499667,
+    "gen": 0.40974195075757575,
+    "layer_min": 0.09325187529301453,
+    "layer_max": 0.5069444444444444
+   },
+   "opt": {
+    "all": 0.6765369833177058,
+    "prompt": 0.6733324014247847,
+    "gen": 0.7298230888429752,
+    "layer_min": 0.4187177684013127,
+    "layer_max": 0.789381153305204
+   },
+   "lru_global": {
+    "all": 0.02981850191436162,
+    "prompt": 0.0,
+    "gen": 0.525643508953168,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "lru_device": {
+    "all": 0.02975593110251602,
+    "prompt": 0.0,
+    "gen": 0.5245405044765841,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "opt_global": {
+    "all": 0.6956189443663072,
+    "prompt": 0.6924772976722995,
+    "gen": 0.7478585571625345,
+    "layer_min": null,
+    "layer_max": null
+   }
+  },
+  "0.25": {
+   "static": {
+    "all": 0.5010612620135959,
+    "prompt": 0.49898913808813783,
+    "gen": 0.5355167441460055,
+    "layer_min": 0.2877256211908111,
+    "layer_max": 0.6361199015471167
+   },
+   "lru": {
+    "all": 0.7331110696007188,
+    "prompt": 0.7283628955434063,
+    "gen": 0.8120641787190083,
+    "layer_min": 0.3568624003750586,
+    "layer_max": 0.874326066572902
+   },
+   "lfu": {
+    "all": 0.7229626943663072,
+    "prompt": 0.7258755410246852,
+    "gen": 0.6745275912534435,
+    "layer_min": 0.40903363806844817,
+    "layer_max": 0.854972456633849
+   },
+   "tinylfu": {
+    "all": 0.6209154994921081,
+    "prompt": 0.6343116431618622,
+    "gen": 0.39816309400826444,
+    "layer_min": 0.4030268401312705,
+    "layer_max": 0.7577795358649789
+   },
+   "hybrid": {
+    "all": 0.683508897874668,
+    "prompt": 0.6789817734219682,
+    "gen": 0.7587863722451791,
+    "layer_min": 0.30039849976558836,
+    "layer_max": 0.8468999062353493
+   },
+   "opt": {
+    "all": 0.871313816123613,
+    "prompt": 0.8691386835238568,
+    "gen": 0.9074821367079889,
+    "layer_min": 0.6696700656352556,
+    "layer_max": 0.9421589310829818
+   },
+   "lru_global": {
+    "all": 0.04558543082903579,
+    "prompt": 0.0,
+    "gen": 0.8035844955234159,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "lru_device": {
+    "all": 0.04544808026644788,
+    "prompt": 0.0,
+    "gen": 0.801163266184573,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "opt_global": {
+    "all": 0.8812082454289732,
+    "prompt": 0.8791609069541086,
+    "gen": 0.915251592630854,
+    "layer_min": null,
+    "layer_max": null
+   }
+  },
+  "0.5": {
+   "static": {
+    "all": 0.8040153979137366,
+    "prompt": 0.8030505120319749,
+    "gen": 0.820059616046832,
+    "layer_min": 0.5762130801687764,
+    "layer_max": 0.9166520159399906
+   },
+   "lru": {
+    "all": 0.9184122397054227,
+    "prompt": 0.9169478571280649,
+    "gen": 0.9427621384297521,
+    "layer_min": 0.6815225035161744,
+    "layer_max": 0.9750351617440225
+   },
+   "lfu": {
+    "all": 0.9037593764650727,
+    "prompt": 0.9049462987698808,
+    "gen": 0.8840231146694215,
+    "layer_min": 0.6904301453352086,
+    "layer_max": 0.9675046882325363
+   },
+   "tinylfu": {
+    "all": 0.8586598614041256,
+    "prompt": 0.8646435190937707,
+    "gen": 0.7591630079201102,
+    "layer_min": 0.6665201593999063,
+    "layer_max": 0.9475650492264416
+   },
+   "hybrid": {
+    "all": 0.9031196280668855,
+    "prompt": 0.9011969847581179,
+    "gen": 0.9350895316804407,
+    "layer_min": 0.6225972808251289,
+    "layer_max": 0.9751084153774027
+   },
+   "opt": {
+    "all": 0.9677268909204563,
+    "prompt": 0.9672838619325712,
+    "gen": 0.9750936208677686,
+    "layer_min": 0.8757325363338021,
+    "layer_max": 0.9900521565869667
+   },
+   "lru_global": {
+    "all": 0.05140817901234568,
+    "prompt": 0.0,
+    "gen": 0.9062284779614325,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "lru_device": {
+    "all": 0.051395970073448975,
+    "prompt": 0.0,
+    "gen": 0.9060132575757576,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "opt_global": {
+    "all": 0.9734110676472887,
+    "prompt": 0.9730869341244202,
+    "gen": 0.9788007920110193,
+    "layer_min": null,
+    "layer_max": null
+   }
+  },
+  "0.75": {
+   "static": {
+    "all": 0.9529418659165495,
+    "prompt": 0.9522853115680915,
+    "gen": 0.9638591167355371,
+    "layer_min": 0.8235173464603844,
+    "layer_max": 0.9880157055789968
+   },
+   "lru": {
+    "all": 0.9783080730387561,
+    "prompt": 0.9781059735337972,
+    "gen": 0.9816686036501377,
+    "layer_min": 0.8981481481481481,
+    "layer_max": 0.9909458509142054
+   },
+   "lfu": {
+    "all": 0.9749738118260666,
+    "prompt": 0.9749452503727635,
+    "gen": 0.9754487345041323,
+    "layer_min": 0.8904418659165495,
+    "layer_max": 0.9909165494608533
+   },
+   "tinylfu": {
+    "all": 0.9639817989138928,
+    "prompt": 0.9647942423583499,
+    "gen": 0.9504724087465565,
+    "layer_min": 0.8657993436474449,
+    "layer_max": 0.988821495546179
+   },
+   "hybrid": {
+    "all": 0.9785861316221285,
+    "prompt": 0.978427287835487,
+    "gen": 0.9812274018595041,
+    "layer_min": 0.8708245428973277,
+    "layer_max": 0.9937587904360057
+   },
+   "opt": {
+    "all": 0.99369621962416,
+    "prompt": 0.9937037928677932,
+    "gen": 0.9935702909779615,
+    "layer_min": 0.9681053680262541,
+    "layer_max": 0.9983591186122832
+   },
+   "lru_global": {
+    "all": 0.05231316660806376,
+    "prompt": 0.0,
+    "gen": 0.9221816890495868,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "lru_device": {
+    "all": 0.05227898157915299,
+    "prompt": 0.0,
+    "gen": 0.921579071969697,
+    "layer_min": null,
+    "layer_max": null
+   },
+   "opt_global": {
+    "all": 0.9954817769378028,
+    "prompt": 0.9955223088552021,
+    "gen": 0.9948078081955923,
+    "layer_min": null,
+    "layer_max": null
+   }
+  }
+ },
+ "distinct_experts_per_window": {
+  "gen": {
+   "1": {
+    "distinct": 8.0,
+    "independent": 8.0
+   },
+   "2": {
+    "distinct": 12.237192282102463,
+    "independent": 15.5
+   },
+   "4": {
+    "distinct": 18.600268340094658,
+    "independent": 29.123046875
+   },
+   "8": {
+    "distinct": 27.192391684136968,
+    "independent": 51.61990734934807
+   }
+  },
+  "prompt": {
+   "1": {
+    "distinct": 8.0,
+    "independent": 8.0
+   },
+   "2": {
+    "distinct": 12.703613593244665,
+    "independent": 15.5
+   },
+   "4": {
+    "distinct": 19.76885251547264,
+    "independent": 29.123046875
+   },
+   "8": {
+    "distinct": 29.55605154329203,
+    "independent": 51.61990734934807
+   }
+  }
+ }
+}

@@ -1,0 +1,27 @@
+{
+ "model": {
+  "repo": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+  "revision": "b17cb02dd882d5b6ab62fc777ad2995f19668350",
+  "file": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
+  "size": 18556689568,
+  "sha256": "fadc3e5f8d42bf7e894a785b05082e47daee4df26680389817e2093056f088ad",
+  "hf_lfs_sha256": "fadc3e5f8d42bf7e894a785b05082e47daee4df26680389817e2093056f088ad",
+  "sha256_matches_hf": true
+ },
+ "arch": "qwen3moe",
+ "n_expert": 128,
+ "k": 8,
+ "llama_cpp": "ec7630a640789c393694fb194f1bbbf0369fc62d",
+ "gen_tokens": 128,
+ "holdout_every": 4,
+ "probe_tail": 256,
+ "threads": 4,
+ "trace_args": "-c 8192 -b 512 -ub 512 (CPU, GGML_NATIVE=ON build)",
+ "host": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+ "cpu": [
+  "CPU(s):                                  4",
+  "Model name:                              AMD EPYC 7763 64-Core Processor",
+  "Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc"
+ ],
+ "label": "REAL model (proxy family), CONSTRUCTED agent-style conversations from repository files; greedy generation; CPU numerics"
+}

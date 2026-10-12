@@ -3,7 +3,8 @@
 # of the target families (small enough for a runner), constructed agent-style conversations from this repository.
 # Downloads each GGUF at a recorded revision (sha256 checked against the Hub's LFS hash), renders the corpus with the
 # model's chat template, writes routing traces (all conversations) and probes (held-out ones), evaluates predictors and
-# cache policies, and commits data/traces/real/<model>/ back to the same claude/* branch. Weights are never committed.
+# cache policies, and commits data/traces/real/<model>/ back to the same claude/* branch (one job per model, each commits
+# its own results). Weights are never committed.
 name: traces-real
 on:
   workflow_dispatch:
@@ -16,9 +17,25 @@ concurrency:
   group: traces-real-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  models:
+    # one job per model (below), so a timeout or failure of one model cannot lose the results of another
+    runs-on: ubuntu-24.04
+    outputs:
+      names: ${{ steps.list.outputs.names }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - id: list
+        run: echo "names=$(python3 -c "import json; print(json.dumps([m['name'] for m in json.load(open('data/traces/real/REQUEST.json'))['models']]))")" >> "$GITHUB_OUTPUT"
   traces:
+    needs: models
     runs-on: ubuntu-24.04
     timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ${{ fromJSON(needs.models.outputs.names) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,25 +63,15 @@ jobs:
           ../build-srv/bin/llama-server --version 2>&1 | head -n 1
       - name: smoke - the same tools on a tiny qwen3moe before any download (scripts/traces/smoke_tiny.sh)
         run: scripts/traces/smoke_tiny.sh ../llama.cpp ../build-g0 ../smoke-tiny
-      - name: traces, probes, predictors and cache policies per model
-        run: |
-          ok=0
-          for m in $(python3 -c "import json; print(' '.join(x['name'] for x in json.load(open('data/traces/real/REQUEST.json'))['models']))"); do
-            if scripts/traces/run_real_traces.sh "$m" ../llama.cpp ../build-g0 ../build-srv/bin/llama-server "../work-$m"; then
-              ok=$((ok + 1))
-            else
-              echo "::warning::model $m failed (see the log above); continuing with the others"
-            fi
-            rm -rf "../work-$m"
-          done
-          [ "$ok" -gt 0 ]
+      - name: traces, probes, predictors and cache policies for ${{ matrix.model }}
+        run: scripts/traces/run_real_traces.sh "${{ matrix.model }}" ../llama.cpp ../build-g0 ../build-srv/bin/llama-server "../work-${{ matrix.model }}"
       - name: commit and push the results to this branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/traces/real
+          git add "data/traces/real/${{ matrix.model }}"
           if git diff --cached --quiet; then echo "::notice::nothing to commit"; exit 0; fi
-          git commit -q -m "[perf-bench] data: real-model routing traces and expert-prediction results (workflow traces-real, run ${{ github.run_id }})"
+          git commit -q -m "[perf-bench] data: real-model routing traces and expert-prediction results for ${{ matrix.model }} (workflow traces-real, run ${{ github.run_id }})"
           for i in 1 2 3; do
             if git pull -q --rebase origin "${{ github.ref_name }}" && git push origin HEAD:"${{ github.ref_name }}"; then
               echo "::notice::results commit $(git rev-parse HEAD)"; exit 0

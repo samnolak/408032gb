@@ -1,0 +1,171 @@
+$ HV="0.61 0.75 0.908" bash tier_pred.sh
+## CPU experts: default (32 thr x 8 GB/s); h_v 0.61 h_r 0.39; 8 ch DRAM; GPU prefetch (prefetch_opt)
+none                                             34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+old R8: p .85 pi .50 d=1                         34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+old 4b: p .95 pi .90 W 1.3 ms                    34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=k: p .814 pi .814            34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=2k: p .945 pi .473           34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=k: p .742 pi .742            34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=2k: p .895 pi .448           34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+Strata probe, off-VRAM set: p .30 pi .08 d=1     34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+## CPU experts: default (32 thr x 8 GB/s); h_v 0.75 h_r 0.25; 8 ch DRAM; GPU prefetch (prefetch_opt)
+none                                             41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+old R8: p .85 pi .50 d=1                         41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+old 4b: p .95 pi .90 W 1.3 ms                    41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=k: p .814 pi .814            41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=2k: p .945 pi .473           41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=k: p .742 pi .742            41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=2k: p .895 pi .448           41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+Strata probe, off-VRAM set: p .30 pi .08 d=1     41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+## CPU experts: default (32 thr x 8 GB/s); h_v 0.908 h_r 0.092; 8 ch DRAM; GPU prefetch (prefetch_opt)
+none                                             39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+old R8: p .85 pi .50 d=1                         39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+old 4b: p .95 pi .90 W 1.3 ms                    39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=k: p .814 pi .814            39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=2k: p .945 pi .473           39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=k: p .742 pi .742            39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=2k: p .895 pi .448           39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+Strata probe, off-VRAM set: p .30 pi .08 d=1     39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+## CPU experts: 32 thr x 3.6 GB/s; h_v 0.61 h_r 0.39; 8 ch DRAM; GPU prefetch (prefetch_opt)
+none                                             30.4 tok/s  step  32.88 ms  copies/layer 0.00  t_cpu 0.437 ms  t_ssd 0.000 ms
+old R8: p .85 pi .50 d=1                         32.3 tok/s  step  30.97 ms  copies/layer 0.68  t_cpu 0.391 ms  t_ssd 0.000 ms
+old 4b: p .95 pi .90 W 1.3 ms                    33.6 tok/s  step  29.72 ms  copies/layer 0.63  t_cpu 0.361 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=k: p .814 pi .814            33.4 tok/s  step  29.97 ms  copies/layer 0.64  t_cpu 0.367 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=2k: p .945 pi .473           32.2 tok/s  step  31.07 ms  copies/layer 0.68  t_cpu 0.393 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=k: p .742 pi .742            33.1 tok/s  step  30.19 ms  copies/layer 0.65  t_cpu 0.373 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=2k: p .895 pi .448           32.1 tok/s  step  31.15 ms  copies/layer 0.69  t_cpu 0.395 ms  t_ssd 0.000 ms
+Strata probe, off-VRAM set: p .30 pi .08 d=1     30.7 tok/s  step  32.56 ms  copies/layer 0.70  t_cpu 0.429 ms  t_ssd 0.000 ms
+## CPU experts: 32 thr x 3.6 GB/s; h_v 0.75 h_r 0.25; 8 ch DRAM; GPU prefetch (prefetch_opt)
+none                                             37.6 tok/s  step  26.60 ms  copies/layer 0.00  t_cpu 0.287 ms  t_ssd 0.000 ms
+old R8: p .85 pi .50 d=1                         39.4 tok/s  step  25.38 ms  copies/layer 0.44  t_cpu 0.258 ms  t_ssd 0.000 ms
+old 4b: p .95 pi .90 W 1.3 ms                    40.7 tok/s  step  24.57 ms  copies/layer 0.40  t_cpu 0.239 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=k: p .814 pi .814            40.4 tok/s  step  24.74 ms  copies/layer 0.41  t_cpu 0.243 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=2k: p .945 pi .473           39.3 tok/s  step  25.44 ms  copies/layer 0.44  t_cpu 0.259 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=k: p .742 pi .742            40.2 tok/s  step  24.88 ms  copies/layer 0.41  t_cpu 0.246 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=2k: p .895 pi .448           39.2 tok/s  step  25.49 ms  copies/layer 0.44  t_cpu 0.261 ms  t_ssd 0.000 ms
+Strata probe, off-VRAM set: p .30 pi .08 d=1     37.9 tok/s  step  26.38 ms  copies/layer 0.48  t_cpu 0.282 ms  t_ssd 0.000 ms
+## CPU experts: 32 thr x 3.6 GB/s; h_v 0.908 h_r 0.092; 8 ch DRAM; GPU prefetch (prefetch_opt)
+none                                             39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.118 ms  t_ssd 0.000 ms
+old R8: p .85 pi .50 d=1                         39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.118 ms  t_ssd 0.000 ms
+old 4b: p .95 pi .90 W 1.3 ms                    39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.118 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=k: p .814 pi .814            39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.118 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=2k: p .945 pi .473           39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.118 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=k: p .742 pi .742            39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.118 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=2k: p .895 pi .448           39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.118 ms  t_ssd 0.000 ms
+Strata probe, off-VRAM set: p .30 pi .08 d=1     39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.118 ms  t_ssd 0.000 ms
+## CPU experts: 46 thr x 3.6 GB/s; h_v 0.61 h_r 0.39; 8 ch DRAM; GPU prefetch (prefetch_opt)
+none                                             34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+old R8: p .85 pi .50 d=1                         34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+old 4b: p .95 pi .90 W 1.3 ms                    34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=k: p .814 pi .814            34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=2k: p .945 pi .473           34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=k: p .742 pi .742            34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=2k: p .895 pi .448           34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+Strata probe, off-VRAM set: p .30 pi .08 d=1     34.0 tok/s  step  29.44 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.000 ms
+## CPU experts: 46 thr x 3.6 GB/s; h_v 0.75 h_r 0.25; 8 ch DRAM; GPU prefetch (prefetch_opt)
+none                                             41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+old R8: p .85 pi .50 d=1                         41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+old 4b: p .95 pi .90 W 1.3 ms                    41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=k: p .814 pi .814            41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=2k: p .945 pi .473           41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=k: p .742 pi .742            41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=2k: p .895 pi .448           41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+Strata probe, off-VRAM set: p .30 pi .08 d=1     41.0 tok/s  step  24.39 ms  copies/layer 0.00  t_cpu 0.235 ms  t_ssd 0.000 ms
+## CPU experts: 46 thr x 3.6 GB/s; h_v 0.908 h_r 0.092; 8 ch DRAM; GPU prefetch (prefetch_opt)
+none                                             39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+old R8: p .85 pi .50 d=1                         39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+old 4b: p .95 pi .90 W 1.3 ms                    39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=k: p .814 pi .814            39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+proxy pregate d=1 m=2k: p .945 pi .473           39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=k: p .742 pi .742            39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+proxy pregate d=2 m=2k: p .895 pi .448           39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+Strata probe, off-VRAM set: p .30 pi .08 d=1     39.8 tok/s  step  25.14 ms  copies/layer 0.00  t_cpu 0.099 ms  t_ssd 0.000 ms
+## NVMe -> RAM staging only (prefetch_to=ram): h_v 0.61, h_r 0.34, 5% of routed experts on NVMe, defaults
+none                                             22.2 tok/s  step  45.03 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.371 ms
+old R8: p .85 pi .50 d=1                         27.1 tok/s  step  36.93 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.178 ms
+old 4b: p .95 pi .90 W 1.3 ms                    33.1 tok/s  step  30.23 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.019 ms
+proxy pregate d=1 m=k: p .814 pi .814            30.9 tok/s  step  32.37 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.070 ms
+proxy pregate d=1 m=2k: p .945 pi .473           26.8 tok/s  step  37.37 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.189 ms
+proxy pregate d=2 m=k: p .742 pi .742            29.8 tok/s  step  33.50 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.097 ms
+proxy pregate d=2 m=2k: p .895 pi .448           32.2 tok/s  step  31.10 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.039 ms
+Strata probe, off-VRAM set: p .30 pi .08 d=1     22.9 tok/s  step  43.74 ms  copies/layer 0.00  t_cpu 0.355 ms  t_ssd 0.340 ms
+
+$ python3 tools/ceilings/tier_cost.py --model glm  --sweep h_v=0.546,0.607,0.70,0.75,0.77,0.80,0.86,0.867,0.895,0.899,0.901,0.908,0.922,0.965,0.969 --sweep B_dram=102.4e9,204.8e9 | cut -d'|' -f1-4
+# GLM-5.3-Flash: n_moe 42, S_e 15.38 MB, K 8, E 288, t_pre 0.308 ms, t_shared 0.046 ms, t_other 1.61 ms, ctx 262144; PROVISIONAL model output
+h_v | B_dram | tok_s | step_ms 
+0.546 | 1.024e+11 | 20.78 | 48.12 
+0.546 | 2.048e+11 | 31.5 | 31.75 
+0.607 | 1.024e+11 | 22.87 | 43.72 
+0.607 | 2.048e+11 | 33.84 | 29.55 
+0.7 | 1.024e+11 | 27.02 | 37.01 
+0.7 | 2.048e+11 | 38.17 | 26.2 
+0.75 | 1.024e+11 | 29.93 | 33.41 
+0.75 | 2.048e+11 | 40.99 | 24.39 
+0.77 | 1.024e+11 | 31.28 | 31.97 
+0.77 | 2.048e+11 | 41.94 | 23.84 
+0.8 | 1.024e+11 | 33.55 | 29.8 
+0.8 | 2.048e+11 | 41.45 | 24.12 
+0.86 | 1.024e+11 | 39.25 | 25.48 
+0.86 | 2.048e+11 | 40.51 | 24.69 
+0.867 | 1.024e+11 | 40.05 | 24.97 
+0.867 | 2.048e+11 | 40.4 | 24.75 
+0.895 | 1.024e+11 | 39.98 | 25.01 
+0.895 | 2.048e+11 | 39.98 | 25.01 
+0.899 | 1.024e+11 | 39.92 | 25.05 
+0.899 | 2.048e+11 | 39.92 | 25.05 
+0.901 | 1.024e+11 | 39.89 | 25.07 
+0.901 | 2.048e+11 | 39.89 | 25.07 
+0.908 | 1.024e+11 | 39.78 | 25.14 
+0.908 | 2.048e+11 | 39.78 | 25.14 
+0.922 | 1.024e+11 | 39.58 | 25.27 
+0.922 | 2.048e+11 | 39.58 | 25.27 
+0.965 | 1.024e+11 | 38.96 | 25.67 
+0.965 | 2.048e+11 | 38.96 | 25.67 
+0.969 | 1.024e+11 | 38.9 | 25.71 
+0.969 | 2.048e+11 | 38.9 | 25.71 
+$ python3 tools/ceilings/tier_cost.py --model glm --set b_core=3.6e9 --set n_cpu=32 --sweep h_v=0.546,0.607,0.70,0.75,0.77,0.80,0.86,0.867,0.895,0.899,0.901,0.908,0.922,0.965,0.969 --sweep B_dram=102.4e9,204.8e9 | cut -d'|' -f1-4
+# GLM-5.3-Flash: n_moe 42, S_e 15.38 MB, K 8, E 288, t_pre 0.308 ms, t_shared 0.046 ms, t_other 1.61 ms, ctx 262144; PROVISIONAL model output
+h_v | B_dram | tok_s | step_ms 
+0.546 | 1.024e+11 | 20.78 | 48.12 
+0.546 | 2.048e+11 | 27.97 | 35.75 
+0.607 | 1.024e+11 | 22.87 | 43.72 
+0.607 | 2.048e+11 | 30.29 | 33.01 
+0.7 | 1.024e+11 | 27.02 | 37.01 
+0.7 | 2.048e+11 | 34.67 | 28.84 
+0.75 | 1.024e+11 | 29.93 | 33.41 
+0.75 | 2.048e+11 | 37.6 | 26.6 
+0.77 | 1.024e+11 | 31.28 | 31.97 
+0.77 | 2.048e+11 | 38.91 | 25.7 
+0.8 | 1.024e+11 | 33.55 | 29.8 
+0.8 | 2.048e+11 | 41.06 | 24.35 
+0.86 | 1.024e+11 | 39.25 | 25.48 
+0.86 | 2.048e+11 | 40.51 | 24.69 
+0.867 | 1.024e+11 | 40.05 | 24.97 
+0.867 | 2.048e+11 | 40.4 | 24.75 
+0.895 | 1.024e+11 | 39.98 | 25.01 
+0.895 | 2.048e+11 | 39.98 | 25.01 
+0.899 | 1.024e+11 | 39.92 | 25.05 
+0.899 | 2.048e+11 | 39.92 | 25.05 
+0.901 | 1.024e+11 | 39.89 | 25.07 
+0.901 | 2.048e+11 | 39.89 | 25.07 
+0.908 | 1.024e+11 | 39.78 | 25.14 
+0.908 | 2.048e+11 | 39.78 | 25.14 
+0.922 | 1.024e+11 | 39.58 | 25.27 
+0.922 | 2.048e+11 | 39.58 | 25.27 
+0.965 | 1.024e+11 | 38.96 | 25.67 
+0.965 | 2.048e+11 | 38.96 | 25.67 
+0.969 | 1.024e+11 | 38.9 | 25.71 
+0.969 | 2.048e+11 | 38.9 | 25.71 
+
+$ python3 tools/ceilings/tier_cost.py --model glm --set n_tok=2 --set accept=0.7 --set U=None
+# GLM-5.3-Flash: n_moe 42, S_e 15.38 MB, K 8, E 288, t_pre 0.308 ms, t_shared 0.046 ms, t_other 1.61 ms, ctx 262144; PROVISIONAL model output
+tok_s | step_ms | tokens_per_step | U | n_gpu | n_cpu | t_gpu | t_cpu | t_ssd | t_copy | dma_bytes | copies
+39.43 | 43.11 | 1.7 | 15.78 | 9.624 | 6.153 | 0.000318 | 0.00068 | 0 | 0 | 0 | 0
+$ python3 tools/ceilings/tier_cost.py --model glm --set n_tok=2 --set accept=0.7 --set U=14.03
+# GLM-5.3-Flash: n_moe 42, S_e 15.38 MB, K 8, E 288, t_pre 0.308 ms, t_shared 0.046 ms, t_other 1.61 ms, ctx 262144; PROVISIONAL model output
+tok_s | step_ms | tokens_per_step | U | n_gpu | n_cpu | t_gpu | t_cpu | t_ssd | t_copy | dma_bytes | copies
+42.46 | 40.04 | 1.7 | 14.03 | 8.558 | 5.472 | 0.000288 | 0.000607 | 0 | 0 | 0 | 0
+$ python3 tools/ceilings/tier_cost.py --model glm --set n_tok=2 --set accept=0.7 --set U=13.43
+# GLM-5.3-Flash: n_moe 42, S_e 15.38 MB, K 8, E 288, t_pre 0.308 ms, t_shared 0.046 ms, t_other 1.61 ms, ctx 262144; PROVISIONAL model output
+tok_s | step_ms | tokens_per_step | U | n_gpu | n_cpu | t_gpu | t_cpu | t_ssd | t_copy | dma_bytes | copies
+43.61 | 38.99 | 1.7 | 13.43 | 8.192 | 5.238 | 0.000278 | 0.000582 | 0 | 0 | 0 | 0

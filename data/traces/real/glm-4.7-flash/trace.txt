@@ -1,0 +1,16 @@
+5.55.620.728 I c00_en_cachesim_py.ids: 1924 prompt + 30 generated tokens, 46 MoE layers, k=4
+11.57.621.212 I c01_en_roofline_py.ids: 2004 prompt + 128 generated tokens, 46 MoE layers, k=4
+19.11.247.437 I c02_en_gateway_py.ids: 1891 prompt + 128 generated tokens, 46 MoE layers, k=4
+27.07.119.767 I c03_en_run_matrix_py.ids: 1884 prompt + 100 generated tokens, 46 MoE layers, k=4
+36.46.060.761 I c04_en_qwen4exp_py.ids: 2431 prompt + 128 generated tokens, 46 MoE layers, k=4
+42.38.834.925 I c05_en_dsa_py.ids: 1314 prompt + 128 generated tokens, 46 MoE layers, k=4
+51.30.581.932 I c06_en_expert_trace_cpp.ids: 2110 prompt + 128 generated tokens, 46 MoE layers, k=4
+58.21.187.142 I c07_en_slot_persist_py.ids: 1607 prompt + 128 generated tokens, 46 MoE layers, k=4
+65.32.268.581 I c08_en_run_eval_py.ids: 1850 prompt + 128 generated tokens, 46 MoE layers, k=4
+72.40.370.915 I c09_en_run_r1_py.ids: 1954 prompt + 128 generated tokens, 46 MoE layers, k=4
+80.39.053.224 I c10_en_pack_py.ids: 2069 prompt + 128 generated tokens, 46 MoE layers, k=4
+88.08.307.269 I c11_en_test_gateway_py.ids: 1809 prompt + 128 generated tokens, 46 MoE layers, k=4
+99.33.421.777 I c12_ru_ADR-012-reassessment_md.ids: 2855 prompt + 128 generated tokens, 46 MoE layers, k=4
+110.12.712.601 I c13_ru_ROADMAP_md.ids: 2706 prompt + 128 generated tokens, 46 MoE layers, k=4
+115.31.351.428 I c14_ru_kda_py.ids: 1354 prompt + 128 generated tokens, 46 MoE layers, k=4
+125.02.181.360 I c15_ru_gguf_quant_audit_py.ids: 2442 prompt + 128 generated tokens, 46 MoE layers, k=4
