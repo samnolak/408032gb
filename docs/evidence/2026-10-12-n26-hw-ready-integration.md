@@ -186,19 +186,99 @@ OK
 
 ## 6. CI: обязательные шаги и пропуски
 
-Заполняется по CI интеграционного Draft PR (раздел 8).
+Draft PR #17 (`claude/n26-hw-ready` → `main`), голова `deb0ca4`: **22 из 22 check runs — `success`** (CONFIRMED, GitHub
+`get_check_runs`, 2026-10-12 09:20 UTC):
+- `parity-r1-pin`: `parity`, `n21-patched`, `n20-n21-combined`, `ik-glm5next`;
+- `ci`: `cpu-parity`, `cuda-compile`, `ref-torch-cpu`, `strata-glm-sm89 (86)`, `strata-glm-sm89 (89)`, `lt-strata-sm89` — по
+  одному прогону на push и pull_request;
+- `server-cpu`: `n7` — push и pull_request;
+- `engines-sm89`: `build (llama.cpp)`, `build (ik_llama.cpp)`, `build (exllamav3)`, `build (strata)`.
+
+На предыдущей голове `3beb2c6` дополнительно зелёные `token-level / tokens`, `tokens`, `vendor`, `headers`: фильтры путей не
+запустили их на `deb0ca4`, так как его коммиты меняют только `scripts/r1`, `tests` и документы. Сборки `cuda-compile`,
+`*-sm89` и `engines-sm89` — **только компиляция под sm_89, не работающий inference и не замер**.
+
+Фактическое исполнение (CONFIRMED, журналы jobs):
+- `n20-n21-combined` (job 114726697266): `##[notice]n21-mimo2-mtp-fix-patched @ llama.cpp 79e2e74: Ran 57, skipped 0 as
+  expected`. Шаг N20 того же job обёрнут `check_unittest.py`, который валит шаг, если не прогнано ровно 110 тестов без
+  пропусков; job — `success`.
+- `n7` (server-cpu, job 114726330243):
+  - гейт N7 на обеих tiny-моделях — `all_pass: true`;
+  - пробы N8 — хранилище отвергло все повреждённые файлы (`store: refused sha256 mismatch`/`size`);
+  - смоук N11 — `r1_tools_smoke: 23/23 checks PASS`.
+
+  Характеристика glm5next при настройках по умолчанию (`-fa on`, f16) — `all_pass: false` с `max_abs_dlogprob 0.0267`; это
+  известная находка N7 (характеристика, не гейт). Шаги `tests.test_r1_safety_rules` / `tests.test_gateway` падают на любом
+  пропуске (N26a), job — `success`.
+
+**Пропуски, разрешённые в CI** (`tools/ci/parity_expectations.json`; любой другой пропуск валит шаг, N13):
+
+| шаг | пин | ran | skipped | причина |
+|---|---|---|---|---|
+| `n9-glm5next-decode` | `ec7630a` | 52 | 1 | на `ec7630a` нет MTP-графа glm5-next (на `79e2e74` — 58, 0 пропусков) |
+| `n21-mimo2-mtp-fix` | `ec7630a`, `79e2e74` | 32 | 6 | исправленные прогоны нужны сборке с патчем — их делают jobs `n21-patched` (57, 0) и `n20-n21-combined` |
+
+Остальные шаги идут без пропусков: `g1-*`, `n2`, `n6`, `n10-*`, `n12`, `n16`, `n17`, `n19`, `n20`, `gguf-audit`. Пропуски
+локального `unittest discover` (609) — тесты, которым нужны дампы, CUDA или `shellcheck`; в CI их гоняют шаги выше.
+**NOT RUN (нет GPU):** любые CUDA-прогоны, патчи N20/N21 на GPU, проверки N7 на CUDA-сборке.
 
 ## 7. Финальный прогон
 
-Заполняется перед публикацией.
+На `3beb2c6` (до исправления F1), CONFIRMED:
+```
+$ PYTHONDONTWRITEBYTECODE=1 TMPDIR=<S>/n26/cwd LLAMA_CPP_GGUF_PY=<S>/llama-ec7630a/gguf-py python3 -m unittest discover -s tests
+Ran 1388 tests in 247.625s
+
+OK (skipped=609)
+rc=0
+```
+После F1 (`8d5a905`) — шесть модулей R1 (90 OK) и проверка конфигов (5/5 ok), раздел «Audit of 3beb2c6» в evidence N26a;
+полный `discover` на `deb0ca4` — NOT RUN локально (CI `cpu-parity` на `deb0ca4` — `success`).
+
+**Независимый аудит** (evidence-auditor, только чтение, `3beb2c6`): 1 FAIL, 9 MINOR.
+- F1 (правило 2 обходилось без `--jinja`) исправлено в `8d5a905`.
+- M1–M4, M7, M8 исправлены в `deb0ca4`.
+- M5 — правки AGENTS.md шире буквального списка (порядок моделей ADR-001 помечен SUPERSEDED, Qwen как модель разработки,
+  гейты по ROADMAP, файл epyc-ai UNVERIFIED, CLAUDE.md) — вынесено владельцу.
+- M6 (правила 5 и 8 строже/уже PHASE-CLOSE) и M9 (имена тестов в таблице мутаций) — записаны в evidence N26a.
 
 ## 8. Публикация
 
-Заполняется после push.
+- **Ветка:** `claude/n26-hw-ready`, обычный `git push` (CONFIRMED, `git ls-remote origin claude/n26-hw-ready` →
+  `deb0ca439ce07eb81145ba8203faeb8017006cac` до этого коммита).
+- **PR:** Draft PR #17 в `main` — https://github.com/samnolak/408032gb/pull/17.
+- **`main`:** `eb59224`, не тронут; merge не выполнялся.
 
 ## 9. Резервная копия
 
-Заполняется после публикации.
+Нешаллов клон (`git rev-parse --is-shallow-repository` → `false`, после `git fetch --unshallow`). Все 24 ветки `origin`
+перенесены в голый каталог `refs/heads/*`; бандл и проверка восстановлением — `scripts/offline/repo_backup.py`
+(CONFIRMED, литеральный вывод, сокращён до итоговых строк по каждой ветке):
+
+```
+$ cd <S>/n26/backup-mirror.git && python3 scripts/offline/repo_backup.py create --out <S>/408032gb-all-branches-n26-deb0ca4.bundle --ref <24 ветки>
+ok   expected refs/heads/claude/n26-hw-ready        deb0ca439ce07eb81145ba8203faeb8017006cac (want deb0ca439ce07eb81145ba8203faeb8017006cac)
+ok   expected refs/heads/main                       eb59224c835581740a715ddcaa9abe101f90aa2f (want eb59224c835581740a715ddcaa9abe101f90aa2f)
+ok   git clone --mirror                             ok
+ok   git fsck --full                                ok
+ok   ref refs/heads/claude/n25-integration          80df84fd2f73, 413 commits
+ok   ref refs/heads/claude/n26-hw-ready             deb0ca439ce0, 554 commits
+ok   ref refs/heads/main                            eb59224c8355, 68 commits
+ok   git clone --branch 3090                        HEAD 986da38164bf, checkout ok
+restore check: ok
+$ sha256sum 408032gb-all-branches-n26-deb0ca4.bundle
+063399079b11f9b85f262c3697b6babddb36ec82fc9f690ec2e3b09d634f0a15  (53701291 байт)
+```
+Бандл содержит 24 ветки, для каждой — строка `ok ref … N commits`. Восстановление в пустой каталог (`ls -A` → 0):
+`git clone --branch claude/n26-hw-ready <bundle>`.
+- HEAD — `deb0ca4`;
+- `safety_rules.py` на всех конфигах — ok;
+- `tests.test_r1_safety_rules tests.test_gateway tests.test_tier_cost tests.test_check_unittest tests.test_hooks` →
+  `Ran 137 tests … OK`;
+- в `docs/evidence/` — 22 файла N7–N26.
+
+Бандл лежит в песочнице сессии и передаётся владельцу; в git он не коммитится. Этот коммит с evidence в бандл `deb0ca4` не
+входит — итоговый бандл с последней головой сделан после push (имя и sha256 — в отчёте владельцу).
 
 ## 10. Что требует железа (NOT RUN)
 
