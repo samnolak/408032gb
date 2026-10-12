@@ -70,3 +70,11 @@
 Проба N23 (не мутационная: её вывод вставлен в `docs/evidence/2026-10-11-n23-glm-template-tokenizer.md`, раздел 11.3): `2026-10-11-n23-qwen-newline-live.py --tinygen <tools/tinygen N11> --gguf-py <gguf-py llama.cpp> --n15 <каталог с tools/gguf_headers, tools/gguf_quant_audit.py и заголовком Qwen> --server-bin <llama-server> --out <каталог>` (что llama-server `79e2e74` действительно переиспользует, когда пустой блок рассуждения Qwen перетокенизируется в `ĊĊ`: крошечная qwen4exp со словарём настоящей Qwen3.8-Flash-Next из заголовка N15, `timings.cache_n` на каждом запросе).
 
 Расчёт N25 (не мутационный: его вывод вставлен в `docs/evidence/2026-10-11-qwen-max-speed-fitplan.md` и в приложение А `docs/reassessment/QWEN-MAX-SPEED.md`; запуск — из корня репозитория): `2026-10-11-n25-qwen-placement.py` (размещение Qwen3.8-Flash-Next при 262 144 токенах через `tools/ceilings/arch_ceilings.placement`, preset `base`; тело — `scratchpad/archalt/placement.py` из `docs/reassessment/ARCHITECTURE-ALTERNATIVES.md` ветки research-landscape `2c64027`, строки 1500-1517: две строки Qwen оттуда (AA:1502-1505) и третья строка Qwen 5.1/10/1.0, которой там нет).
+
+N26 (2026-10-12), байт-в-байт копии из песочницы сессии; внутри абсолютные пути песочницы и рабочего дерева — заменить на свои:
+`2026-10-12-n26a-mutations.py` (мутации M1–M17 `scripts/r1/safety_rules.py`, `scripts/r1/run_r1.py` и шлюза против
+`tests/test_r1_safety_rules.py`, `tests/test_gateway.py`, `tests/test_r1_orchestration.py`; круг 1 — 14/17, круг 2 — 17/17,
+`docs/evidence/2026-10-12-n26a-r1-safety-rules.md`), `2026-10-12-n26a-ik-probe.sh` (ik_llama.cpp `5194a9e` на CPU с нашим шаблоном
+GLM, `/apply-template`), `2026-10-12-n26a-gw-probe.sh` (llama-server `79e2e74` на CPU: `reasoning_content: null` напрямую — HTTP 500,
+через шлюз — 200); `2026-10-12-n26b-r8-recompute.py` и `2026-10-12-n26b-capacity.py` (не мутации: пересчёт чисел R8 на 3 диска и
+ёмкость 3 ТБ, `docs/evidence/2026-10-12-n26b-nvme-3x1tb.md`).

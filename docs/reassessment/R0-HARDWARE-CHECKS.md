@@ -168,6 +168,9 @@ bash scripts/diag/bench_nvme.sh --run --all /mnt/a/d,/mnt/b/d,/mnt/c/d --size-gi
 | `docs/reassessment/REPO_AUDIT.md:131, 190`; `EVIDENCE_MATRIX.md:18, 78`; `HARDWARE_FACTS.md:24` | уже «4 × 1 TB (ранее 3 × 990 Pro)» | без изменений (согласовано) |
 | `hardware/target-4x4080-32g.unverified.json:105` | уже «customer says 4 x 1 TB» | без изменений |
 
+N26 (2026-10-12): `AGENTS.md` «Hardware» исправлен lead-architect по явному разрешению владельца — «3x NVMe SSD 1 TB =
+3 TB total (PLANNED …; models, real speed and PCIe topology UNKNOWN until R0)»; запись решения — `docs/DECISIONS.md` ADR-012.3.
+
 ---
 
 ## (d) Лицензия Qwen

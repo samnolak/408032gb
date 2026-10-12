@@ -308,7 +308,7 @@ design). The full `unittest discover`: NOT RUN in this session.
 
 ## 6. Mutation check
 
-`<S>/n26a/mutate.py`: one mutation at a time in the worktree file, the six modules above, the file restored in `finally`
+`<S>/n26a/mutate.py` (copy: `docs/evidence/mutation-scripts/2026-10-12-n26a-mutations.py`): one mutation at a time in the worktree file, the six modules above, the file restored in `finally`
 (`git status` clean afterwards). Round 1 (the first version of the tests):
 
 ```
