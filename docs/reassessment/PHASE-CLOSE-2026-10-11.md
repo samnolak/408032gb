@@ -168,6 +168,8 @@
 **Открытые вопросы.**
 1. Сессии PR #1: принять правила (в) в `scripts/r1/configs` и `DEPLOY.md`; поддерживает ли ik `--chat-template-file` (UNKNOWN).
 2. Владельцу: правка `AGENTS.md:36` и `.claude/agents/infra-ops.md:20` (NVMe); письменное подтверждение решений 2026-10-11.
+   [Поправка 2026-10-12: обе правки сделаны в N26 по разрешению владельца — 3 × 1 ТБ, ADR-012.3; правила (в) внедрены в
+   `scripts/r1/` (N26a), ik `--chat-template-file` поддерживает (CONFIRMED, N26a).]
 3. Каким вариантом SwiGLU обучена GLM-5.3-Flash — UNKNOWN до эксперимента; даст ли владелец BF16/Q8_0-опору.
 4. Файл на epyc-ai — `glm5next` или `glm5-next` — UNKNOWN до проверки хоста.
 5. Какой GGUF MiMo брать (R1.3) — UNKNOWN; риск kernelpool `qkv_chunks` открыт.

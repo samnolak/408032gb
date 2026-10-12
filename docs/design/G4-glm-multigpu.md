@@ -38,6 +38,8 @@ Exact cut points: chosen by measured free VRAM per card in G4 (Strata's `auto` d
 2. **Hand-off.** Between stages the residual is the mHC state: 4 streams x 4096 fp32 = 64 KiB per token.
    Decode: 64 KiB per token per boundary. Prompt chunk of 8192 tokens: 512 MiB per boundary. Use
    `cudaMemcpyPeerAsync` (P2P works on this server, CONFIRMED by the customer) with a pinned-RAM fallback.
+   [Correction 2026-10-12, ADR-012.3: P2P is UNKNOWN until measured in R0 with standard tools; the NVIDIA driver is
+   not patched. The pinned-RAM path is the default, not a fallback.]
 3. **RAM tier.** One pinned host arena; each stage registers only its layers' experts and copies them over its own
    PCIe link. The static VRAM selection per stage comes from the boot profile restricted to the stage's layers.
 4. **Prefetch across a boundary.** strata-glm predicts layer l+1's experts from layer l's streams. At the last
