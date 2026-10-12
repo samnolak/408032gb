@@ -18,6 +18,8 @@ Hardware defaults are the ones R8 used (labels in the dataclass), except: NVMe p
 (the vendor figure in `hardware/4x4080s-32g.json`; R8 used 7.0 x 0.6), and 4 drives (the customer's specification of
 2026-10-10 says 4 x 1 TB; `hardware/4x4080s-32g.json` and AGENTS.md still say 3 — a discrepancy to resolve in R0;
 `n_drives` is in the tornado).
+*Pointer 2026-10-12: the customer corrected the drive count to 3 x 1 TB; `n_drives` defaults to 3 and the tornado row is
+(2, 3) since then. Re-run of the commands below with the new baseline: `docs/evidence/2026-10-12-n26b-nvme-3x1tb.md`.*
 
 ## 2. Fixes against R8's scratch implementation (CONFIRMED by tests; each is a test in tests/test_tier_cost.py)
 

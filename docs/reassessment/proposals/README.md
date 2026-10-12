@@ -52,7 +52,7 @@ python3 -m unittest tests.test_hooks -v
 уже в AGENTS.md «Git and sync»; остальные три части (миссия, железо, гейты/ярлыки ролей) прежние.
 
 Что меняет: раздел Mission — цели заказчика из мастер-промпта вместо «порта Strata на три модели»; раздел Hardware — все пункты
-UNVERIFIED, P2P UNKNOWN, 4 NVMe, CPU по CPUID; правила гейтов ссылаются на `docs/reassessment/ROADMAP.md` (R0–R6); заголовок ролей
+UNVERIFIED, P2P UNKNOWN, 3 NVMe (поправка 2026-10-12; было «4»), CPU по CPUID; правила гейтов ссылаются на `docs/reassessment/ROADMAP.md` (R0–R6); заголовок ролей
 честно говорит, что Sol/Terra/Luna — только ярлыки (`model: inherit`); строка про пуш `claude/*` (если принято предложение 0001).
 Не меняет: правила доказательности, пины и патчи, роли, Definition of Done.
 ```

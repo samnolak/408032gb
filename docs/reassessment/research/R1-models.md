@@ -154,7 +154,7 @@ Strata (Niko1221 @fb58e0d) поддерживает «из коробки» то
 ## 6. Fit и верхние границы скорости
 
 **Допущения (PROVISIONAL).** VRAM 4 × (32 − 2) = 120 GB, из них 4 GB под буферы и драфтер. RAM 128 − 12 = 116 GB. 4.5 bpw = 0.5625 B на параметр.
-Полоса: GPU 700 GB/s (конвейер, активна одна карта), RAM 150 GB/s (между 4 и 8 каналами: 102–205 GB/s теоретически), SSD 20 GB/s (3–4 × 990 Pro).
+Полоса: GPU 700 GB/s (конвейер, активна одна карта), RAM 150 GB/s (между 4 и 8 каналами: 102–205 GB/s теоретически), SSD 20 GB/s (3–4 × 990 Pro). *Поправка 2026-10-12: заказчик — 3 × 1 ТБ; 20 ГБ/с — 89% от теоретических 3 × 7.45 = 22.35 ГБ/с, при допущении репозитория 0.6 было бы 12.6–13.4 ГБ/с, т.е. SSD-числа ниже оптимистичны (PROVISIONAL, `docs/evidence/2026-10-12-n26b-nvme-3x1tb.md`).*
 Попадание в VRAM при равномерной маршрутизации: `h = (120 − неэкспертные веса − KV_FP8(262K) − 4) / веса_экспертов`. При реальном перекосе маршрутизации h выше: strata-glm с 13% экспертов в VRAM попадал в 55–58% (VERIFIED [13]).
 - (i) `tok/s = 700 / (active × 0.5625 + чтение_KV)` — все веса в VRAM.
 - (ii) `t = (неэкспертные_active + h·routed_active)·B/700 + (1−h)·routed_active·B/150 [+ доля_SSD·routed_active·B/20]`. «Посл.» — сумма времён (GPU ждёт CPU), «паралл.» — максимум из них.
@@ -273,7 +273,7 @@ GLM heff=1.00 RAMbw=150: serial= 60.4 overlap= 60.4
 | unsloth GLM-5.3-Flash-GGUF UD-Q4_K_XL ≈186 GiB (AGENTS.md: 185.983 GiB) | **REPORTED, согласуется** | документация unsloth: 199.71 GB = 185.99 GiB [27] |
 | Строка арки GGUF `glm5next` (AGENTS.md, ADR-010) | **VERIFIED с оговоркой** | mainline llama.cpp знает только `"glm5-next"` (`src/llama-arch.cpp:158`) [2]; ik_llama.cpp знает обе (`:90-91`) [6]. Файлы с `glm5next` в mainline, скорее всего, не загрузятся (HYPOTHESIS — проверить запуском) |
 | models/qwen3.8-flash-next.json: total 125, active null | **неполно** | active 6B, n-gram 51.2B, контекст 262K нативно (VERIFIED [1]) |
-| hardware: 3 × 990 Pro, P2P true (`hardware/4x4080s-32g.json`) | **устарело** | в задании «4 × 1 TB NVMe, P2P unknown». Новый `hardware/target-4x4080-32g.unverified.json` (коммит 125f35f, появился, пока шло это исследование) прямо пишет: «its NVMe count and p2p=true are outdated» [18] |
+| hardware: 3 × 990 Pro, P2P true (`hardware/4x4080s-32g.json`) | **устарело** | в задании «4 × 1 TB NVMe, P2P unknown» (*поправка 2026-10-12: заказчик — 3 × 1 TB, число 3 в старом файле верно*). Новый `hardware/target-4x4080-32g.unverified.json` (коммит 125f35f, появился, пока шло это исследование) прямо пишет: «its NVMe count and p2p=true are outdated» [18] |
 | Неэкспертные веса GLM (`models/specs/glm-5.3-flash.json`, 125f35f): KDA 4.68B, DSA 1.37B, shared 1.06B, dense FFN 0.45B | **согласуется** | моя независимая оценка в §6: ~6.1B attention, 1.06B shared, 0.45B dense (PROVISIONAL) |
 
 ---
@@ -309,7 +309,7 @@ GLM heff=1.00 RAMbw=150: serial= 60.4 overlap= 60.4
 - Квантованные GLM-5.3-Flash NVFP4: nvidia 204 GB [13], RedHatAI 229 GB VRAM [1], сообщество 181 GiB–196 GB (REPORTED).
 - GLM `index_kpool`: 4 (репо) против 16 (дефолт transformers).
 - Строка арки GLM: `glm5next` против `glm5-next`.
-- Железо: 3 против 4 NVMe; P2P «true» против «unknown». Старый `hardware/4x4080s-32g.json` против нового `hardware/target-4x4080-32g.unverified.json`; новый помечает старые значения как устаревшие.
+- Железо: 3 против 4 NVMe (*поправка 2026-10-12: заказчик — 3 × 1 ТБ*); P2P «true» против «unknown». Старый `hardware/4x4080s-32g.json` против нового `hardware/target-4x4080-32g.unverified.json`; новый помечает старые значения как устаревшие.
 - Лицензия GLM-5.3-Flash: MIT для весов (REPORTED) и Apache-2.0 для GitHub-кода — это разные объекты, а не противоречие.
 
 ---

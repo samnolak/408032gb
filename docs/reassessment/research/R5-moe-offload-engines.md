@@ -10,7 +10,7 @@ UNKNOWN. DISPROVED (with source). NOT FOUND (with the searches tried). Mapping t
 REPORTED/HYPOTHESIS = PROVISIONAL.
 
 **Target (from BRIEF, unverified):** 4x RTX 4080 Super 32 GB (sm_89, P2P not proven), EPYC Zen 3 AVX2, 128 GB DDR4-3200
-(4 or 8 channels UNKNOWN), 4 NVMe. Models: GLM-5.3-Flash UD-Q4_K_XL (~186 GiB; experts 177,528 MiB, dense 8,550 MiB per
+(4 or 8 channels UNKNOWN), 4 NVMe (*correction 2026-10-12: customer plans 3 x 1 TB NVMe; `docs/evidence/2026-10-12-n26b-nvme-3x1tb.md`*). Models: GLM-5.3-Flash UD-Q4_K_XL (~186 GiB; experts 177,528 MiB, dense 8,550 MiB per
 `PROBLEMS.md` of this repo, PROVISIONAL) and Qwen3.8-Flash-Next UD-Q4_K_XL (111.3 GB, fits 128 GB VRAM).
 
 ---

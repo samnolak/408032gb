@@ -21,7 +21,7 @@
 | F12 | PCIe каждой GPU: Gen/ширина (cap/sta под нагрузкой), корневой порт | Gen4 x16 | — | UNKNOWN | `pcie.lspci_vvv_nvidia` (root), `pcie.sysfs_links`, `bench/gpu/<UTC>/link_samples.csv` |
 | F13 | H2D/D2H pinned по одной и всем картам сразу | ~25 ГБ/с | — | UNKNOWN | `bench/gpu/<UTC>/p2p_matrix.csv` |
 | F14 | P2P: CanAccessPeer, полоса/латентность D2D | «работает» (не измерено); R4: штатный драйвер GeForce выключает | — | UNKNOWN | `gpu.topo_p2p_*`, `bench/gpu/<UTC>/p2p_matrix.csv` |
-| F15 | NVMe ×4: модель, прошивка, ёмкость, линк, температура, SMART | 4× 1 TB (ранее «3× 990 Pro») | — | UNKNOWN | `storage.nvme_*`, `storage.smartctl.*` |
+| F15 | NVMe ×3: модель, прошивка, ёмкость, линк, PCIe-топология, температура, SMART | 3× 1 TB = 3 TB, план (поправка заказчика 2026-10-12; 2026-10-10/11 записывалось «4× 1 TB», ещё раньше «3× 990 Pro»); модели/скорость UNKNOWN | — | UNKNOWN | `storage.nvme_*`, `storage.smartctl.*` |
 | F16 | NVMe: 4K QD1 p99, 4K QD32 IOPS, 16 МиБ ГБ/с; масштаб 1→4 | — | — | UNKNOWN | `bench/nvme/<UTC>/*.json`, `summary.csv` |
 | F17 | точки монтирования, ФС, RAID/LVM | — | — | UNKNOWN | `storage.lsblk*`, `storage.findmnt` |
 | F18 | драйвер NVIDIA / CUDA / toolkit / компиляторы | — | — | UNKNOWN | `gpu.proc_driver_nvidia`, `software.*` |
