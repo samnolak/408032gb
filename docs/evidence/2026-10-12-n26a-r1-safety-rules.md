@@ -446,3 +446,38 @@ M17 gateway: whole body re-serialised (bytes not kept)       rc=1 Ran 90 tests i
   requires the flag in argv.
 - Speculation inside engines other than llama-server is recognised only by `--spec N` / `--mtp` arguments and
   `mode.spec_k` (Strata's syntax); other engines' flags: UNKNOWN to the check.
+
+## Audit of 3beb2c6 (evidence-auditor, 2026-10-12): F1 fixed by the lead
+
+**F1 (FAIL):** `rule_glm_template` checked GLM configs only when `--jinja` was in argv. llama-server at `79e2e74` has jinja
+on by default (`common/common.h:646` `bool use_jinja = true;`; `common/arg.cpp:1401-1403` turn it off only for the
+completion and mtmd examples — CONFIRMED by the auditor at the pin), so a GLM config without `--jinja` and without the
+template file passed the check and would render the leaking built-in template. Fix (lead-architect): for every GLM
+config with a llama-server/ik argv, an explicit `--jinja` and `--chat-template-file ${REPO}/templates/glm-5.3-flash/
+chat_template.jinja` are required; `--no-jinja` and `LLAMA_ARG_JINJA`, `LLAMA_ARG_NO_JINJA`, `LLAMA_ARG_CHAT_TEMPLATE`,
+`LLAMA_ARG_CHAT_TEMPLATE_FILE` in `engine.env` are refused. The test that asserted the old behaviour (`--jinja` removed →
+no violation) now expects `R-GLM-TEMPLATE`; four more cases added (both removed in llama.cpp and ik configs, `--no-jinja`,
+env override). The table row for rule 2 above describes the pre-fix condition.
+
+Mutation of the fix (the new block disabled with `if False:`) fails the test; restored:
+```
+$ python3 -m unittest tests.test_r1_safety_rules     # with the block disabled
+FAILED (failures=1)
+$ python3 -m unittest tests.test_r1_orchestration tests.test_r1_rs_rollback_rule tests.test_gateway tests.test_eval_via_gateway tests.test_r1_tools_smoke tests.test_r1_safety_rules
+Ran 90 tests in 18.147s
+
+OK
+$ python3 scripts/r1/safety_rules.py scripts/r1/configs/*.json
+scripts/r1/configs/ik-llamacpp-server.json: ok (R-NP, R-GLM-TEMPLATE, R-MTP-FILES, R-MIMO-MTP, R-WEIGHTS, R-SYNTH)
+scripts/r1/configs/llamacpp-server-moecache.json: ok (R-NP, R-GLM-TEMPLATE, R-MTP-FILES, R-MIMO-MTP, R-WEIGHTS, R-SYNTH)
+scripts/r1/configs/llamacpp-server.json: ok (R-NP, R-GLM-TEMPLATE, R-MTP-FILES, R-MIMO-MTP, R-WEIGHTS, R-SYNTH)
+scripts/r1/configs/mock.json: ok (R-NP, R-GLM-TEMPLATE, R-MTP-FILES, R-MIMO-MTP, R-WEIGHTS, R-SYNTH)
+scripts/r1/configs/strata-serve-qwen38fn.json: ok (R-NP, R-GLM-TEMPLATE, R-MTP-FILES, R-MIMO-MTP, R-WEIGHTS, R-SYNTH)
+rc=0
+```
+(The test count stays 90: the new cases are assertions inside the existing test method.)
+
+Other audit notes on this file: M6 — rule 5 is stricter than PHASE-CLOSE (в) 5 (all MiMo speculation refused; the
+`--swa-full` / one-head-GGUF alternatives are not admitted by the checker), rule 8 enforces only `weights_verify`
+(`gguf_quant_audit` ≥ 4 bpw and the epyc-ai hostcheck stay operational rules); M9 — the mutation rows print the unittest
+failure count but list de-duplicated test names.

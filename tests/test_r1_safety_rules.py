@@ -285,7 +285,23 @@ class Mutations(unittest.TestCase):
         self.assertRules(with_args(QWEN, "--chat-template-file", TEMPLATE, chat_template_sha256=TEMPLATE_SHA), [])
         c = load(GLM)
         argv(c).remove("--jinja")
-        self.assertRules(c, [])                       # rule 2 is about --jinja; the recorded sha still matches
+        self.assertRules(c, ["R-GLM-TEMPLATE"])       # jinja is on by default at the R1 pin (N26 audit F1)
+        c = load(GLM)
+        i = argv(c).index("--jinja")
+        del argv(c)[i:i + 3]                          # --jinja and the template file both gone, sha kept
+        c["model"].pop("chat_template_sha256", None)
+        self.assertRules(c, ["R-GLM-TEMPLATE"])
+        c = load(IK)
+        i = argv(c).index("--jinja")
+        del argv(c)[i:i + 3]
+        c["model"].pop("chat_template_sha256", None)
+        self.assertRules(c, ["R-GLM-TEMPLATE"])
+        c = load(GLM)
+        argv(c).append("--no-jinja")
+        self.assertRules(c, ["R-GLM-TEMPLATE"])
+        c = load(GLM)
+        c["engine"].setdefault("env", {})["LLAMA_ARG_CHAT_TEMPLATE_FILE"] = "/tmp/other.jinja"
+        self.assertRules(c, ["R-GLM-TEMPLATE"])
 
     def test_glm_template_changed_on_disk(self):
         with tempfile.TemporaryDirectory() as repo:

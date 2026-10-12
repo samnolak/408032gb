@@ -239,15 +239,30 @@ def rule_glm_template(cfg, repo_root):
     want = os.path.normpath(os.path.join(repo_root, GLM_TEMPLATE))
     files = rs._values(argv, ["--chat-template-file"])
     glm = "glm" in model_text(cfg)
-    if glm and "--jinja" in argv:
+    server = bool(server_argvs(cfg))
+    env = engine_env(cfg)
+    # llama-server @79e2e74 turns jinja on by default (common/common.h:646 use_jinja = true; common/arg.cpp:1401-1403
+    # turn it off only for the completion and mtmd examples), so a GLM server without --jinja still renders the
+    # built-in GGUF template (N26 audit F1): the template file and an explicit --jinja are required for every GLM server
+    if glm and server:
+        if "--jinja" not in argv:
+            out.append("GLM llama-server/ik argv needs an explicit --jinja followed by --chat-template-file "
+                       "${REPO}/%s (jinja is on by default at the R1 pin, so leaving --jinja out still uses the "
+                       "built-in GGUF template)" % GLM_TEMPLATE)
+        if "--no-jinja" in argv:
+            out.append("GLM argv passes --no-jinja: the GLM chat format needs our jinja template file")
+        for k in ("LLAMA_ARG_JINJA", "LLAMA_ARG_NO_JINJA", "LLAMA_ARG_CHAT_TEMPLATE", "LLAMA_ARG_CHAT_TEMPLATE_FILE"):
+            if k in env:
+                out.append("GLM engine.env sets %s, which can override the template flags of argv" % k)
+    if glm and (server or "--jinja" in argv):
         if not files:
-            out.append("GLM with --jinja needs --chat-template-file ${REPO}/%s (the built-in GGUF template leaks the "
+            out.append("GLM needs --chat-template-file ${REPO}/%s (the built-in GGUF template leaks the "
                        "previous turn's reasoning: risk matrix item 1, N15/N23)" % GLM_TEMPLATE)
         for f in files:
             if os.path.normpath(f) != want:
                 out.append("GLM --chat-template-file is %s, not ${REPO}/%s = %s" % (f, GLM_TEMPLATE, want))
         idx = [i for i, a in enumerate(argv) if a == "--chat-template-file" or a.startswith("--chat-template-file=")]
-        if idx and idx[0] < argv.index("--jinja"):
+        if idx and "--jinja" in argv and idx[0] < argv.index("--jinja"):
             out.append("--chat-template-file must come after --jinja (llama.cpp --help: only common templates are "
                        "accepted unless --jinja is set before it)")
         if rs._values(argv, ["--chat-template"]):
