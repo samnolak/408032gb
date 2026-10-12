@@ -1,6 +1,6 @@
 {
  "repo": "canada-quant/GLM-5.3-Flash-DFlash2-G",
- "revision": "bd03d3a38c55490fdcd9cafcfe0825b9957933ec",
+ "revision": "b8ba68b022d612958d1a9c447f294f148a156ed1",
  "requested": "main",
  "gated": false,
  "license_tags": [
@@ -21,9 +21,9 @@
   },
   {
    "path": "README.md",
-   "size": 9619,
-   "sha256": "f924ab65305e1b03c4d4e0048e4dd3ed39493a9949adf40d4de42f0abaf32bd7",
-   "git_blob": "9d435d191b2673dc0e713319b33277a2e006d766"
+   "size": 11843,
+   "sha256": "9e3de621ef20a2ff6cb5959a5e163ed762d4bd93b0047078201e348d567c652d",
+   "git_blob": "2c7533ce571e0cb5aa9583bbccf13ccac34d7422"
   }
  ],
  "not_vendored": [
@@ -49,7 +49,7 @@
   },
   {
    "path": "README.md",
-   "size": 9619,
+   "size": 11843,
    "lfs": false
   },
   {
@@ -59,7 +59,7 @@
   },
   {
    "path": "launch_dflash2_tp2.sh",
-   "size": 6092,
+   "size": 6469,
    "lfs": false
   },
   {
