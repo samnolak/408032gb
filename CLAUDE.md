@@ -9,4 +9,5 @@
   to upstream pins (AGENTS.md "Git and sync"). The inference VM still syncs by bundle.
 - Work that must survive the container: commit to the session's `claude/*` branch and push it; open a Draft PR into
   `main` for review. Never merge.
-- Before starting work: read docs/PLAN.md (current gate) and the newest file in docs/evidence/.
+- Before starting work: read docs/reassessment/PROJECT_STATE.md, docs/reassessment/ROADMAP.md (current gate) and the
+  newest file in docs/evidence/.
