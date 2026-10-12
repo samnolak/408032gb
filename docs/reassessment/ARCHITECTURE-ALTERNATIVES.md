@@ -772,7 +772,7 @@ PROVISIONAL, кроме помеченного; потолки — `base`, 8 к�
 
 **На сервере (R0), сначала без GPU-кода:**
 5. **AA-5 — P2P в VM** (H6): `cudaDeviceCanAccessPeer`; байт-точная проверка peer-копий (как DwarfStar `ds4_cuda.cu:2799-2900`,
-   `owner_verify.cu` xiaoyanzi191); `p2pBandwidthLatencyTest`. Патч драйвера — только с согласия заказчика (DEPLOY, R4.3).
+   `owner_verify.cu` xiaoyanzi191); `p2pBandwidthLatencyTest`. Патч драйвера — не делается (решение владельца, ADR-012.2 / ADR-012.3; R4.3 отклонён); только штатная диагностика.
 6. **AA-6 — каналы и полоса DRAM, скорость CPU-ядра** (H2, R9 M2): `dmidecode -t 17`, STREAM triad 1 / 24 / 48 потоков,
    харнесс AA-2 на 7H43. Решает строки «4 / 8 каналов» и «потоки» во всех таблицах.
 7. **AA-7 — полоса HBM каждой модифицированной карты** (H4): заменяет 736 ГБ/с.
