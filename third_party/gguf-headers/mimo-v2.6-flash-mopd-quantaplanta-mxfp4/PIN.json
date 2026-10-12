@@ -1,0 +1,112 @@
+{
+ "request_path": "data/gguf-headers/mimo-v2.6-flash-mopd-quantaplanta-mxfp4/REQUEST.json",
+ "request_sha256": "a506231127b2c536d5794c24ec0f438ac70390f71eef225000f4f0245ab94728",
+ "request": {
+  "_doc": "N18 (b): the most-downloaded MiMo-V2.6-Flash GGUF of the N15 listing (48815 downloads): one MXFP4 file of 174908254272 B. Name and revision come from third_party/gguf-headers/discover-mimo/LISTING.json:566, 574 (QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF @ac33b3743d70ed57a8cc6b847698d2ebbddb7784; no mtp- sidecar in the repo). Headers only, by Range reads (scripts/gguf_headers_fetch.py). docs/reassessment/CORRECTNESS.md gap 9.",
+  "repo": "QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+  "revision": "ac33b3743d70ed57a8cc6b847698d2ebbddb7784",
+  "files": [
+   "MiMo-V2.6-Flash-MOPD-MXFP4.gguf"
+  ],
+  "expect_count": 1,
+  "max_header_bytes": 33554432,
+  "initial_bytes": 262144,
+  "analysis": {
+   "graph": "mimo2",
+   "tiny": "mimo2",
+   "hf_config": "data/gguf-headers/mimo-v2.6-flash-config/config.json"
+  },
+  "kind": "headers"
+ },
+ "repo": "QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+ "requested_revision": "ac33b3743d70ed57a8cc6b847698d2ebbddb7784",
+ "max_header_bytes": 33554432,
+ "initial_bytes": 262144,
+ "endpoint": "https://huggingface.co",
+ "tool": "scripts/gguf_headers_fetch.py",
+ "workflow_sha": "65c380517e5fe53f21c2361490854cde46265e22",
+ "fetched_utc": "2026-10-11T14:31:24Z",
+ "revision": "ac33b3743d70ed57a8cc6b847698d2ebbddb7784",
+ "gated": false,
+ "license_tags": [
+  "license:mit"
+ ],
+ "gguf_listing": [
+  {
+   "path": "MiMo-V2.6-Flash-MOPD-MXFP4.gguf",
+   "size": 174908254272,
+   "lfs_sha256": "fc1b8122d1a31db98b20ed5c9ddb3d4d7e28d37b47cb2f1e843354788fbfeaa6"
+  },
+  {
+   "path": "mmproj-MiMo-V2.6-Flash-MOPD-Q8_0.gguf",
+   "size": 1564438112,
+   "lfs_sha256": "156c3891b52d831ca9db2329cf5b2c8dd8ecdab8758354d42a912df79bb247ac"
+  },
+  {
+   "path": "mmproj-MiMo-V2.6-Flash-MOPD-bf16.gguf",
+   "size": 2748509792,
+   "lfs_sha256": "8524ec7a6ce44be56ee01921749161e5dbf1c5dd464e2d5c95da505e4b7287d4"
+  },
+  {
+   "path": "mmproj-MiMo-V2.6-Flash-MOPD-f16.gguf",
+   "size": 2744577632,
+   "lfs_sha256": "973931512a704ff99c4e7e7bdd2bf04f4540dce699cb8a51feb4c3683d8700dd"
+  }
+ ],
+ "status": "ok",
+ "files": [
+  {
+   "path": "MiMo-V2.6-Flash-MOPD-MXFP4.gguf",
+   "size": 174908254272,
+   "lfs_sha256": "fc1b8122d1a31db98b20ed5c9ddb3d4d7e28d37b47cb2f1e843354788fbfeaa6",
+   "lfs_size": 174908254272,
+   "git_oid": "8e20758ee52966859db29c95300956b31d22c5c7",
+   "xet_hash": "15255be479a5cb645fc69d8ce5321d49f565d8d633907518d8ead77cc1b2a4c8",
+   "header_bytes": 5980736,
+   "header_sha256": "2e3a7ba2f0b09c1582dddb30f868edf0547569102908d6114aaec37fcc7d1980",
+   "header_gz": "MiMo-V2.6-Flash-MOPD-MXFP4.gguf.header.gz",
+   "header_gz_bytes": 1665898,
+   "header_gz_sha256": "99cb634f39f33d57683740712b6dcc55682c2322d1633da2c2fc336cb19ecedf",
+   "summary": "MiMo-V2.6-Flash-MOPD-MXFP4.gguf.summary.json",
+   "bytes_fetched": 8388608,
+   "range_requests": [
+    [
+     0,
+     262143
+    ],
+    [
+     262144,
+     524287
+    ],
+    [
+     524288,
+     1048575
+    ],
+    [
+     1048576,
+     2097151
+    ],
+    [
+     2097152,
+     4194303
+    ],
+    [
+     4194304,
+     8388607
+    ]
+   ],
+   "resolve_redirect": {
+    "x_linked_etag": "fc1b8122d1a31db98b20ed5c9ddb3d4d7e28d37b47cb2f1e843354788fbfeaa6",
+    "x_repo_commit": "ac33b3743d70ed57a8cc6b847698d2ebbddb7784",
+    "x_linked_size": "174908254272",
+    "hops": 1
+   },
+   "etag_matches_lfs_sha256": true,
+   "repo_commit_matches": true,
+   "tensor_offsets": "contiguous",
+   "size_check": "exact"
+  }
+ ],
+ "bytes_fetched": 8388608,
+ "committed_bytes": 1665898
+}

@@ -1,0 +1,16 @@
+{
+ "_doc": "N18 (c): the separate MTP files of ggml-org/GLM-5.3-Flash-GGUF @c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa (names from third_party/gguf-headers/discover-glm-mimo/LISTING.json, gguf_files of that repo: mtp-GLM-5.3-Flash-Q4_0.gguf 4947287104 B, mtp-GLM-5.3-Flash-Q8_0.gguf 9284197440 B). Headers only, by Range reads (scripts/gguf_headers_fetch.py); each file is analysed as its own model (analysis mode mtp_files): layout, NextN layer against the NextN layer (blk.45) of the unsloth UD-Q4_K_XL file committed by N15, KV against the ggml-org Q4_K trunk, and what each llama.cpp pin's loader asks of a separate MTP file. docs/reassessment/CORRECTNESS.md gap 9.",
+ "repo": "ggml-org/GLM-5.3-Flash-GGUF",
+ "revision": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+ "files": ["mtp-GLM-5.3-Flash-Q4_0.gguf", "mtp-GLM-5.3-Flash-Q8_0.gguf"],
+ "expect_count": 2,
+ "max_header_bytes": 33554432,
+ "initial_bytes": 262144,
+ "analysis": {
+  "mode": "mtp_files",
+  "graph": "glm5-next",
+  "trunk": "glm-5.3-flash-ggml-org-q4_k",
+  "mtp_reference": {"request": "glm-5.3-flash-ud-q4_k_xl"},
+  "hf_config": "third_party/hf/glm-5.3-flash-chat/config.json"
+ }
+}

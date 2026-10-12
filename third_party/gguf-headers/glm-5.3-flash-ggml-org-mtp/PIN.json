@@ -1,0 +1,201 @@
+{
+ "request_path": "data/gguf-headers/glm-5.3-flash-ggml-org-mtp/REQUEST.json",
+ "request_sha256": "1228b4b050012304be251b10ac9892f60491a3f9d789aaccff696258ccf58523",
+ "request": {
+  "_doc": "N18 (c): the separate MTP files of ggml-org/GLM-5.3-Flash-GGUF @c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa (names from third_party/gguf-headers/discover-glm-mimo/LISTING.json, gguf_files of that repo: mtp-GLM-5.3-Flash-Q4_0.gguf 4947287104 B, mtp-GLM-5.3-Flash-Q8_0.gguf 9284197440 B). Headers only, by Range reads (scripts/gguf_headers_fetch.py); each file is analysed as its own model (analysis mode mtp_files): layout, NextN layer against the NextN layer (blk.45) of the unsloth UD-Q4_K_XL file committed by N15, KV against the ggml-org Q4_K trunk, and what each llama.cpp pin's loader asks of a separate MTP file. docs/reassessment/CORRECTNESS.md gap 9.",
+  "repo": "ggml-org/GLM-5.3-Flash-GGUF",
+  "revision": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+  "files": [
+   "mtp-GLM-5.3-Flash-Q4_0.gguf",
+   "mtp-GLM-5.3-Flash-Q8_0.gguf"
+  ],
+  "expect_count": 2,
+  "max_header_bytes": 33554432,
+  "initial_bytes": 262144,
+  "analysis": {
+   "mode": "mtp_files",
+   "graph": "glm5-next",
+   "trunk": "glm-5.3-flash-ggml-org-q4_k",
+   "mtp_reference": {
+    "request": "glm-5.3-flash-ud-q4_k_xl"
+   },
+   "hf_config": "third_party/hf/glm-5.3-flash-chat/config.json"
+  },
+  "kind": "headers"
+ },
+ "repo": "ggml-org/GLM-5.3-Flash-GGUF",
+ "requested_revision": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+ "max_header_bytes": 33554432,
+ "initial_bytes": 262144,
+ "endpoint": "https://huggingface.co",
+ "tool": "scripts/gguf_headers_fetch.py",
+ "workflow_sha": "8c0b42453ec58d19973a305e6294384f28a0c8bd",
+ "fetched_utc": "2026-10-11T14:03:32Z",
+ "revision": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+ "gated": false,
+ "license_tags": [
+  "license:other"
+ ],
+ "gguf_listing": [
+  {
+   "path": "GLM-5.3-Flash-Q2_K-00001-of-00002.gguf",
+   "size": 9430240,
+   "lfs_sha256": "f334b5b84890a5c2ff7081c99ebe31aa7815250936bc5d96d19e31eab04da831"
+  },
+  {
+   "path": "GLM-5.3-Flash-Q2_K-00002-of-00002.gguf",
+   "size": 133799626432,
+   "lfs_sha256": "1527038a649a11d74a5cfb9f66d5a23f8f5be587929124253233bff81bea3747"
+  },
+  {
+   "path": "GLM-5.3-Flash-Q2_K_S-00001-of-00002.gguf",
+   "size": 9430240,
+   "lfs_sha256": "f334b5b84890a5c2ff7081c99ebe31aa7815250936bc5d96d19e31eab04da831"
+  },
+  {
+   "path": "GLM-5.3-Flash-Q2_K_S-00002-of-00002.gguf",
+   "size": 110017922752,
+   "lfs_sha256": "61ed849acb67dc7832eda82e9fad0f0257edcd20ced1fc7640e5e329ed6951b4"
+  },
+  {
+   "path": "GLM-5.3-Flash-Q4_K-00001-of-00002.gguf",
+   "size": 9429952,
+   "lfs_sha256": "7d658490f34f56ac9eb3b46ceb4778599ec39f4e1a77c63e456a1240efc64ed3"
+  },
+  {
+   "path": "GLM-5.3-Flash-Q4_K-00002-of-00002.gguf",
+   "size": 181363033792,
+   "lfs_sha256": "27636dd16f76d39aa95db1de081cf458f705f1c78f8f1010b2fac3edc416c116"
+  },
+  {
+   "path": "mmproj-GLM-5.3-Flash-Q8_0.gguf",
+   "size": 652829376,
+   "lfs_sha256": "b15ac9937afb0f6f89f0619edad57439dea658101b65e68cbcb63abec3700d73"
+  },
+  {
+   "path": "mtp-GLM-5.3-Flash-Q4_0.gguf",
+   "size": 4947287104,
+   "lfs_sha256": "7a36bad56b6b11542f898d660821a82a580eb6d319c0380566fb737e3bb2ad78"
+  },
+  {
+   "path": "mtp-GLM-5.3-Flash-Q8_0.gguf",
+   "size": 9284197440,
+   "lfs_sha256": "17a89535ce31a2e6aebbf50eb44ba850ec0e8263805d97004c85ac3ab06c636f"
+  }
+ ],
+ "status": "ok",
+ "files": [
+  {
+   "path": "mtp-GLM-5.3-Flash-Q4_0.gguf",
+   "size": 4947287104,
+   "lfs_sha256": "7a36bad56b6b11542f898d660821a82a580eb6d319c0380566fb737e3bb2ad78",
+   "lfs_size": 4947287104,
+   "git_oid": "4d57f2114ad7d4a7d89455ae3be8062967d47f27",
+   "xet_hash": "5206befa7ddd55e7efa999174fad82cf76afa8cac87c91c6be55368563b2d3b1",
+   "header_bytes": 9432000,
+   "header_sha256": "54c831d97a0dffcc1ec4eae4f697a51754026dcdc611151a28699d13a3887d10",
+   "header_gz": "mtp-GLM-5.3-Flash-Q4_0.gguf.header.gz",
+   "header_gz_bytes": 2487517,
+   "header_gz_sha256": "fdbc3e5348ae9e979e7c49d9d2c65ba7c96fb48272578b16cb5813f2efab806b",
+   "summary": "mtp-GLM-5.3-Flash-Q4_0.gguf.summary.json",
+   "bytes_fetched": 16777216,
+   "range_requests": [
+    [
+     0,
+     262143
+    ],
+    [
+     262144,
+     524287
+    ],
+    [
+     524288,
+     1048575
+    ],
+    [
+     1048576,
+     2097151
+    ],
+    [
+     2097152,
+     4194303
+    ],
+    [
+     4194304,
+     8388607
+    ],
+    [
+     8388608,
+     16777215
+    ]
+   ],
+   "resolve_redirect": {
+    "x_linked_etag": "7a36bad56b6b11542f898d660821a82a580eb6d319c0380566fb737e3bb2ad78",
+    "x_repo_commit": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+    "x_linked_size": "4947287104",
+    "hops": 1
+   },
+   "etag_matches_lfs_sha256": true,
+   "repo_commit_matches": true,
+   "tensor_offsets": "contiguous",
+   "size_check": "exact"
+  },
+  {
+   "path": "mtp-GLM-5.3-Flash-Q8_0.gguf",
+   "size": 9284197440,
+   "lfs_sha256": "17a89535ce31a2e6aebbf50eb44ba850ec0e8263805d97004c85ac3ab06c636f",
+   "lfs_size": 9284197440,
+   "git_oid": "d9ac1086a5c06a6ccd83ace0836d164008e3ea4e",
+   "xet_hash": "b040b73529b183d6df500c8d1715a24da79ddfa68acacb74115f8a9368c3a876",
+   "header_bytes": 9432000,
+   "header_sha256": "5518d3c4d9de9c29cc28f6972789e10719110b95fd6af4dd8e46130284df0c74",
+   "header_gz": "mtp-GLM-5.3-Flash-Q8_0.gguf.header.gz",
+   "header_gz_bytes": 2487531,
+   "header_gz_sha256": "c2437dbd90694961d3aac5b54e82e4fc35a5ff7ca2876f2a73c2a406c45512d0",
+   "summary": "mtp-GLM-5.3-Flash-Q8_0.gguf.summary.json",
+   "bytes_fetched": 16777216,
+   "range_requests": [
+    [
+     0,
+     262143
+    ],
+    [
+     262144,
+     524287
+    ],
+    [
+     524288,
+     1048575
+    ],
+    [
+     1048576,
+     2097151
+    ],
+    [
+     2097152,
+     4194303
+    ],
+    [
+     4194304,
+     8388607
+    ],
+    [
+     8388608,
+     16777215
+    ]
+   ],
+   "resolve_redirect": {
+    "x_linked_etag": "17a89535ce31a2e6aebbf50eb44ba850ec0e8263805d97004c85ac3ab06c636f",
+    "x_repo_commit": "c259a9f17fe28ec50fecb0aa9f56971a0ae6eeaa",
+    "x_linked_size": "9284197440",
+    "hops": 1
+   },
+   "etag_matches_lfs_sha256": true,
+   "repo_commit_matches": true,
+   "tensor_offsets": "contiguous",
+   "size_check": "exact"
+  }
+ ],
+ "bytes_fetched": 33554432,
+ "committed_bytes": 4975048
+}

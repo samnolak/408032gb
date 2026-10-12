@@ -1,0 +1,14 @@
+{
+ "_doc": "N18 (b): the most-downloaded MiMo-V2.6-Flash GGUF of the N15 listing (48815 downloads): one MXFP4 file of 174908254272 B. Name and revision come from third_party/gguf-headers/discover-mimo/LISTING.json:566, 574 (QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF @ac33b3743d70ed57a8cc6b847698d2ebbddb7784; no mtp- sidecar in the repo). Headers only, by Range reads (scripts/gguf_headers_fetch.py). docs/reassessment/CORRECTNESS.md gap 9.",
+ "repo": "QuantaPlanta/MiMo-V2.6-Flash-MOPD-MXFP4-GGUF",
+ "revision": "ac33b3743d70ed57a8cc6b847698d2ebbddb7784",
+ "files": ["MiMo-V2.6-Flash-MOPD-MXFP4.gguf"],
+ "expect_count": 1,
+ "max_header_bytes": 33554432,
+ "initial_bytes": 262144,
+ "analysis": {
+  "graph": "mimo2",
+  "tiny": "mimo2",
+  "hf_config": "data/gguf-headers/mimo-v2.6-flash-config/config.json"
+ }
+}
