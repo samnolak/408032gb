@@ -5,9 +5,18 @@ command, the same way every time, into one auditable run directory that ends wit
   python3 scripts/r1/run_r1.py --config scripts/r1/configs/<name>.json --out RUNS_ROOT
                                [--plan [--json]] [--only step1,step2] [--set KEY=VALUE ...]
 
+Before anything is planned, the configuration (fully substituted, --set included) must pass the R1 safety rules of
+scripts/r1/safety_rules.py (docs/reassessment/PHASE-CLOSE-2026-10-11.md section (v)); a violation is a configuration
+error (exit 2, no run directory, nothing runs, --plan included). The check's report is kept as
+artifacts/orchestrator/safety_rules.json (with the sha256 of a --chat-template-file).
+
 Steps, in this order; each can be disabled in the config ("steps": {"<step>": {"enabled": false}}) or left out with
 --only. A failing step is recorded and every later step that does not depend on it still runs.
-  weights_verify       scripts/offline/weights.py verify MANIFEST --dest DIR (+ a byte copy of the manifest)
+  weights_verify       scripts/offline/weights.py verify MANIFEST --dest DIR (+ a byte copy of the manifest).
+                       Weights gate (safety rule 8): the engine of a non-mock config is started only if weights_verify
+                       passed in this run, or the config has no manifest and marks its runs unverified with
+                       model.weights_unverified_reason; otherwise engine_start is skipped as blocked by weights_verify
+                       (failed, disabled or not selected all block). --only with engine_start adds weights_verify
   quant_audit          tools/gguf_quant_audit.py FIRST.gguf --json
   roofline_prediction  tools/roofline.py ... --json, one call per context, then prereg/prereg.json with the sha256 of
                        every prediction: written BEFORE the engine starts (preregistration rule of
@@ -72,6 +81,17 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 PINS = os.path.join(REPO, "tools", "engines", "pins.json")
 sys.path.insert(0, os.path.join(REPO, "tools", "bench"))
 import runlog  # noqa: E402  (tools/bench/runlog.py: UTC stamps, git and host info)
+
+
+def _load_safety_rules():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("r1_safety_rules", os.path.join(HERE, "safety_rules.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+safety_rules = _load_safety_rules()   # scripts/r1/safety_rules.py (R1 safety rules, checked before any step)
 
 SCHEMA = "408032gb-r1-run/1"
 STEPS = ["weights_verify", "quant_audit", "roofline_prediction", "nvidia_smi_before", "engine_build_check",
@@ -335,6 +355,10 @@ class Cell:
         body = {k: v for k, v in raw.items() if k != "vars"}
         self.cfg = substitute(body, self.var, "config")
         self.validate()
+        self.safety = safety_rules.report(self.cfg, REPO)
+        if self.safety["violations"]:
+            raise ConfigError("the R1 safety rules (scripts/r1/safety_rules.py) refuse this config; nothing runs:\n  "
+                              + "\n  ".join("[%s] %s" % (v["rule"], v["message"]) for v in self.safety["violations"]))
         self.plan = self.build_plan()
 
     def pick_run_dir(self):
@@ -383,10 +407,11 @@ class Cell:
         self.stop_timeout = num(st.get("timeout_s", 60), "engine.stop.timeout_s", 0)
         m = obj(c.get("model"), "model")
         self.model = {"desc": str(m.get("desc") or ""), "files": str_list(m.get("files"), "model.files"),
-                      "weights_manifest": m.get("weights_manifest"), "weights_dest": m.get("weights_dest")}
+                      "weights_manifest": m.get("weights_manifest"), "weights_dest": m.get("weights_dest"),
+                      "weights_unverified_reason": m.get("weights_unverified_reason")}
         if not self.model["desc"]:
             raise ConfigError("model.desc is required (model, quant, revision)")
-        for k in ("weights_manifest", "weights_dest"):
+        for k in ("weights_manifest", "weights_dest", "weights_unverified_reason"):
             if self.model[k] is not None and not isinstance(self.model[k], str):
                 raise ConfigError("model.%s must be a string or null" % k)
         r = obj(c.get("roofline"), "roofline")
@@ -524,6 +549,10 @@ class Cell:
         man = self.model["weights_manifest"]
         if not self.enabled("weights_verify"):
             P.append(Item("weights_verify", skip="disabled in the config"))
+        elif not man and self.model["weights_unverified_reason"]:
+            P.append(Item("weights_verify", skip="no model.weights_manifest: the config marks this run UNVERIFIED (%s); "
+                                                 "weights integrity (V2) stays NOT RUN"
+                                                 % self.model["weights_unverified_reason"]))
         elif not man:
             P.append(Item("weights_verify", skip="no model.weights_manifest in the config: weights integrity (V2) stays "
                                                  "NOT RUN"))
@@ -917,6 +946,7 @@ class Run:
             f.write(self.cell.plan_text(self.selected) + "\n")
         self.write_json(os.path.join(self.cell.artifacts, "orchestrator", "resolved.json"),
                         self.cell.plan_dict(self.selected))
+        self.write_json(os.path.join(self.cell.artifacts, "orchestrator", "safety_rules.json"), self.cell.safety)
         self.write_run_json("running")
         self.say("run directory: %s" % self.run_dir)
         if self.cell.mock:
@@ -988,6 +1018,10 @@ class Run:
         if it.after and self.item_state.get(it.after) != "ok":
             return self.skip(it, "depends on %s, which is %s" % (it.after, self.item_state.get(it.after)),
                              blocked_by=it.after)
+        if it.step == "engine_start":
+            why = self.weights_gate()
+            if why:
+                return self.skip(it, why, blocked_by="weights_verify")
         handler = {"cmd": self.run_cmd, "engine": self.start_engine, "health": self.wait_health,
                    "stop": self.stop_engine, "prereg": self.write_prereg, "buildcheck": self.check_build}[it.kind]
         n = len(self.records)
@@ -1003,6 +1037,28 @@ class Run:
                 self.records.append(self.journal(rec))
                 self.set_state(it, "failed")
                 self.say("%-34s failed: orchestrator error: %s: %s" % (it.key, type(e).__name__, e))
+
+    def weights_gate(self):
+        """Safety rule 8: None if the engine may start, else the reason it may not."""
+        c = self.cell
+        if c.mock:
+            return None
+        st = self.step_state.get("weights_verify")
+        if st == "ok":
+            return None
+        if not c.model["weights_manifest"] and c.model["weights_unverified_reason"]:
+            return None
+        return ("weights not verified: weights_verify is %s; R1 safety rule 8 starts the engine only after "
+                "weights_verify passed in this run (or on a config without a manifest that marks its runs unverified "
+                "with model.weights_unverified_reason)" % ({"blocked": "skipped (blocked)"}.get(st, st) or "not run"))
+
+    def weights_status(self):
+        c = self.cell
+        if c.mock:
+            return "MOCK (the weights gate does not apply)"
+        if self.step_state.get("weights_verify") == "ok":
+            return "verified by weights_verify in this run"
+        return "UNVERIFIED: %s" % c.model["weights_unverified_reason"]
 
     def exit_code(self):
         if self.interrupted:
@@ -1335,7 +1391,7 @@ class Run:
             return self.end(it, t, "failed", reason="cannot start the engine: %s" % p,
                             outputs=[it.stdout] + self.extra_outputs(it))
         return self.end(it, t, "ok", reason="started (pid %d); health is checked by health_wait" % p.pid,
-                        outputs=self.extra_outputs(it), pid=p.pid, pgid=p.pid)
+                        outputs=self.extra_outputs(it), pid=p.pid, pgid=p.pid, weights=self.weights_status())
 
     def wait_health(self, it):
         t = self.begin(it)
@@ -1453,6 +1509,9 @@ class Run:
                              "host": runlog.host_info()},
             "config": {"path": self.cell.config_path, "sha256": hashlib.sha256(self.cell.config_bytes).hexdigest()},
             "selected": sorted(self.selected), "step_states": self.step_state, "steps": steps,
+            "safety_rules": {"violations": self.cell.safety["violations"],
+                             "report": "artifacts/orchestrator/safety_rules.json",
+                             "weights_unverified_reason": self.cell.model["weights_unverified_reason"]},
             "pack": self.pack_verdict, "journal": "steps.jsonl", "plan": "artifacts/orchestrator/resolved.json"})
 
     def summary(self):
@@ -1484,6 +1543,8 @@ def main(argv=None):
     try:
         selected = parse_only(a.only)
         cell = Cell(a.config, a.out, a.set)
+        if a.only and "engine_start" in selected and not cell.mock:
+            selected.add("weights_verify")  # safety rule 8: the engine starts only after weights_verify passed
     except ConfigError as e:
         print("run_r1: config error: %s" % e, file=sys.stderr)
         return 2

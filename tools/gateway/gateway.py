@@ -17,8 +17,14 @@ Strata serve, TabbyAPI, ...) and adds what the engine does not reliably give us:
   * one JSONL line per request (--log-file), Prometheus text at /metrics, JSON at /health.
 
 The request body is forwarded byte for byte (prefix caches in engines key on the rendered
-prompt, and some on the raw request): the only permitted change is --set-default key=json,
-inserted textually before the closing brace and only when the client did not send that key.
+prompt, and some on the raw request): the only permitted changes are --set-default key=json,
+inserted textually before the closing brace and only when the client did not send that key,
+and (R1 safety rule 3, docs/reassessment/PHASE-CLOSE-2026-10-11.md section (v)) the removal of
+a `"reasoning_content": null` member from a chat message, cut out textually with its comma:
+llama.cpp's llama-server answers such a message with HTTP 500 (common/chat.cpp:422-423@79e2e74
+reads the field as a string), and an absent field means the same thing to the template. Only
+requests that carry such a null are changed (they would fail anyway); the request log lists
+what was dropped ("dropped_null_fields"). --keep-null-reasoning-content turns this off.
 
 Generation requests are never retried automatically: they are not idempotent. A retry after
 the engine accepted the request repeats prefill (minutes at 262K context on a single-stream
@@ -37,6 +43,7 @@ import http.client
 import json
 import logging
 import math
+import re
 import selectors
 import signal
 import socket
@@ -48,7 +55,7 @@ import urllib.parse
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-__all__ = ["GatewayConfig", "Gateway", "apply_defaults", "parse_api_keys", "main"]
+__all__ = ["GatewayConfig", "Gateway", "apply_defaults", "drop_null_reasoning", "parse_api_keys", "main"]
 
 LOG = logging.getLogger("gateway")
 VERSION = "408032gb-gateway/1"
@@ -124,6 +131,122 @@ def apply_defaults(raw, obj, defaults):
     return raw[:cut] + b"".join(parts) + raw[cut:], [k for k, _ in missing]
 
 
+_NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?")
+_WS = " \t\r\n"
+
+
+def _skip_ws(s, i):
+    while i < len(s) and s[i] in _WS:
+        i += 1
+    return i
+
+
+def _json_spans(s, i=0):
+    """Parse one JSON value of s at i: (node, end). node is ("obj", [(key, key_start, value_start, value_end, child)]),
+    ("arr", [(start, end, child)]) or ("lit", text) for null/true/false, ("str", None), ("num", None)."""
+    i = _skip_ws(s, i)
+    c = s[i]
+    if c == "{":
+        members, i = [], _skip_ws(s, i + 1)
+        if s[i] == "}":
+            return ("obj", members), i + 1
+        while True:
+            i = _skip_ws(s, i)
+            if s[i] != '"':
+                raise ValueError("object key expected at %d" % i)
+            ks = i
+            key, i = json.decoder.scanstring(s, i + 1)
+            i = _skip_ws(s, i)
+            if s[i] != ":":
+                raise ValueError("':' expected at %d" % i)
+            vs = _skip_ws(s, i + 1)
+            child, i = _json_spans(s, vs)
+            members.append((key, ks, vs, i, child))
+            i = _skip_ws(s, i)
+            if s[i] == ",":
+                i += 1
+            elif s[i] == "}":
+                return ("obj", members), i + 1
+            else:
+                raise ValueError("',' or '}' expected at %d" % i)
+    if c == "[":
+        items, i = [], _skip_ws(s, i + 1)
+        if s[i] == "]":
+            return ("arr", items), i + 1
+        while True:
+            st = _skip_ws(s, i)
+            child, i = _json_spans(s, st)
+            items.append((st, i, child))
+            i = _skip_ws(s, i)
+            if s[i] == ",":
+                i += 1
+            elif s[i] == "]":
+                return ("arr", items), i + 1
+            else:
+                raise ValueError("',' or ']' expected at %d" % i)
+    if c == '"':
+        return ("str", None), json.decoder.scanstring(s, i + 1)[1]
+    for lit in ("null", "true", "false"):
+        if s.startswith(lit, i):
+            return ("lit", lit), i + len(lit)
+    m = _NUMBER.match(s, i)
+    if m:
+        return ("num", None), m.end()
+    raise ValueError("unexpected %r at %d" % (c, i))
+
+
+def drop_null_reasoning(raw, obj):
+    """R1 safety rule 3: remove every `"reasoning_content": null` member of a chat message (obj["messages"][i]).
+
+    Returns (bytes, obj, dropped): obj is changed in place; when nothing is null the body is returned unchanged. The
+    members are cut out of the client's text with their comma, so every other byte stays as sent; if the text cannot
+    be edited that way (it then fails a self-check: the edited text must parse to the normalised obj), the body is
+    re-serialised from obj instead."""
+    msgs = obj.get("messages")
+    if not isinstance(msgs, list):
+        return raw, obj, []
+    dropped = []
+    for i, m in enumerate(msgs):
+        if isinstance(m, dict) and "reasoning_content" in m and m["reasoning_content"] is None:
+            del m["reasoning_content"]
+            dropped.append("messages[%d].reasoning_content" % i)
+    if not dropped:
+        return raw, obj, []
+    try:
+        s = raw.decode("utf-8")
+        top, _ = _json_spans(s)
+        spans = []
+        for key, _ks, _vs, _ve, child in top[1]:
+            if key != "messages" or child[0] != "arr":
+                continue
+            for _st, _en, el in child[1]:
+                if el[0] != "obj":
+                    continue
+                mem = el[1]
+                rm = [j for j, x in enumerate(mem) if x[0] == "reasoning_content" and x[4] == ("lit", "null")]
+                if not rm:
+                    continue
+                kept = [j for j in range(len(mem)) if j not in rm]
+                if not kept:
+                    spans.append((mem[0][1], mem[-1][3]))
+                    continue
+                first = kept[0]
+                if rm[0] < first:                      # leading members: cut up to the first kept key
+                    spans.append((mem[0][1], mem[first][1]))
+                spans += [(mem[j - 1][3], mem[j][3]) for j in rm if j > first]   # ", key: null" after a member
+        out, pos = [], 0
+        for a, b in sorted(spans):
+            out.append(s[pos:a])
+            pos = b
+        out.append(s[pos:])
+        body = "".join(out).encode("utf-8")
+        if json.loads(body.decode("utf-8")) != obj:
+            raise ValueError("textual edit does not give the normalised request")
+    except (ValueError, IndexError, RecursionError):
+        body = json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return body, obj, dropped
+
+
 def _content_text(c):
     if c is None:
         return ""
@@ -170,6 +293,7 @@ class GatewayConfig:
         self.max_context_tokens = None
         self.tokenize_dialect = "auto"       # auto|llamacpp|vllm|off
         self.set_defaults = []               # [(key, value)]
+        self.drop_null_reasoning = True      # R1 safety rule 3: drop "reasoning_content": null from chat messages
         self.log_file = None                 # path, "-" = stdout, None = no request log
         self.log_prompts = False
         self.connect_timeout_s = 5.0
@@ -749,6 +873,7 @@ class ReqCtx:
         self.acc = {}
         self.guard = None
         self.injected = []
+        self.dropped = []
         self.client_disconnected = False
         self.error = None
         self.reached_backend = False
@@ -759,7 +884,7 @@ class ReqCtx:
              "queue_s": _r(self.queue_s), "first_byte_s": _r(self.first_byte_s), "ttft_s": _r(self.ttft_s),
              "total_s": _r(self.total_s)}
         r.update(usage_fields(self.acc))
-        r.update({"guard": self.guard, "injected_defaults": self.injected,
+        r.update({"guard": self.guard, "injected_defaults": self.injected, "dropped_null_fields": self.dropped,
                   "client_disconnected": self.client_disconnected, "error": self.error})
         if self.prompt is not None:
             r["prompt"] = self.prompt
@@ -969,6 +1094,8 @@ class Handler(BaseHTTPRequestHandler):
         ctx.prompt_chars = prompt_chars(ctx.path, obj)
         if gw.cfg.log_prompts:
             ctx.prompt = obj.get("messages") if ctx.path == "/v1/chat/completions" else obj.get("prompt")
+        if gw.cfg.drop_null_reasoning and ctx.path == "/v1/chat/completions":
+            raw, obj, ctx.dropped = drop_null_reasoning(raw, obj)
         body, ctx.injected = apply_defaults(raw, obj, gw.cfg.set_defaults)
 
         watch = ClientWatch(self.connection, gw.cfg.watch_poll_s)
@@ -1316,6 +1443,9 @@ def build_parser():
     ap.add_argument("--tokenize-dialect", choices=("auto", "llamacpp", "vllm", "off"), default="auto")
     ap.add_argument("--set-default", action="append", default=[], metavar="KEY=JSON",
                     help="add KEY to generation bodies that lack it, e.g. cache_prompt=true (repeatable)")
+    ap.add_argument("--keep-null-reasoning-content", action="store_true",
+                    help="forward \"reasoning_content\": null in chat messages unchanged (default: dropped, because "
+                         "llama.cpp's llama-server answers it with HTTP 500; R1 safety rule 3)")
     ap.add_argument("--log-file", help="JSONL request log ('-' = stdout)")
     ap.add_argument("--log-prompts", action="store_true", help="include prompt text/messages in the request log")
     ap.add_argument("--connect-timeout-s", type=float, default=5.0)
@@ -1347,6 +1477,7 @@ def config_from_args(a):
         a.backend, listen_host=host.strip("[]"), listen_port=int(port), api_keys=keys, backend_api_key=backend_key,
         max_concurrency=a.max_concurrency, max_queue=a.max_queue, max_context_tokens=a.max_context_tokens,
         tokenize_dialect=a.tokenize_dialect, set_defaults=[parse_set_default(s) for s in a.set_default],
+        drop_null_reasoning=not a.keep_null_reasoning_content,
         log_file=a.log_file, log_prompts=a.log_prompts, connect_timeout_s=a.connect_timeout_s,
         backend_timeout_s=a.backend_timeout_s, guard_timeout_s=a.guard_timeout_s, retry_after_s=a.retry_after_s,
         drain_s=a.drain_s, max_body_bytes=int(a.max_body_mb * (1 << 20)))

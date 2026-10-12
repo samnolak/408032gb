@@ -50,19 +50,22 @@ NULL_LOGPROBS = "incomplete UTF-8"           # logprob_compare's error text for 
 # ---------------------------------------------------------------------------- derived R1 config
 def derive_r1_config(model, prompt_file, lengths="smoke", template=TEMPLATE):
     """llamacpp-server.json for a CPU run on a SYNTHETIC tiny model: same engine argv; no build-info (a CPU build has
-    none, so engine_build_check is skipped and run_r1 starts the engine); no weights manifest (V2 NOT RUN); shorter
+    none, so engine_build_check is skipped and run_r1 starts the engine); no weights manifest (V2 NOT RUN; the model
+    says why in weights_unverified_reason, which safety rule 8 of scripts/r1/safety_rules.py requires); shorter
     matrix/probes lengths; slot_persist on a prepared prompt file; logprob_compare with short prefixes."""
     with open(template, encoding="utf-8") as f:
         c = json.load(f, object_pairs_hook=collections.OrderedDict)
     c["_label"] = ("N11 DERIVED from scripts/r1/configs/llamacpp-server.json for a CPU run on a SYNTHETIC tiny random-weight "
-                   "model. Changes: name, model (SYNTHETIC file, no manifest), engine.build_info removed (the CPU build "
+                   "model. Changes: name, model (SYNTHETIC file, no manifest, runs marked unverified), engine.build_info removed (the CPU build "
                    "has no build-info.json), shorter matrix/probes lengths, slot_persist.prompt_file, logprob_compare "
                    "--max-chars. The engine argv is the template's. Nothing this config produces is a measurement.")
     c["name"] = "n11-llamacpp-cpu-tiny" + ("" if lengths == "evidence" else "-smoke")
     del c["engine"]["build_info"]
     c["model"] = {"desc": "SYNTHETIC tiny random-weight model %s (tools/tinygen --text-vocab), NOT the template's weights"
                           % os.path.basename(model),
-                  "files": [os.path.abspath(model)], "weights_manifest": None, "weights_dest": None}
+                  "files": [os.path.abspath(model)], "weights_manifest": None, "weights_dest": None,
+                  "weights_unverified_reason": "SYNTHETIC tiny random-weight model of a CPU smoke run: no sha256 "
+                                               "manifest exists for it (R1 safety rule 8, scripts/r1/safety_rules.py)"}
     eb = ["--seed", "0", "--extra-body", "${EXTRA_BODY}"]
     if lengths == "evidence":
         matrix = [("smoke-2k", ["--inputs", "2048", "--outputs", "128", "--states", "cold,warm", "--concurrency", "1",

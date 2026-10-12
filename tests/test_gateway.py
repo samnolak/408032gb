@@ -67,6 +67,13 @@ class RecHandler(mock_server.Handler):
 
     def _generate(self, body, chat):
         srv = self.server
+        if chat and srv.null_reasoning_500 and any(isinstance(m, dict) and "reasoning_content" in m
+                                                   and m["reasoning_content"] is None
+                                                   for m in body.get("messages") or []):
+            # llama.cpp llama-server 79e2e74 (common/chat.cpp:422-423) reads the field as a string: HTTP 500
+            return self._send_json(500, {"error": {"code": 500, "type": "server_error", "message":
+                                                   "Failed to parse messages: [json.exception.type_error.302] type "
+                                                   "must be string, but is null"}})
         user = body.get("user")
         with srv.rec_lock:
             srv.gen_order.append(user)
@@ -127,6 +134,7 @@ def make_mock(**cfg):
     h.blocked_ev = threading.Event()
     h.mid_release = threading.Event()
     h.apply_template = False
+    h.null_reasoning_500 = False
     return m.start()
 
 
@@ -725,6 +733,94 @@ class BodyFidelity(GwCase):
         self.assertEqual(gw_cached, direct_cached)
         self.assertEqual(direct_cached[0], 0)
         self.assertTrue(all(c > 0 for c in direct_cached[1:]), direct_cached)
+
+
+# ---------------------------------------------------------------------------- R1 safety rule 3
+class NullReasoningContent(GwCase):
+    """R1 safety rule 3 (docs/reassessment/PHASE-CLOSE-2026-10-11.md section (v)): the gateway drops
+    `"reasoning_content": null` from chat messages; llama-server 79e2e74 answers it with HTTP 500 (the mock here
+    imitates that answer when null_reasoning_500 is set)."""
+    RAW = (b'{"model": "mock-model", "messages": [{"role": "user", "content": "caf\\u00e9 \xc3\xa9 Q1"},\n'
+           b' {"role": "assistant", "reasoning_content": null, "content": "A1"},\n'
+           b' {"role": "assistant", "content": "A2" , "reasoning_content" : null },\n'
+           b' {"role": "assistant", "content": "A3", "reasoning_content": "R3"},\n'
+           b' {"role": "user", "content": "Q2"}], "max_tokens": 4, "temperature": 0}')
+    WANT = (b'{"model": "mock-model", "messages": [{"role": "user", "content": "caf\\u00e9 \xc3\xa9 Q1"},\n'
+            b' {"role": "assistant", "content": "A1"},\n'
+            b' {"role": "assistant", "content": "A2" },\n'
+            b' {"role": "assistant", "content": "A3", "reasoning_content": "R3"},\n'
+            b' {"role": "user", "content": "Q2"}], "max_tokens": 4, "temperature": 0}')
+
+    def test_null_is_cut_out_and_every_other_byte_kept(self):
+        self.mock.httpd.null_reasoning_500 = True
+        logf = os.path.join(self.tmp, "req.jsonl")
+        g = self.gw(log_file=logf)
+        st, _, d = post(self.mock.url, CHAT, self.RAW)
+        self.assertEqual(st, 500, d)                                   # the engine-side failure the rule avoids
+        self.assertIn(b"must be string, but is null", d)
+        with self.mock.httpd.rec_lock:
+            self.mock.httpd.raw_bodies.clear()
+        st, _, d = post(g.url, CHAT, self.RAW)
+        self.assertEqual(st, 200, d)
+        self.assertEqual(self.gen_bodies(), [self.WANT])
+        want = json.loads(self.RAW)
+        for m in want["messages"]:
+            if m.get("reasoning_content", "") is None:
+                del m["reasoning_content"]
+        self.assertEqual(json.loads(self.WANT), want)
+        rec = self.wait_log(logf, 1)[0]
+        self.assertEqual(rec["dropped_null_fields"], ["messages[1].reasoning_content", "messages[2].reasoning_content"])
+
+    def test_requests_without_null_are_forwarded_byte_for_byte(self):
+        g = self.gw()
+        raws = [self.WANT, json.dumps(chat_body(), indent=2).encode(),
+                b'{"messages": [{"role": "assistant", "content": "x", "reasoning_content": ""}], "max_tokens": 2}',
+                b'{"messages": [{"role": "user", "content": "null"}], "reasoning_content": null, "max_tokens": 2}']
+        for raw in raws:
+            self.assertEqual(post(g.url, CHAT, raw)[0], 200)
+        self.assertEqual(self.gen_bodies(), raws)        # only chat messages are touched, only a null value
+
+    def test_completions_untouched_and_switch_off(self):
+        g = self.gw(drop_null_reasoning=False)
+        self.assertEqual(post(g.url, CHAT, self.RAW)[0], 200)
+        raw = b'{"prompt": "x", "messages": [{"reasoning_content": null}], "max_tokens": 2}'
+        g2 = self.gw()
+        self.assertEqual(post(g2.url, COMP, raw)[0], 200)
+        self.assertEqual(self.gen_bodies(), [self.RAW, raw])
+        a = gateway.build_parser().parse_args(["--backend", "http://x", "--keep-null-reasoning-content"])
+        self.assertFalse(gateway.config_from_args(a).drop_null_reasoning)
+        a = gateway.build_parser().parse_args(["--backend", "http://x"])
+        self.assertTrue(gateway.config_from_args(a).drop_null_reasoning)
+
+    def test_drop_unit(self):
+        cases = [
+            (b'{"messages":[{"reasoning_content":null}]}', b'{"messages":[{}]}'),
+            (b'{"messages":[{"reasoning_content":null,"role":"user","content":"q"}]}',
+             b'{"messages":[{"role":"user","content":"q"}]}'),
+            (b'{"messages":[{"reasoning_content":null, "reasoning_content":null ,"role":"user","content":"q"}]}',
+             b'{"messages":[{"role":"user","content":"q"}]}'),
+            (b'{"messages":[{"role":"user","reasoning_content":null,"content":"q","reasoning_content":null}]}',
+             b'{"messages":[{"role":"user","content":"q"}]}'),
+            (b'{"messages":[{"role":"a","content":"q","reasoning_content":null}],"messages":[{"x":[1,{"y":null}],'
+             b'"reasoning_content":null}]}', b'{"messages":[{"role":"a","content":"q"}],"messages":[{"x":[1,{"y":null}]}]}'),
+            (b'{"messages":[{"role":"user","content":"q"}]}', None),
+            (b'{"messages":"not a list"}', None),
+            (b'{"messages":[{"role":"user","content":-1.5e3,"reasoning_content":false}]}', None),
+        ]
+        for raw, want in cases:
+            with self.subTest(raw=raw):
+                obj = json.loads(raw)
+                body, obj2, dropped = gateway.drop_null_reasoning(raw, obj)
+                self.assertIs(obj2, obj)
+                self.assertEqual(body, raw if want is None else want)
+                self.assertEqual(bool(dropped), want is not None)
+                self.assertEqual(json.loads(body), obj)
+        # a duplicate key whose LAST value is null: the textual cut would leave the first value, so the body is
+        # re-serialised from the normalised object instead (still without the field)
+        raw = b'{"messages":[{"role":"user","content":"q","reasoning_content":"R","reasoning_content":null}]}'
+        body, obj, dropped = gateway.drop_null_reasoning(raw, json.loads(raw))
+        self.assertEqual(json.loads(body), {"messages": [{"role": "user", "content": "q"}]})
+        self.assertEqual(dropped, ["messages[0].reasoning_content"])
 
 
 # ---------------------------------------------------------------------------- shutdown

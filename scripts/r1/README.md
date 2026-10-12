@@ -46,6 +46,40 @@ python3 scripts/r1/run_r1.py --config scripts/r1/configs/llamacpp-server.json --
 (гипотеза, порог остановки, PASS/FAIL) оркестратор не пишет — это делает человек до запуска; оркестратор записывает
 предсказание границы и полный план (`artifacts/prereg/`, `artifacts/orchestrator/`).
 
+## Правила безопасности R1 (N26a, 2026-10-12)
+
+Владелец принял правила 1–11 раздела (в) `docs/reassessment/PHASE-CLOSE-2026-10-11.md` (матрица рисков — раздел (б)).
+Они применены **только как охрана конфигурации**: патчи `patches/llama.cpp/*` в сборку R1 не входят
+(`scripts/engines/build_engine.py` их не применяет; владелец запретил это без отдельной проверяемой необходимости).
+
+`scripts/r1/safety_rules.py` проверяет шаблон: `python3 scripts/r1/safety_rules.py scripts/r1/configs/*.json` (код 1 при
+нарушении, 2 — файл не читается). `run_r1.py` вызывает ту же проверку на **полностью подставленной** конфигурации (вместе с
+`--set`) до построения плана: нарушение — ошибка конфигурации, код 2, каталог прогона не создаётся, ни один шаг не
+выполняется (и `--plan` тоже). Отчёт проверки (с sha256 файла `--chat-template-file`) — `artifacts/orchestrator/safety_rules.json`,
+краткая сводка — в `run.json` (`safety_rules`). Тесты: `tests/test_r1_safety_rules.py`; доказательства —
+`docs/evidence/2026-10-12-n26a-r1-safety-rules.md`.
+
+| № | правило (раздел (в)) | где и как применено | id в проверке |
+|---|---|---|---|
+| 1 | `-np 1` явно при любой спекуляции | в каждом argv llama-server (llama.cpp и ik_llama.cpp) `-np`/`--parallel` записан явно (умолчание llama.cpp — auto = 4); при любой спекуляции (`--spec-type` кроме `none`, в том числе синтаксис ik `TYPE:k=v`; черновая модель `-md`/`--model-draft`/`-hfd`/…, даже без `--spec-type`; пресеты; `--mtp`/`--dflash`/`-mtp`) — ровно 1; часть про рекуррентный откат — `rs_rollback_rule.check()` | `R-NP` |
+| 2 | GLM: наш шаблон через `--chat-template-file` | GLM (`glm` в `name`/`model.desc`) с `--jinja` передаёт `--chat-template-file ${REPO}/templates/glm-5.3-flash/chat_template.jinja` после `--jinja`, без `--chat-template`; `model.chat_template_sha256` = sha256 файла на диске (`5d47ac8e48510b5c6543db4000ef145201823bf46bae9cf51ac6a9553a16ef5a`); применено к `llamacpp-server-moecache.json` и `ik-llamacpp-server.json` (ik знает флаг: `common/common.cpp:2935`, `:3454`@5194a9e) | `R-GLM-TEMPLATE` |
+| 3 | клиенты и шлюз не шлют `"reasoning_content": null` | `tools/gateway/gateway.py` вырезает такой член сообщения чата текстуально (остальные байты не меняются), в журнале — `dropped_null_fields`; выключается `--keep-null-reasoning-content`; тесты — `tests/test_gateway.py` (`NullReasoningContent`) | (шлюз) |
+| 4 | MTP Qwen — только обычные файлы | для Qwen черновая модель — только `mtp-Qwen3.8-Flash-Next-{Q8_0,BF16,Q4_K_M}.gguf` через `-md` с явным `--spec-type draft-mtp`; файлы `-shared-`, `-hfd`/`LLAMA_ARG_SPEC_DRAFT_HF_REPO`, `--mtp`/`--dflash`, пресеты — отказ | `R-MTP-FILES` |
+| 5 | MiMo с MTP — только с патчем N21 | патча N21 в сборках R1 нет, поэтому MiMo (`mimo` в `name`/`desc`) с любой спекуляцией (флаги сервера, `mode.spec_k` > 0, `--spec N`/`--mtp` Strata в `engine.argv` или `engine.config_files`) — отказ | `R-MIMO-MTP` |
+| 6 | восстановление слотов — только через `tools/kv/session_store.py` | эксплуатационное: `_notes.safety_rules` шаблонов с `--slot-save-path`; никогда сырой `/slots?action=restore` непроверенного файла | — |
+| 7 | собственный движок: откат и `seq_cp` | эксплуатационное (для нашего движка, не llama-server): `_notes.safety_rules` шаблона Strata и этот README | — |
+| 8 | веса: `weights.py verify` перед запуском, `gguf_quant_audit.py` | у не-mock шаблона есть `model.weights_manifest` **или** непустой `model.weights_unverified_reason` (не оба; `weights_verify` не выключен при манифесте). **Ворота весов в `run_r1.py`:** движок не-mock шаблона стартует, только если `weights_verify` прошёл в этом прогоне, либо у шаблона нет манифеста и он помечает прогоны непроверенными (`weights_unverified_reason`); иначе `engine_start` — `skipped`, `blocked_by: weights_verify` (упал, выключен или не выбран — всё блокирует); `--only` с `engine_start` добавляет `weights_verify`. Запись `engine_start` в журнале несёт `weights` (`verified…` / `UNVERIFIED: <причина>` / `MOCK`). `quant_audit` без изменений; файл с epyc-ai — только после `tools/hostcheck/glm_gguf_check.sh` | `R-WEIGHTS` |
+| 9 | ik_llama.cpp для GLM — не эталон паритета | эксплуатационное: `_notes.safety_rules` шаблона ik | — |
+| 10 | синтетический прогон pack | в pack уже есть (`tools/verify/pack.py`); проверка: `"synthetic_run": true` в критериях без маркера SYNTHETIC в `model.desc` — отказ; `"mock": true` только с маркером SYNTHETIC и без llama-server; тест: из коммитнутых шаблонов синтетическую модель объявляет только `mock.json` | `R-SYNTH` |
+| 11 | Qwen: не менять `reasoning_effort` внутри сессии | эксплуатационное: `_notes.safety_rules` шаблонов Qwen | — |
+
+Почему ворота весов сделаны так (выбор N26a): это наименьшее изменение модели шагов — `weights_verify` остаётся первым
+шагом, а `engine_start` получает ещё одно предусловие рядом с зависимостью от `engine_build_check` (тот же механизм
+`blocked_by`). Mock (`"mock": true`) от ворот освобождён: его движок — `tools/bench/mock_server.py`, а пакет такого прогона
+всегда NOT RUN; правило `R-SYNTH` не даёт поставить `"mock": true` шаблону с llama-server. Остаточный риск: шаблон другого
+движка (не llama-server) с `"mock": true` и маркером SYNTHETIC прошёл бы без проверки весов — его артефакты тогда помечены
+SYNTHETIC.
+
 ## Шаги и что проверяется автоматически
 
 Порядок фиксирован (`STEPS` в `run_r1.py`); любой шаг можно выключить в шаблоне (`"steps": {"<шаг>": {"enabled": false}}`)
@@ -53,7 +87,7 @@ python3 scripts/r1/run_r1.py --config scripts/r1/configs/llamacpp-server.json --
 
 | # | шаг | команда / действие | что проверяется | если нечего делать |
 |---|---|---|---|---|
-| 1 | `weights_verify` | `scripts/offline/weights.py verify <манифест> --dest <каталог>` + копия манифеста | размер и sha256 каждого файла (V2 пакета) | нет манифеста → skipped, V2 NOT RUN |
+| 1 | `weights_verify` | `scripts/offline/weights.py verify <манифест> --dest <каталог>` + копия манифеста | размер и sha256 каждого файла (V2 пакета); без `ok` здесь движок не-mock шаблона не стартует (правило 8) | нет манифеста → skipped, V2 NOT RUN (допустимо только с `model.weights_unverified_reason`, причина — в журнале) |
 | 2 | `quant_audit` | `tools/gguf_quant_audit.py <первый GGUF> --json` | эксперты и не-экспертные матрицы ≥ 4 bpw (V1) | нет файлов модели → skipped |
 | 3 | `roofline_prediction` | `tools/roofline.py … --json` на каждую длину входа матрицы, затем `prereg/prereg.json` с sha256 каждого предсказания | предсказание записано **до** старта движка (журнал: время и порядок) | нет `roofline.spec` → skipped |
 | 4 | `nvidia_smi_before` | `nvidia-smi -q` | состояние GPU до прогона | нет `nvidia-smi` → skipped |
@@ -71,7 +105,8 @@ python3 scripts/r1/run_r1.py --config scripts/r1/configs/llamacpp-server.json --
 | 15 | `pack` | `tools/verify/pack.py --runs RUN/artifacts --out RUN/pack`, затем `pack.py --check RUN/pack` | вердикт по V1–V11 (PASS / FAIL / NOT RUN) и целостность пакета | — |
 
 Зависимости: `engine_start` зависит от `engine_build_check` (`--only engine_start` всегда добавляет его, как и
-`engine_stop`); `health_wait` зависит от `engine_start`; `matrix`, `probes`, `slot_persist`, `logprob_compare` — от
+`engine_stop`) и, у не-mock шаблона, от ворот весов (правило 8 выше: `weights_verify` ok или явная пометка
+`weights_unverified_reason`; `--only engine_start` добавляет `weights_verify`); `health_wait` зависит от `engine_start`; `matrix`, `probes`, `slot_persist`, `logprob_compare` — от
 `engine_start` и `health_wait`. Если зависимость **упала** (или прервана), шаг записывается как `skipped` с `blocked_by`;
 если зависимость просто не выбрана или выключена, шаг выполняется (движок управляется снаружи). `after_ready` — «мягкие»
 команды: их ошибка записывается и даёт код выхода 1, но не блокирует замеры.
