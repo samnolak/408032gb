@@ -59,13 +59,25 @@ class ClosedForm(unittest.TestCase):
     def test_r8_rows_reproduced_with_r8_constants(self):
         # R8 section 8.3 (literal output, B_s_drive 4.2e9): rows the fixes do not change, to R8's one-decimal print; the
         # 5%-NVMe row with prediction moves 26.55 -> 26.64 (optimal staging), still within that print
-        hw8 = replace(HW, B_s_drive=4.2e9)
+        # R8's hardware row (R8-memory-tiers-expert-scheduling.md:328): 7.0e9 x 0.6 per drive and 4 drives; the tool's
+        # default drive count is 3 since the customer correction of 2026-10-12, so R8's count is pinned here explicitly
+        hw8 = replace(HW, B_s_drive=4.2e9, n_drives=4)
         for po, want in ((tc.Policy(h_v=1.0, h_r=0.0), 39.0), (tc.Policy(), 34.4), (tc.Policy(overlap=False), 27.1),
                          (tc.Policy(miss_path="pcie"), 10.4), (tc.Policy(h_v=0.82, h_r=0.18), 41.8),
                          (tc.Policy(p_recall=0.85, pi_prec=0.5, W=0.44e-3, prefetch_opt=False), 32.6),
                          (tc.Policy(n_tok=2, accept=0.7), 39.8),
                          (tc.Policy(h_r=0.34, p_recall=0.5, pi_prec=0.5, W=0.44e-3, prefetch_to="ram"), 26.6)):
             self.assertAlmostEqual(tok(po, hw8), want, delta=0.051, msg=po)
+
+    def test_default_drive_count_is_the_customer_3x1tb(self):
+        # customer correction 2026-10-12: 3 x 1 TB NVMe (planned; count/models UNKNOWN until R0)
+        self.assertEqual(tc.HW().n_drives, 3)
+        self.assertAlmostEqual(tc.HW().B_s_drive * tc.HW().n_drives, 3 * 7.45e9 * 0.6, places=3)
+        self.assertEqual([(lo, hi) for p, lo, hi in tc.TORNADO if p == "n_drives"], [(2, 3)])
+
+    def test_fewer_drives_never_faster(self):
+        for po in random_policies():
+            self.assertLessEqual(tok(po, replace(HW, n_drives=2)), tok(po, replace(HW, n_drives=3)) + 1e-9, po)
 
     def test_glm_preset_matches_r8_constants(self):
         ly, n_moe, t_other, name = tc.preset("glm")

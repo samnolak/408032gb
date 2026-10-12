@@ -96,7 +96,7 @@ DEFAULTS = {
     "dram_gbs_per_channel": 25.6,
     "dram_eff": 0.7,
     "cpu_compute_gbs": None,
-    "nvme_gbs": 28.0,
+    "nvme_gbs": 21.0,               # 3 x 7.0 GB/s placeholder (customer correction 2026-10-12: 3 x 1 TB; was 4 x 7.0 = 28.0)
     "nvme_eff": 0.6,
     "handoff_us": 10.0,
     "stage_hop_us": 10.0,

@@ -1,5 +1,5 @@
 {
-  "name": "target server: 4x RTX 4080 Super 32 GB (modded?), EPYC 7H43, 128 GB DDR4-3200, 4x NVMe 1 TB - UNVERIFIED",
+  "name": "target server: 4x RTX 4080 Super 32 GB (modded?), EPYC 7H43, 128 GB DDR4-3200, 3x NVMe 1 TB (3 TB, planned) - UNVERIFIED",
   "gpus": [
     {
       "name": "RTX 4080 Super 32GB",
@@ -83,11 +83,6 @@
       "model": null,
       "tib": 1.0,
       "seq_read_gbs": 7.0
-    },
-    {
-      "model": null,
-      "tib": 1.0,
-      "seq_read_gbs": 7.0
     }
   ],
   "nvme_eff": 0.6,
@@ -102,10 +97,10 @@
     "ram.channels": "UNKNOWN (4 or 8); assume_channels only selects the default row of the bound",
     "ram.bw_gbs_by_channels": "PROVISIONAL: theoretical DDR4-3200 x 8 B x channels",
     "ram.bw_eff": "PROVISIONAL assumption: share of theoretical bandwidth an AVX2 expert GEMV reaches; replace with STREAM/membw",
-    "nvme": "customer says 4 x 1 TB (old file said 3 x Samsung 990 Pro); models UNKNOWN; 7.0 GB/s is a PCIe 4.0 x4 class placeholder",
+    "nvme": "PLANNED 3 x 1 TB = 3 TB total (customer correction 2026-10-12; the 4 x 1 TB of 2026-10-10/11 is superseded); models, real speed and PCIe topology UNKNOWN until R0; 7.0 GB/s per drive is a PCIe 4.0 x4 class placeholder",
     "nvme_eff": "PROVISIONAL assumption for 13-18 MiB expert reads with O_DIRECT across all drives",
     "gpus.tflops_tc_fp16_fp32acc": "HYPOTHESIS (research/R4-hardware.md \u00a73.2): RTX 4090 whitepaper dense tensor numbers scaled by 80 SM x 2550 MHz / 128 SM x 2520 MHz; FP16 with FP32 accumulate at GeForce half rate = 104.5 TFLOPS. The earlier value 52.2 was FP32 on CUDA cores without tensor cores (adversarial review item 5)",
     "gpus.tops_tc_int8": "HYPOTHESIS, same derivation: INT8 dense 417.8 TOPS (not used by the bound yet)"
   },
-  "_supersedes": "hardware/4x4080s-32g.json (kept for tools/fitplan.py and its tests; its NVMe count and p2p=true are outdated, see docs/reassessment/REPO_AUDIT.md C1, C2)"
+  "_supersedes": "hardware/4x4080s-32g.json (kept for tools/fitplan.py and its tests; its p2p=true is outdated; NVMe count 3 matches the 2026-10-12 correction, the 990 Pro model is unconfirmed, see docs/reassessment/REPO_AUDIT.md C1, C2)"
 }

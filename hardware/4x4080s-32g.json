@@ -55,17 +55,12 @@
       "model": "UNKNOWN 1 TB NVMe (earlier statement: Samsung 990 Pro 1TB)",
       "capacity_tb": 1.0,
       "seq_read_gbs": 7.45
-    },
-    {
-      "model": "UNKNOWN 1 TB NVMe (earlier statement: Samsung 990 Pro 1TB)",
-      "capacity_tb": 1.0,
-      "seq_read_gbs": 7.45
     }
   ],
   "p2p": true,
   "_labels": {
     "gpus/ram/cpu/p2p": "stated by the customer (UNVERIFIED until R0 diagnostics; p2p=true is outdated: UNKNOWN, docs/reassessment/REPO_AUDIT.md C2, docs/reassessment/R0-HARDWARE-CHECKS.md)",
-    "nvme": "PLANNED configuration 4 x 1 TB (owner decision relayed in N24, 2026-10-11; replaces the earlier 3 x Samsung 990 Pro 1TB). Count and models UNKNOWN until R0 (scripts/diag storage.nvme_*, docs/reassessment/R0-HARDWARE-CHECKS.md section (c))",
+    "nvme": "PLANNED configuration 3 x 1 TB NVMe = 3 TB total (customer correction 2026-10-12; replaces the 4 x 1 TB recorded in N24 on 2026-10-11). Drive models, real speed and PCIe topology UNKNOWN until R0 (scripts/diag storage.nvme_*, docs/reassessment/R0-HARDWARE-CHECKS.md section (c))",
     "mem_bw_gbs": "PROVISIONAL: 4080 Super reference spec 23 Gbps x 256-bit; the 32 GB variant is assumed to keep the bus",
     "gpu_reserve_gib": "PROVISIONAL: CUDA context + cuBLAS workspace + activations + safety margin",
     "ram_channels": "UNKNOWN: measure in G0 (dmidecode -t memory)",

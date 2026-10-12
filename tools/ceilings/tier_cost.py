@@ -75,7 +75,7 @@ class HW:
     L_p: float = 10e-6             # per-copy latency
     n_links_free: int = 1          # links able to deliver prefetch into this layer's GPU (no P2P: 1)
     B_s_drive: float = 7.45e9 * 0.6  # one NVMe, large O_DIRECT reads (vendor 7.45 GB/s x 0.6, PROVISIONAL)
-    n_drives: int = 4              # customer spec 2026-10-10: 4 x 1 TB, planned (hardware/4x4080s-32g.json since N24); count UNKNOWN until R0
+    n_drives: int = 3              # customer correction 2026-10-12: 3 x 1 TB NVMe (3 TB), planned; models/speed/PCIe UNKNOWN until R0
     L_s: float = 80e-6             # service time of one random read at moderate queue depth in a VM (HYPOTHESIS)
     iops_drive: float = 1.0e6      # 4 KiB random-read IOPS per drive at high QD (vendor 1.2M at QD32, PROVISIONAL)
     gamma_mt: float = 0.2          # extra CPU compute per extra token sharing an expert (Strata, REPORTED 2.0-2.4x/3)
@@ -304,7 +304,7 @@ TORNADO = [   # (parameter, low, high) around the base point; ranges are the pla
     ("t_pre", None, None),              # x0.8 .. x1.25 of the preset (attention/KV kernels)
     ("accept", 0.55, 0.85),             # with n_tok = 2 (one MTP draft) in the tornado base
     ("B_p", 12.5e9, 25e9),              # x8 vs x16 (only matters with prefetch or PCIe misses)
-    ("n_drives", 3, 4),                 # only matters with an NVMe share
+    ("n_drives", 2, 3),                 # 3 planned (2026-10-12); 2 if one drive holds system/slot states; NVMe share only
     ("p_recall", 0.3, 0.95),            # only matters with prediction on (W > 0)
     ("pi_prec", 0.2, 0.9),
     ("L_p", 5e-6, 30e-6),
@@ -341,7 +341,7 @@ def main(argv=None):
     ap.add_argument("--ctx", type=int, default=262144)
     ap.add_argument("--kv-bytes", type=float, default=2.0, help="bytes per KV element (2 = f16, 1 = q8)")
     ap.add_argument("--t-fixed", type=float, default=0.45e-3)
-    ap.add_argument("--r8-layer", action="store_true", help="use R8's literal GLM layer constants instead of the preset")
+    ap.add_argument("--r8-layer", action="store_true", help="use R8's literal GLM layer constants instead of the preset (R8's hardware: add --set B_s_drive=4.2e9 --set n_drives=4)")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
     ap.add_argument("--sweep", action="append", default=[], metavar="KEY=V1,V2,...")
     ap.add_argument("--cases", choices=["r8"])
