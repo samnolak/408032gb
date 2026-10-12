@@ -17,6 +17,8 @@ Responsibilities:
 - Builds: llama.cpp at the pinned commit (CUDA, sm_89) and the Strata fork.
 - Memory: hugepages and memlock for ~100+ GB of pinned host memory; Proxmox ballooning
   off for the VM; NUMA settings recorded.
-- Storage: model files on the 990 Pro drives; record the layout and fio results.
+- Storage: 3 x 1 TB NVMe = 3 TB (planned; customer correction 2026-10-12; drive models, speed and PCIe topology UNKNOWN
+  until R0). Default layout (PROVISIONAL, docs/reassessment/DEPLOY.md section 1): weights on two drives, slot states/logs
+  on the third; record the layout and fio results.
 Never run destructive commands on the host (BMC power actions, disk formatting) without
 an explicit customer instruction quoted in the task.

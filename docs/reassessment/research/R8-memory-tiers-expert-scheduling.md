@@ -18,7 +18,7 @@ blocked from this sandbox; WebFetch failed on arxiv.org / alphaxiv.org), so ever
    experts are 186.1 GB (VERIFIED arithmetic from the measured 177,528 MiB in `PROBLEMS.md:62`); VRAM + RAM hold all of
    them (`../ROOFLINE.md` §2: 61% VRAM / 39% RAM / 0% NVMe, PROVISIONAL). Every 1% of routed bytes served from NVMe
    costs ~2.6 GB/s at 50 tok/s and, in the cost model (§8), drops the 8-channel bound from 34.4 to 27.9 tok/s
-   (HYPOTHESIS). NVMe is the right place for: n-gram/PLE and Engram tables (deterministic addresses, a few KiB per
+   (HYPOTHESIS; *correction 2026-10-12: 4 drives assumed here; 3 drives with the fixed tool give 29.9, see §8.3 note*). NVMe is the right place for: n-gram/PLE and Engram tables (deterministic addresses, a few KiB per
    token, prefetchable), persistent prefix/KV caches, recurrent-state checkpoints and session files.
 2. **Deterministic lookup tables on SSD do not hurt 80+ tok/s when read correctly.** A community Strata run decodes
    Qwen3.8-Flash-Next UD-Q4_K_XL at a median 86 tok/s on 2x RTX 3080 20 GB with the 28.8 GB n-gram table on SSD
@@ -96,9 +96,12 @@ Time to bring ONE expert to compute, by tier (effective bandwidths = assumptions
 | PCIe Gen4 x8 copy (12.5 GB/s) | 1,231 us | 251 us | 1,504 us |
 | NVMe, one drive (4.2 GB/s) | 3,663 us | 746 us | 4,476 us |
 | NVMe, striped over 4 drives (16.8 GB/s) | 916 us | 187 us | 1,119 us |
+| *Correction 2026-10-12:* NVMe, striped over 3 drives (12.6 GB/s; customer: 3 x 1 TB) | 1,221 us | 249 us | 1,492 us |
 
 Reading of the table (HYPOTHESIS): at 50 tok/s a whole GLM layer has 444 us. A single expert over PCIe already exceeds
 it; a single expert from NVMe exceeds two layers even when striped over 4 drives. Only VRAM and CPU-in-place fit.
+*Correction 2026-10-12 (customer: 3 x 1 TB NVMe, not 4): the 3-drive row above, same method (S_e / (n x 7.0 GB/s x 0.6),
+PROVISIONAL); with 3 drives one GLM expert takes ~2.7 layers at 50 tok/s; the conclusion is unchanged. Recomputation: `docs/evidence/2026-10-12-n26b-nvme-3x1tb.md`.*
 
 ---
 
@@ -108,14 +111,14 @@ Per-token needs at 50 / 100 tok/s (HYPOTHESIS arithmetic unless marked). "Lead t
 
 | item | access pattern | bytes per token | need @50 / @100 tok/s | lead time available | verdict |
 |---|---|---|---|---|---|
-| **Cold MoE experts (GLM)** | random 15.4 MB blobs; address known only after the router of that layer (or ~1-3 layers earlier by prediction, §7) | f_ssd x 5.17 GB | 1% of routed bytes: 2.6 / 5.2 GB/s; 5%: 12.9 / 25.8 GB/s (4 drives ~16.8 GB/s total) | <= 1 layer (0.2-0.44 ms) exact; 1-3 layers with ~76-90% recall (REPORTED, §7) | **NO** for GLM (does not need it: VRAM+RAM hold 100%). Cost model: 1% from NVMe -> 34.4 -> 27.9 tok/s, 5% -> 20.4 (8 ch, §8). Strata measured the same physics: UD-Q4_K_XL with 0.33 GB/token from SSD = 7-8.5 tok/s on a 64 GB PC (REPORTED, `docs/UNSLOTH_Q4.md:170`@61b3fb5) |
-| **Cold experts (DeepSeek-V4.1-Flash MXFP4)** | same, 18.8 MB | 268.9 GiB do not fit 128 GB VRAM + ~116 GB usable RAM | roofline: 18% of expert bytes on NVMe -> ~12 tok/s (`../ROOFLINE.md` §2, PROVISIONAL) | same | **NO as a decode tier**; DS-V4.1 at native MXFP4 is not a 50 tok/s candidate on this box unless experts are requantised smaller (out of scope here) |
-| **Engram (DS-V4.1-Flash)** | 48 random rows of 264 B (2 layers x 8 heads x {2,3,4}-gram) from a 189.1 GiB table; address = hash of the last <= 4 token ids (VERIFIED from config in `models/specs/deepseek-v4.1-flash.json` labels) | 12.7 KB useful; 196 KB if read as 4 KiB pages | 2,400 / 4,800 IOPS; 9.8 / 19.7 MB/s | layer 1 rows: only from token sampling to layer 1 (~2 of 40 layers ~= 0.25-0.5 ms); layer 14 rows: ~14 layers; with MTP/DSpark drafts: the whole verify window | **YES**, with Strata-style reader: O_DIRECT page reads at QD ~48 spread over 4 drives, DRAM row cache (Zipf head), issue at sampling time and for every draft token. Cost model: 48 cold reads exposed ~104 us if issued at layer start (lead 0), 0 with >= 0.25 ms lead (§8 `lookup_exposed`). Risk: p99 in a VM (UNKNOWN) |
+| **Cold MoE experts (GLM)** | random 15.4 MB blobs; address known only after the router of that layer (or ~1-3 layers earlier by prediction, §7) | f_ssd x 5.17 GB | 1% of routed bytes: 2.6 / 5.2 GB/s; 5%: 12.9 / 25.8 GB/s (4 drives ~16.8 GB/s total; *correction 2026-10-12: 3 drives ~12.6 GB/s, below even the 50 tok/s need*) | <= 1 layer (0.2-0.44 ms) exact; 1-3 layers with ~76-90% recall (REPORTED, §7) | **NO** for GLM (does not need it: VRAM+RAM hold 100%). Cost model: 1% from NVMe -> 34.4 -> 27.9 tok/s, 5% -> 20.4 (8 ch, §8). Strata measured the same physics: UD-Q4_K_XL with 0.33 GB/token from SSD = 7-8.5 tok/s on a 64 GB PC (REPORTED, `docs/UNSLOTH_Q4.md:170`@61b3fb5) |
+| **Cold experts (DeepSeek-V4.1-Flash MXFP4)** | same, 18.8 MB | 268.9 GiB do not fit 128 GB VRAM + ~116 GB usable RAM | roofline: 18% of expert bytes on NVMe -> ~12 tok/s (`../ROOFLINE.md` §2, PROVISIONAL; *correction 2026-10-12: ~10 tok/s with 3 drives*) | same | **NO as a decode tier**; DS-V4.1 at native MXFP4 is not a 50 tok/s candidate on this box unless experts are requantised smaller (out of scope here) |
+| **Engram (DS-V4.1-Flash)** | 48 random rows of 264 B (2 layers x 8 heads x {2,3,4}-gram) from a 189.1 GiB table; address = hash of the last <= 4 token ids (VERIFIED from config in `models/specs/deepseek-v4.1-flash.json` labels) | 12.7 KB useful; 196 KB if read as 4 KiB pages | 2,400 / 4,800 IOPS; 9.8 / 19.7 MB/s | layer 1 rows: only from token sampling to layer 1 (~2 of 40 layers ~= 0.25-0.5 ms); layer 14 rows: ~14 layers; with MTP/DSpark drafts: the whole verify window | **YES**, with Strata-style reader: O_DIRECT page reads at QD ~48 spread over 4 drives (*correction 2026-10-12: 3 drives; exposed time at lead 0 becomes ~112 us instead of ~104 us, still 0 with >= 0.25 ms lead, `docs/evidence/2026-10-12-n26b-nvme-3x1tb.md`*), DRAM row cache (Zipf head), issue at sampling time and for every draft token. Cost model: 48 cold reads exposed ~104 us if issued at layer start (lead 0), 0 with >= 0.25 ms lead (§8 `lookup_exposed`). Risk: p99 in a VM (UNKNOWN) |
 | **PLE / n-gram table (Qwen3.8-Flash-Next, 51.2B params)** | 16 random rows of 90 B (IQ4_NL; 160 B FP8, 320 B BF16) from 320,001,536 rows; address = last 3 token ids (VERIFIED, Strata `include/strata/kernels/ngram.hpp:31-56`) | 1.4 KB useful; 64 KiB as 4 KiB pages | 800 / 1,600 IOPS; 3.3 / 6.6 MB/s | from sampling; with MTP drafts, during drafting (VERIFIED, `mtp.cpp:1297-1303`) | **YES - proven in the field**: 86 tok/s median with `--ple-io direct` (REPORTED, see finding 2); Astronomical measured on Apple NVMe: cold 16 KiB read ~75 us, 8 concurrent readers ~26 us per row effective, "16 rows per token stays under one millisecond even cold" (REPORTED, `docs/performance-optimizations-lessons.md:663`@fc2b744). Mmap instead of Direct was 2.10-2.61 ms per token on Windows (VERIFIED text, `ngram.hpp:228-231`) |
 | **Token embedding table** | 1 row per token (GLM 4096 x ~8.5 bpw = 4.4 KB) | 4.4 KB | 220 / 440 KB/s | from sampling | **Could** (like PLE) but pointless: the whole table is 0.63B params ~0.67 GB at Q8 - keep in RAM/VRAM |
 | **Routing / prediction metadata** (profiles, co-access stats, residency tables) | sequential read at start; updated rarely | 0 per token | 0 | n/a | **YES for persistence only** (Strata `profile.bin` ~KB-MB); the live copy lives in RAM/VRAM |
-| **Persistent KV / prefix cache** (GLM at 262K: 3.1 GB bf16 MLA latent + indexer; llama.cpp layout up to ~8 GB) | sequential multi-MB blocks per request | 0 per token; per request: restore 3-8 GB | restore @16.8 GB/s (4 drives): 3.75 GB -> ~0.22 s, 8 GB -> ~0.48 s; vs re-prefill of 262K ~50 s (`../ROOFLINE.md` §4.6) | whole request | **YES - highest-value use of NVMe** (agent sessions re-read long prefixes). Strata writes session files in aligned 16 MiB O_DIRECT blocks (VERIFIED, `src/core/conversation_file.cpp:79-84`) and restores a parked 9,276-token conversation in 51 ms from RAM (REPORTED, `docs/DETAILS.md:934`) |
-| **Recurrent-state checkpoints** (GLM: 34 KDA layers x 4,489,216 B = 145.6 MiB fp32; ~36 MiB at int8 per SGLang's scheme) | write at turn boundaries, read on resume | 0 per token | ~150 MB per checkpoint: 9 ms (4 drives) - 36 ms (1 drive) | turn boundary | **YES** (RAM ring for the newest N, NVMe for the rest). SGLang stores KDA/GDN checkpoints int8 (VERIFIED in R3 §7.5 @46c2585) |
+| **Persistent KV / prefix cache** (GLM at 262K: 3.1 GB bf16 MLA latent + indexer; llama.cpp layout up to ~8 GB) | sequential multi-MB blocks per request | 0 per token; per request: restore 3-8 GB | restore @16.8 GB/s (4 drives): 3.75 GB -> ~0.22 s, 8 GB -> ~0.48 s (*correction 2026-10-12, 3 drives @12.6 GB/s: ~0.30 s / ~0.63 s*); vs re-prefill of 262K ~50 s (`../ROOFLINE.md` §4.6) | whole request | **YES - highest-value use of NVMe** (agent sessions re-read long prefixes). Strata writes session files in aligned 16 MiB O_DIRECT blocks (VERIFIED, `src/core/conversation_file.cpp:79-84`) and restores a parked 9,276-token conversation in 51 ms from RAM (REPORTED, `docs/DETAILS.md:934`) |
+| **Recurrent-state checkpoints** (GLM: 34 KDA layers x 4,489,216 B = 145.6 MiB fp32; ~36 MiB at int8 per SGLang's scheme) | write at turn boundaries, read on resume | 0 per token | ~150 MB per checkpoint: 9 ms (4 drives) - 36 ms (1 drive) (*correction 2026-10-12: ~12 ms with 3 drives*) | turn boundary | **YES** (RAM ring for the newest N, NVMe for the rest). SGLang stores KDA/GDN checkpoints int8 (VERIFIED in R3 §7.5 @46c2585) |
 | **Session state** (token ids, sampler state, conversation tree) | small | 0 | negligible | n/a | **YES** |
 | **MTP / draft layer weights** | read every draft token | GLM MTP ~0.19B params + lm_head | per draft token ~0.98 GB (R3) | none | **NO** - VRAM |
 
@@ -150,7 +153,8 @@ weights at our target speeds.
 | Apple NVMe (not 990 Pro) small reads | cold 16 KiB read ~75 us median, 8 readers ~26 us/row effective, warm page cache ~2 us | REPORTED, Astronomical lessons:663 (macOS, other hardware) |
 
 Four drives (HYPOTHESIS): 4 x 7.45 = 29.8 GB/s theoretical sequential; ~16.8 GB/s at the repo's 0.6 efficiency
-placeholder; random 4 KiB ~4M IOPS theoretical, irrelevant for us (Engram needs 4,800 IOPS at 100 tok/s). What matters
+placeholder (*correction 2026-10-12: the customer plans 3 x 1 TB: 3 x 7.45 = 22.35 GB/s theoretical; ~12.6 GB/s at 7.0 x 0.6
+as in the rest of this file, ~13.4 GB/s at 7.45 x 0.6 as in `tools/ceilings/tier_cost.py`; PROVISIONAL*); random 4 KiB ~4M IOPS theoretical, irrelevant for us (Engram needs 4,800 IOPS at 100 tok/s). What matters
 is the **tail latency of 48 parallel 4 KiB reads**, which is UNKNOWN in a Proxmox VM (NVMe passthrough vs virtio
 changes it; R3 §5.6).
 
@@ -165,7 +169,7 @@ changes it; R3 §5.6).
 | huge pages | Strata maps the expert arena with 2 MiB hugetlb: 33.97 GB at 4 KB = 8.3M TLB entries otherwise (VERIFIED comment `pinned.hpp:5-12`) | reserve `vm.nr_hugepages` for the RAM expert arena (~75 GB for GLM -> ~38,400 pages) inside the VM; THP fallback |
 | pinned host memory | `cudaHostRegister` of anonymous hugetlb memory works for 33-43 GB (Strata, Windows needs slices); on our 3090 host 161-173 GiB pinned worked (`PROBLEMS.md:84,120`, PROVISIONAL); `cudaHostRegisterReadOnly` exists since CUDA 11.1 (REPORTED, whisper.cpp commit) and llama.cpp uses it for file-backed buffers behind an env flag (VERIFIED); registering a >100 GB file mapping failed for one forum user (REPORTED) | pin the RAM expert arena (anonymous hugetlb, not file-backed); in Proxmox with VFIO passthrough the guest RAM is already pinned on the host (HYPOTHESIS, standard VFIO behaviour) - check `ulimit -l`/`LimitMEMLOCK` in the guest (Strata bench used `LimitMEMLOCK=infinity`, REPORTED) |
 | GPUDirect Storage / cuFile | no source confirming GDS on GeForce; GDS docs list datacenter/Quadro-class, and for vGPU only Ada+ with open kernel modules (REPORTED, NVIDIA AI Enterprise docs snippet); compat mode = POSIX pread/aio into host memory then copy, `allow_compat_mode` default true (REPORTED, cuFile API docs snippet); GDS also needs a BAR1 large enough (GeForce default 256 MB without ReBAR, HYPOTHESIS) | **do not plan on it**: UNKNOWN on our cards, no benefit for our access pattern |
-| md RAID0 vs per-file sharding | no LLM-specific comparison found (UNKNOWN, as in R3 §5.2); Strata sorts per file and merges windows (VERIFIED) | for 15 MB experts latency matters: striping one expert over 4 drives cuts 3.7 ms -> 0.9 ms. Use app-level striping (each blob split into 4 x 1/4 on 4 files, one O_DIRECT fd per drive) or md RAID0 with 512 KiB-1 MiB chunk; for 4 KiB rows either works. Decide by `fio` p99 (E10) |
+| md RAID0 vs per-file sharding | no LLM-specific comparison found (UNKNOWN, as in R3 §5.2); Strata sorts per file and merges windows (VERIFIED) | for 15 MB experts latency matters: striping one expert over 4 drives cuts 3.7 ms -> 0.9 ms (*correction 2026-10-12: 3 drives, 3.7 ms -> 1.2 ms; split 3 x 1/3*). Use app-level striping (each blob split into 4 x 1/4 on 4 files, one O_DIRECT fd per drive) or md RAID0 with 512 KiB-1 MiB chunk; for 4 KiB rows either works. Decide by `fio` p99 (E10) |
 | independent queues | NVMe has per-CPU submission queues; one I/O thread (or ring) per drive pinned to a core near the drive's root port | per-drive thread/ring; Strata pins I/O threads to "aux CPUs" (VERIFIED `src/platform/direct_file.cpp:315`) |
 | NUMA | single socket; NPS1 recommended; Proxmox guest sees one node (REPORTED, R4 §2.2, R3 §4.3) | NPS1; do not use NPS4 unless the VM gets a matching vNUMA topology |
 | CPU cost per GB | 1 MB+ O_DIRECT reads: a few syscalls per MB -> negligible; 4 KiB reads: ~1-2 us CPU per I/O with libaio/pread (HYPOTHESIS from the per-core IOPS figures above) -> 4,800 IOPS ~ 0.5-1% of one core | not a constraint |
@@ -325,7 +329,7 @@ All times in seconds, bytes in bytes. Per decode step of `n_tok` tokens (1 + dra
 | `t_sync` | GPU -> CPU hand-off + results back per layer | 20e-6 | HYPOTHESIS (Strata doorbell spin; 2 x PCIe latency) |
 | `B_p`, `L_p` | pinned H2D bandwidth per link, per-copy latency | 25e9 (x16) / 12.5e9 (x8), 10e-6 | REPORTED 23-26 GB/s; hw json |
 | `n_links_free` | links able to deliver prefetch into this layer's GPU | 1 (no P2P) | HYPOTHESIS |
-| `B_s_drive`, `n_drives`, `L_s`, `iops_drive` | NVMe large-read bandwidth per drive, drives, random-read service time, 4 KiB IOPS | 7.0e9 x 0.6, 4, 80e-6, 1.0e6 | vendor 7.45 GB/s, 22K IOPS QD1 (~45 us), 1.2M QD32 (REPORTED); 80 us = HYPOTHESIS for QD ~16-48 in a VM |
+| `B_s_drive`, `n_drives`, `L_s`, `iops_drive` | NVMe large-read bandwidth per drive, drives, random-read service time, 4 KiB IOPS | 7.0e9 x 0.6, 4 (*3 since the customer correction 2026-10-12; `tier_cost.py` default 3*), 80e-6, 1.0e6 | vendor 7.45 GB/s, 22K IOPS QD1 (~45 us), 1.2M QD32 (REPORTED); 80 us = HYPOTHESIS for QD ~16-48 in a VM |
 | `p`, `pi`, `W` | prediction recall over off-VRAM experts, precision, lead time | 0, 1, 0 | §7.1 (0.76-0.97 recall REPORTED for gate-based at d = 1-3) |
 | `overlap` | CPU/PCIe expert work runs concurrently with GPU expert work of the same layer | True (Strata, base A); False (llama.cpp) | R3, D1 |
 | `accept` | per-position draft acceptance | 0.7 (GLM MTP) | `../ROOFLINE.md` §3 |
@@ -399,6 +403,10 @@ GLM-5.3-Flash UD-Q4_K_XL, PP (one GPU busy at a time), defaults
   h_v .61, 5% NVMe, p=.5 W=1 layer to RAM       8ch:  26.6 tok/s  step  37.7 ms  layer gpu 0.185 cpu 0.355 ssd 0.204 copy 0.000
 lookup rows exposed latency (us): Engram 48 rows W=0: 103.7  PLE 16 rows W=0: 87.9  Engram W=0.25ms: 0.0
 ```
+*Correction 2026-10-12 (customer: 3 x 1 TB NVMe; output above is the 4-drive snapshot of this study and stays as is): with
+3 drives and the fixed tool (`tools/ceilings/tier_cost.py --model glm --r8-layer --set B_s_drive=4.2e9 --cases r8`, default
+n_drives 3) the NVMe rows give 8 ch: 1% 29.9, 5% 19.7, 5% with p=.5 W=1 layer 23.4 tok/s (4 ch: 21.0 / 15.4 / 17.6);
+Engram 48 rows at W=0: 111.6 us. PROVISIONAL; literal output in `docs/evidence/2026-10-12-n26b-nvme-3x1tb.md`.*
 (Rows trimmed to the cases discussed; "all VRAM" and "PCIe misses" do not depend on channels.)
 
 Sanity checks the lead's implementation should pass (HYPOTHESIS, derived from the outputs above vs `../ROOFLINE.md`):
@@ -455,7 +463,8 @@ engine work. This is the cheapest experiment with the largest reported effect (5
 ### 9.4 Prefix/KV/state persistence on NVMe
 Strata conversation file (`src/core/conversation_file.cpp:79+`): aligned 16 MiB O_DIRECT blocks, hash-checked; park in
 RAM first (bounded `--conversation-cache-mib`), spill to disk on `SAVE`. For GLM: 34 KDA states (145.6 MiB fp32) + 11
-DSA latent/indexer caches; restore cost ~0.2-0.5 s from 4 drives vs ~50 s re-prefill at 262K (HYPOTHESIS, §3).
+DSA latent/indexer caches; restore cost ~0.2-0.5 s from 4 drives vs ~50 s re-prefill at 262K (HYPOTHESIS, §3); *correction 2026-10-12: ~0.3-0.63 s from
+3 drives (customer: 3 x 1 TB), conclusion unchanged*.
 
 ---
 

@@ -145,7 +145,7 @@
 
 | гейт | старое состояние | класс | что переходит в новый план |
 |---|---|---|---|
-| G0 | READY, не выполнен | KEEP, расширить | R0: полная диагностика (CPU/NUMA/DDR4/PCIe/P2P/4 NVMe/32 GB VRAM), гистограммы маршрутизации на реальной модели, бейзлайны готовых движков |
+| G0 | READY, не выполнен | KEEP, расширить | R0: полная диагностика (CPU/NUMA/DDR4/PCIe/P2P/3 NVMe (поправка 2026-10-12)/32 GB VRAM), гистограммы маршрутизации на реальной модели, бейзлайны готовых движков |
 | G1 | ACCEPTED 2026-10-02 (CPU) | KEEP | оракулы — регрессионный набор корректности для любого движка |
 | G2 | сборка базы A CONFIRMED; численно NOT RUN | SUPERSEDE | — |
 | G3 | BLOCKED | REVALIDATE | «parity на одном GPU против эталона» — шаг для выбранного движка |
@@ -168,7 +168,7 @@ SUPERSEDE: обязательность Strata, GLM как единственн�
 |---|---|---|
 | Mission (порт Strata, порядок моделей) | SUPERSEDE | «лучшая локальная платформа под 4×4080 32 GB; модель и движок — по ADR переоценки» |
 | Weights on host epyc-ai | HISTORICAL | оставить, уже сужено до 3090-хоста |
-| Hardware | SUPERSEDE | все пункты — UNVERIFIED до `HARDWARE_FACTS.md`; 4 NVMe; P2P UNKNOWN |
+| Hardware | SUPERSEDE | все пункты — UNVERIFIED до `HARDWARE_FACTS.md`; 3 NVMe × 1 ТБ (поправка 2026-10-12; было «4»); P2P UNKNOWN |
 | Upstream pins | KEEP + обновить | добавить пины выбранных движков после R2 |
 | Evidence rules | KEEP | добавить уровни VERIFIED/REPORTED/HYPOTHESIS/DISPROVED (мастер-промпт) как синонимы шкалы |
 | Gate rules | REVALIDATE | новые гейты R0–R6 (ROADMAP переоценки) |

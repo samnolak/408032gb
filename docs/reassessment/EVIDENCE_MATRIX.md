@@ -15,7 +15,7 @@
 | E3 | каналы DDR4: 4 или 8 | UNKNOWN | hardware JSON | F4, H2 |
 | E4 | P2P на штатном драйвере GeForce Ada выключен | REPORTED (NVIDIA forum) + VERIFIED чужой замер 8×4090: 4.5→25.1 ГБ/с с патчем | R4 §4.1, §4.3 (CVGL report) | F14, H6 |
 | E5 | P2P-патч требует ReBAR, BAR1 ≥ VRAM, `iommu=pt`; на 4080/4080S не проверялся публично | VERIFIED (README патчей) / UNKNOWN (4080S) | R4 §4.2 | F9 (BAR1), R4.3 |
-| E6 | NVMe: 4× 1 TB (не 3×990 Pro) | UNVERIFIED (заявление) | мастер-промпт | F15 |
+| E6 | NVMe: 3× 1 TB = 3 TB (поправка заказчика 2026-10-12; мастер-промпт говорил 4× 1 TB); модели UNKNOWN | UNVERIFIED (заявление) | мастер-промпт; поправка 2026-10-12 | F15 |
 | E8 | модифицированные RTX 4080 SUPER 32 GB существуют и работают под CUDA: 32 760 MiB, Gen4 x16, H2D 24.0 ГБ/с, драйвер 616.56 | REPORTED (замер сообщества), VERIFIED как файл (ведущий) | Strata `bench/results/2026-10-04-community-rtx-4080s-iq3s/README.md`@fb58e0d | H3, H4 (наши карты) |
 | E9 | Strata: split UD-Q4_K_XL рекомендует RAM ≥ GGUF + 24 GB (~135 GB), у нас 128 GB; это рекомендация установщика, а не запрет: «128 GB ran it fine (#737)» | VERIFIED как текст документации и кода (ведущий) / REPORTED (запуск на 128 GB) | Strata `docs/UNSLOTH_Q4.md:31-37`, `setup.py:1103-1124`@fb58e0d | запуск по BRINGUP-qwen38fn.md |
 | E7 | GPUDirect Storage на GeForce не поддерживается | REPORTED | R4 §6.4 | — (проектируем через O_DIRECT + pinned) |
@@ -75,7 +75,7 @@
 | # | было | стало | источник |
 |---|---|---|---|
 | E50 | «P2P works, CONFIRMED (stated by the customer)» | UNKNOWN; на штатном драйвере — против (E4) | REPO_AUDIT C2, R4 |
-| E51 | «3× Samsung 990 Pro» | UNVERIFIED 4× 1 TB | REPO_AUDIT C1 |
+| E51 | «3× Samsung 990 Pro» | число 3 совпадает с поправкой 2026-10-12 (3× 1 TB); модель 990 Pro UNVERIFIED | REPO_AUDIT C1 |
 | E52 | «strata-glm в архиве» (ADR-007) | на GitHub не archived (REPORTED, R2) | R2 |
 | E53 | «ik_llama не знает `glm5-next`» (PROBLEMS.md) | алиас есть в исходниках @5f89bfc (VERIFIED, R2) | R2 |
 | E54 | strata-glm 19.65 tok/s на 3090 как ориентир скорости | синтетический пак (40/42 слоёв нули) — не ориентир | REPO_AUDIT §2 |

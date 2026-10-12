@@ -482,6 +482,8 @@ no-driver-patch and NVMe decisions. `docs/reassessment/ROADMAP.md` R2.4: partial
 four planned 1 TB NVMe, models UNKNOWN (no code reads the `nvme` list of this file: `tools/roofline.py:223` reads it from
 the `--hw` file, default `hardware/target-4x4080-32g.unverified.json` (`tools/roofline.py:31`, also in the R1 configs); `tests.test_fitplan`, `test_g0_analyze`,
 `test_tier_cost` pass, section 7).
+*Correction 2026-10-12 (customer): the planned NVMe is 3 x 1 TB = 3 TB, not 4 x 1 TB; the "4" edits of this section are
+reverted to 3 in `docs/evidence/2026-10-12-n26b-nvme-3x1tb.md`.*
 
 **Not edited, proposals for the owner / lead:**
 * `AGENTS.md:36` "- 3x Samsung 990 Pro 1 TB NVMe" -> "- 4x 1 TB NVMe (planned; earlier statement: 3x Samsung 990 Pro
