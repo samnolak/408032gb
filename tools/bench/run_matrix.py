@@ -3,7 +3,8 @@
 
 Matrix: input lengths x output lengths x state {cold, warm} x concurrency, `--repeats` each.
   cold  every request starts with a fresh random prefix (unique nonce in the first line),
-        so no prompt cache can help
+        so no prompt cache can help; the nonce also depends on --nonce-salt, random per run unless given,
+        so an earlier run against the same server (same --seed, same cell) cannot have cached it either
   warm  one priming request with a long prefix, then the same prefix with a different
         short suffix: the TTFT drop measures prefix-cache reuse
 Agent loop: K turns; each appends a synthetic tool call + a 1-4K-token tool result to a
@@ -25,6 +26,7 @@ import copy
 import json
 import os
 import random
+import secrets
 import sys
 import threading
 import time
@@ -81,6 +83,9 @@ def build_parser():
                    help="prompt: input length = prompt tokens; total: prompt = input - output (fits a window)")
     m.add_argument("--filler", choices=["prose", "code", "logs"], default="prose")
     m.add_argument("--seed", default="0", help="seed for every generated prompt")
+    m.add_argument("--nonce-salt", default=None,
+                   help="salt of the first-line nonces of cold/warm prompts and agent sessions (default: random per "
+                        "run, recorded in meta.json; pass the recorded value to re-send a run's exact prompts)")
     m.add_argument("--temperature", type=float, default=0.0)
     m.add_argument("--send-seed", type=int, default=None, help="also send this value as the request 'seed'")
     m.add_argument("--eos-mode", choices=["auto", "vllm", "llamacpp", "none"], default="auto")
@@ -109,12 +114,15 @@ def build_parser():
 class Runner:
     def __init__(self, args, argv):
         self.a = args
+        if args.nonce_salt is None:
+            args.nonce_salt = secrets.token_hex(8)    # a fresh salt: no earlier run's prompt can be in the cache
         self.extra_body = runlog.parse_json_arg(args.extra_body)
         self.client = OAClient(args.url, api_key=os.environ.get(args.api_key_env) or None, timeout=args.timeout,
                                total_timeout=args.total_timeout, model=args.model,
                                stream_options=args.stream_options)
         out = args.out_dir or os.path.join("bench-runs", runlog.utc_stamp() + "-matrix")
         self.rd = runlog.RunDir(out, "matrix", argv, vars(args))
+        self.rd.meta["nonce_salt"] = args.nonce_salt
         self.seq = 0
         self.lock = threading.Lock()
         self.counter = None
@@ -264,7 +272,8 @@ class Runner:
     def build(self, input_len, output_len, key, suffix_k):
         target_total = input_len - (output_len if self.a.length_mode == "total" else 0)
         target = max(target_total - self.overhead, 1)
-        header = "Document %s.\n" % random.Random("nonce:%s:%r" % (self.a.seed, key)).getrandbits(64)
+        nonce = random.Random("nonce:%s:%s:%r" % (self.a.nonce_salt, self.a.seed, key)).getrandbits(64)
+        header = "Document %s.\n" % nonce
         fr = fit_filler(self.a.filler, "%s:%r" % (self.a.seed, key), target, self.counter, header=header,
                         suffix=SUFFIX % suffix_k, n_hint=self.n_hint.get(target))
         if not self.counter.exact and self.a.ratio_refine > 0 and target not in self.refined:
@@ -339,8 +348,9 @@ class Runner:
     def run_agent(self):
         a = self.a
         lo, hi = runlog.parse_int_list(a.agent_tool_tokens)
-        rng = random.Random("agent:%s" % a.seed)
-        nonce = rng.getrandbits(64)
+        rng = random.Random("agent:%s" % a.seed)                   # tool result sizes: reproducible from --seed
+        nonces = random.Random("agent-nonce:%s:%s" % (a.nonce_salt, a.seed))
+        nonce = nonces.getrandbits(64)
 
         def system(n):
             return ("Session %d. You are a coding agent working in a repository. Use the tools when needed and "
@@ -386,7 +396,7 @@ class Runner:
                 messages.append({"role": "user", "content": "Tool output for %s:\n%s" % (path, tool_text)})
         if last_ok is not None and not a.no_agent_cold_control:
             ctrl = copy.deepcopy(last_ok)
-            ctrl[0]["content"] = system(rng.getrandbits(64))
+            ctrl[0]["content"] = system(nonces.getrandbits(64))
             r = self._send(None, a.agent_max_tokens, eos=False, messages=ctrl, tools=tools)
             row = self.result_row(r, "agent_cold_control", a.agent_max_tokens, scenario="agent",
                                   n_messages=len(ctrl))

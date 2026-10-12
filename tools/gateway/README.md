@@ -136,10 +136,13 @@ python3 tools/gateway/gateway.py --listen 127.0.0.1:8000 --backend http://127.0.
 
 ## Что НЕ проверено
 
-- **Ни один реальный движок** (llama.cpp, ik_llama.cpp, Strata `serve`, TabbyAPI) — NOT RUN. Мок не
-  доказывает ничего о движках.
-- Останавливает ли движок генерацию при закрытии соединения: llama-server — PROVISIONAL (по коду, см.
-  выше); остальные — UNKNOWN.
+- **Реальные движки:** llama.cpp `llama-server` (пин `79e2e74`, сборка на CPU, крошечная модель) — проверен в N11
+  (CONFIRMED, `docs/evidence/2026-10-11-n11-r1-tools-cpu-server.md`): ключ, проксирование, поток равен прямому
+  (кроме `id`/`created`/`timings`), проверка контекста через `/apply-template` + `/tokenize` (счёт = счёт сервера),
+  429 при полной очереди, журнал, drain по SIGTERM; смоук в `server-cpu.yml`. ik_llama.cpp, Strata `serve`, TabbyAPI —
+  NOT RUN.
+- Останавливает ли движок генерацию при закрытии соединения: llama-server — CONFIRMED на CPU в N11 (`stop: cancel
+  task`, слот свободен через 0.1 с); остальные — UNKNOWN.
 - Диалекты токенизации TabbyAPI и Strata `serve` — UNKNOWN (не смотрели их код). Если ни один из двух
   диалектов не подойдёт, проверка контекста будет работать в режиме `unchecked` (запросы проходят).
 - Задержка, которую добавляет проверка контекста на промпте 262K (`/apply-template` + `/tokenize` —

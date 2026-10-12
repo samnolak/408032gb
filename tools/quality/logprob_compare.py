@@ -13,6 +13,18 @@ top-K log-probabilities. Metrics per prefix and aggregated (median, p95, max):
 This is an approximation of full-vocabulary KLD (true KLD needs all logits); it is comparable between runs with the same K
 and prefixes, and it is what an engine-agnostic API allows. Stdlib only.
 
+Response layouts read (choices[0].logprobs of a non-streamed /v1/completions answer):
+  OpenAI legacy (vLLM):   {"tokens": [t], "token_logprobs": [lp], "top_logprobs": [{token: logprob, ...}]}
+  llama.cpp llama-server: {"content": [{"id", "token", "bytes", "logprob", "top_logprobs": [{"id", "token", "bytes",
+                          "logprob"}, ...]}]}  (tools/server/server-task.cpp:256-293, 366-373 @79e2e74)
+A token is identified by its raw bytes: llama-server prints a piece that is not valid UTF-8 by itself (a byte-fallback or
+partial multi-byte token) as the replacement character, or as an empty string when the piece ends in an incomplete
+multi-byte lead byte (validate_utf8 cuts it, tools/server/server-common.cpp:947-972, applied at server-task.cpp:260 and
+280 @79e2e74; "bytes" keeps the raw piece), so different tokens can share one "token" text; "bytes" tells them apart.
+Key = the text when the bytes are valid UTF-8 (both layouts then agree), else "bytes:<hex>"; a token whose bytes are empty
+(llama-server prints control tokens such as EOS that way) is keyed "id:<n>" when the answer gives its id. Entries of one
+top-K list with the same key are one outcome: their probabilities are added (counted as ref_merged / cand_merged).
+
 Usage:
   python3 tools/quality/logprob_compare.py --ref http://127.0.0.1:8081 --cand http://127.0.0.1:8080 \
       --corpus corpus/*.txt --prefixes 200 --top-k 20 --out runs/q1-qwen-q4-vs-q8.json
@@ -39,14 +51,59 @@ def complete_top(url, prompt, top_k, model=None, timeout=600, api_key=None):
     with urllib.request.urlopen(req, timeout=timeout) as r:
         resp = json.load(r)
     dt = time.perf_counter() - t0
+    top, text, dialect, merged = parse_top(resp, url)
+    return {"token": text, "top": top, "seconds": dt, "dialect": dialect, "merged": merged}
+
+
+def token_key(text, raw=None, tid=None):
+    """Identity of a token across engines and layouts (module docstring): valid UTF-8 -> the text, else bytes:<hex>;
+    an empty piece with an id -> id:<n>."""
+    if raw is None:
+        return str(text)
+    b = bytes(raw)
+    if not b and isinstance(tid, int):
+        return "id:%d" % tid
+    try:
+        return b.decode("utf-8")
+    except UnicodeDecodeError:
+        return "bytes:" + b.hex()
+
+
+def _add(top, key, logprob):
+    """Put one entry into a key -> logprob dict; an entry with a key already there adds its probability (log-sum-exp)."""
+    if key not in top:
+        top[key] = logprob
+        return 0
+    m = max(top[key], logprob)
+    top[key] = m + math.log(math.exp(top[key] - m) + math.exp(logprob - m))
+    return 1
+
+
+def parse_top(resp, url=""):
+    """choices[0].logprobs of one /v1/completions answer -> (top-K dict key -> logprob, greedy token, layout, merged)."""
     ch = resp["choices"][0]
     lp = ch.get("logprobs") or {}
-    tops = lp.get("top_logprobs")
-    if not tops or not isinstance(tops, list) or not tops[0]:
-        raise ValueError(f"{url}: response has no top_logprobs (engine does not support logprobs on /v1/completions?)")
-    top = {str(k): float(v) for k, v in tops[0].items()}
-    text = (lp.get("tokens") or [ch.get("text", "")])[0]
-    return {"token": text, "top": top, "seconds": dt}
+    top, merged = {}, 0
+    content = lp.get("content")
+    if isinstance(content, list) and content and isinstance(content[0], dict) and "top_logprobs" in content[0]:
+        first = content[0]
+        for e in first.get("top_logprobs") or []:
+            merged += _add(top, token_key(e.get("token"), e.get("bytes"), e.get("id")), float(e["logprob"]))
+        text, dialect = token_key(first.get("token"), first.get("bytes"), first.get("id")), "llamacpp"
+    else:
+        tops = lp.get("top_logprobs")
+        if tops and isinstance(tops, list) and isinstance(tops[0], dict):
+            for k, v in tops[0].items():
+                merged += _add(top, token_key(k), float(v))
+        text, dialect = (lp.get("tokens") or [ch.get("text", "")])[0], "openai"
+    if not top:
+        hint = "engine does not support logprobs on /v1/completions?"
+        if ((resp.get("usage") or {}).get("completion_tokens") or 0) >= 1:
+            hint = ("a token was generated (%r) but no logprobs came back: the engine ignores logprobs, or it is "
+                    "llama-server, which leaves out the probabilities of a token whose text ends in an incomplete UTF-8 "
+                    "sequence, tools/server/server-context.cpp:1977-2009 @79e2e74" % ch.get("text"))
+        raise ValueError(f"{url}: response has no top_logprobs ({hint})")
+    return top, text, dialect, merged
 
 
 def compare(ref, cand):
@@ -135,7 +192,9 @@ def main(argv=None):
             errors.append({"prefix": i, "error": repr(e)})
             continue
         m = compare(r["top"], c["top"])
-        m.update({"prefix": i, "chars": len(pfx), "ref_s": r["seconds"], "cand_s": c["seconds"]})
+        m.update({"prefix": i, "chars": len(pfx), "ref_s": r["seconds"], "cand_s": c["seconds"],
+                  "ref_layout": r["dialect"], "cand_layout": c["dialect"], "ref_merged": r["merged"],
+                  "cand_merged": c["merged"]})
         rows.append(m)
     res = {"ref": a.ref, "cand": a.cand, "ref_model": a.ref_model, "cand_model": a.cand_model, "files": files,
            "top_k": a.top_k, "seed": a.seed, "prefixes": len(prefixes), "errors": errors,

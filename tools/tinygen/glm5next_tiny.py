@@ -9,6 +9,8 @@ No MTP block by default (nextn_predict_layers = 0). --mtp appends one (nextn_pre
 an MLA/DSA layer with a full indexer, MoE + shared expert and blk.<L>.nextn.{eh_proj,enorm,hnorm}, no mHC tensors
 (llama.cpp @79e2e74 src/models/glm5-next.cpp:79-80, 85-92, 143, 175-182 load_arch_tensors; graph_mtp 543-666); its weights
 are drawn after the trunk's, so the trunk equals the default model and the default output is unchanged.
+--text-vocab writes a byte-level BPE vocabulary instead of the id-only one (tools/tinygen/text_vocab.py) so that a
+llama-server on the model accepts text; --ctx sets context_length (the server caps each slot at it). Defaults unchanged.
 
 --quant-dims (N10, gap 2 of docs/reassessment/CORRECTNESS.md) writes the same architecture with the input width of
 every matrix llama-quantize may quantize a multiple of QK_K = 256 (src/llama-quant.cpp tensor_allows_quantization
@@ -38,6 +40,8 @@ import argparse
 import numpy as np
 from gguf import GGUFWriter
 
+from text_vocab import N_TEXT_VOCAB, write_byte_bpe_vocab
+
 ARCH = "glm5-next"
 
 DEFAULT = dict(
@@ -57,7 +61,7 @@ def layer_is_dsa(i):
     return i % 4 == 3                                        # GLM pattern: layers 3, 7, ...
 
 
-def build(path, cfg=DEFAULT, seed=0, mtp=False, dialect=None):
+def build(path, cfg=DEFAULT, seed=0, mtp=False, dialect=None, text_vocab=False):
     c = dict(cfg)
     rng = np.random.default_rng(seed)
     w = GGUFWriter(path, ARCH)
@@ -104,16 +108,19 @@ def build(path, cfg=DEFAULT, seed=0, mtp=False, dialect=None):
     w.add_uint32(f"{p}.hyper_connection.count", hc)
     w.add_uint32(f"{p}.hyper_connection.sinkhorn_iterations", c["sinkhorn_iters"])
     w.add_float32(f"{p}.hyper_connection.epsilon", c["hc_eps"])
-    # minimal SPM vocab: tokens are fed as ids, the strings never matter
-    toks = ["<unk>", "<s>", "</s>"] + [f"t{i}" for i in range(3, c["n_vocab"])]
-    w.add_tokenizer_model("llama")
-    w.add_token_list(toks)
-    w.add_token_scores([0.0] * len(toks))
-    w.add_token_types([2, 3, 3] + [1] * (len(toks) - 3))
-    w.add_bos_token_id(1)
-    w.add_eos_token_id(2)
-    w.add_unk_token_id(0)
-    w.add_add_bos_token(False)
+    if text_vocab:                                           # byte-level BPE: the model accepts text (text_vocab.py)
+        assert write_byte_bpe_vocab(w, bos=1, eos=2) == c["n_vocab"]
+    else:
+        # minimal SPM vocab: tokens are fed as ids, the strings never matter
+        toks = ["<unk>", "<s>", "</s>"] + [f"t{i}" for i in range(3, c["n_vocab"])]
+        w.add_tokenizer_model("llama")
+        w.add_token_list(toks)
+        w.add_token_scores([0.0] * len(toks))
+        w.add_token_types([2, 3, 3] + [1] * (len(toks) - 3))
+        w.add_bos_token_id(1)
+        w.add_eos_token_id(2)
+        w.add_unk_token_id(0)
+        w.add_add_bos_token(False)
 
     def t(name, *shape, scale=None, ones=False, value=None):
         if value is not None:
@@ -209,8 +216,15 @@ if __name__ == "__main__":
                          "module docstring); implies --arch glm5next")
     ap.add_argument("--quant-dims", action="store_true",
                     help="input widths divisible by QK_K = 256 so that llama-quantize gives k-quants (QUANT)")
+    ap.add_argument("--text-vocab", action="store_true",
+                    help="byte-level BPE vocabulary (%d tokens, tools/tinygen/text_vocab.py) instead of the minimal "
+                         "id-only one, so that a server on this model accepts text; changes token_embd/output shapes "
+                         "and therefore every weight drawn after them" % N_TEXT_VOCAB)
+    ap.add_argument("--ctx", type=int, default=DEFAULT["ctx"],
+                    help="context_length written to the GGUF (llama-server caps each slot at it); default %(default)s")
     a = ap.parse_args()
     ARCH = "glm5next" if a.dialect == "ik" else a.arch
-    build(a.out, cfg=dict(QUANT if a.quant_dims else DEFAULT, n_layer=a.layers), seed=a.seed, mtp=a.mtp,
-          dialect=a.dialect)
+    cfg = dict(QUANT if a.quant_dims else DEFAULT, n_layer=a.layers, ctx=a.ctx,
+               **({"n_vocab": N_TEXT_VOCAB} if a.text_vocab else {}))
+    build(a.out, cfg=cfg, seed=a.seed, mtp=a.mtp, dialect=a.dialect, text_vocab=a.text_vocab)
     print("wrote", a.out)

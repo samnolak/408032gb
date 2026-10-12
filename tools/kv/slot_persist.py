@@ -11,7 +11,10 @@ Procedure (all timings literal, nothing estimated):
   2. save slot 0 -> file; record save time and file size (bytes on disk = the state's real size)
   3. erase slot 0, then restore from the file -> restore time
   4. warm: send the same PROMPT again, n_predict=G -> TTFT_warm and tokens B; the server should reuse the restored cache
-  5. correctness: B == A (greedy continuation identical); prompt_n of step 4 shows how many tokens were re-processed
+  5. correctness: B == A (greedy continuation identical: token ids when the server returns them - "return_tokens",
+     llama.cpp tools/server/server-schema.cpp:34 @79e2e74 - else the text; different tokens can decode to the same
+     text, e.g. byte tokens that are not valid UTF-8 alone all read U+FFFD); prompt_n of step 4 shows how many tokens
+     were re-processed
 Repeat R times; report p50 and every raw value.
 
 Usage:
@@ -37,10 +40,12 @@ def post(url, path, body, timeout):
 
 def completion(url, prompt, n_gen, timeout):
     body = {"prompt": prompt, "n_predict": n_gen, "temperature": 0.0, "cache_prompt": True, "id_slot": 0,
-            "stream": False}
+            "stream": False, "return_tokens": True}
     resp, dt = post(url, "/completion", body, timeout)
     t = resp.get("timings") or {}
-    return {"seconds": dt, "content": resp.get("content", ""), "prompt_n": t.get("prompt_n"),
+    toks = resp.get("tokens")
+    return {"seconds": dt, "content": resp.get("content", ""), "tokens": toks if isinstance(toks, list) else None,
+            "prompt_n": t.get("prompt_n"),
             "prompt_ms": t.get("prompt_ms"), "predicted_n": t.get("predicted_n"), "predicted_ms": t.get("predicted_ms"),
             "tokens_cached": resp.get("tokens_cached")}
 
@@ -52,9 +57,11 @@ def run_once(url, prompt, n_gen, fname, timeout):
     post(url, "/slots/0?action=erase", {}, timeout)
     restore, t_restore = post(url, "/slots/0?action=restore", {"filename": fname}, timeout)
     warm = completion(url, prompt, n_gen, timeout)
+    by_tokens = bool(cold["tokens"]) and bool(warm["tokens"])
+    same = cold["tokens"] == warm["tokens"] if by_tokens else cold["content"] == warm["content"]
     return {"cold": cold, "save": {"seconds": t_save, "response": save},
             "restore": {"seconds": t_restore, "response": restore}, "warm": warm,
-            "same_continuation": cold["content"] == warm["content"]}
+            "same_continuation": same, "compared": "tokens" if by_tokens else "content"}
 
 
 def main(argv=None):

@@ -19,6 +19,8 @@ every quantizable matrix a multiple of QK_K = 256, so that llama-quantize can gi
 32-block type or F16 for rows not divisible by the block size, src/llama-quant.cpp tensor_type_fallback): n_embd 256,
 head_dim 64 (n_head * head_dim = 256), ssm_state 64 (ssm inner size 4 * 64 = 256), expert and shared-expert widths
 256. The hyper-connection rank stays 8, so hc_*_up (input width 8) stays F16 under every quantization type.
+--text-vocab writes a byte-level BPE vocabulary instead of the id-only one (tools/tinygen/text_vocab.py) so that a
+llama-server on the model accepts text; --ctx sets context_length (the server caps each slot at it). Defaults unchanged.
 
 Keys and tensor names: llama.cpp @ec7630a src/llama-arch.cpp; required keys: src/models/qwen4exp.cpp
 load_arch_hparams (lines 26-169) and llama_model_base::load_hparams (src/llama-model.cpp:1298); shapes:
@@ -29,6 +31,8 @@ import argparse
 
 import numpy as np
 from gguf import GGUFWriter
+
+from text_vocab import N_TEXT_VOCAB, write_byte_bpe_vocab
 
 ARCH = "qwen4exp"
 
@@ -61,7 +65,7 @@ def is_recurrent(i, c):
     return (i + 1) % c["full_attn_interval"] != 0          # qwen4exp.cpp:154 (default rule)
 
 
-def build(path, cfg=DEFAULT, seed=0, mtp=False):
+def build(path, cfg=DEFAULT, seed=0, mtp=False, text_vocab=False):
     c = dict(cfg)
     rng = np.random.default_rng(seed)
     w = GGUFWriter(path, ARCH)
@@ -120,16 +124,19 @@ def build(path, cfg=DEFAULT, seed=0, mtp=False):
     w.add_ple_layer_multipliers(c["ple_multipliers"])
     w.add_ple_head_offsets(offsets)
     w.add_ple_head_vocab_sizes(c["ple_vocab_sizes"])
-    # minimal SPM vocab: tokens are fed as ids, the strings never matter
-    toks = ["<unk>", "<s>", "</s>"] + [f"t{i}" for i in range(3, c["n_vocab"])]
-    w.add_tokenizer_model("llama")
-    w.add_token_list(toks)
-    w.add_token_scores([0.0] * len(toks))
-    w.add_token_types([2, 3, 3] + [1] * (len(toks) - 3))
-    w.add_bos_token_id(1)
-    w.add_eos_token_id(c["ple_eos"])
-    w.add_unk_token_id(0)
-    w.add_add_bos_token(False)
+    if text_vocab:                                            # byte-level BPE: the model accepts text (text_vocab.py)
+        assert write_byte_bpe_vocab(w, bos=1, eos=c["ple_eos"]) == c["n_vocab"]
+    else:
+        # minimal SPM vocab: tokens are fed as ids, the strings never matter
+        toks = ["<unk>", "<s>", "</s>"] + [f"t{i}" for i in range(3, c["n_vocab"])]
+        w.add_tokenizer_model("llama")
+        w.add_token_list(toks)
+        w.add_token_scores([0.0] * len(toks))
+        w.add_token_types([2, 3, 3] + [1] * (len(toks) - 3))
+        w.add_bos_token_id(1)
+        w.add_eos_token_id(c["ple_eos"])
+        w.add_unk_token_id(0)
+        w.add_add_bos_token(False)
 
     def t(name, *shape, scale=None, ones=False, value=None):
         if value is not None:
@@ -216,6 +223,13 @@ if __name__ == "__main__":
     ap.add_argument("--mtp", action="store_true", help="append the MTP block (nextn_predict_layers = 1)")
     ap.add_argument("--quant-dims", action="store_true",
                     help="input widths divisible by QK_K = 256 so that llama-quantize gives k-quants (QUANT)")
+    ap.add_argument("--text-vocab", action="store_true",
+                    help="byte-level BPE vocabulary (%d tokens, tools/tinygen/text_vocab.py) instead of the minimal "
+                         "id-only one, so that a server on this model accepts text; changes token_embd/output shapes "
+                         "and therefore every weight drawn after them" % N_TEXT_VOCAB)
+    ap.add_argument("--ctx", type=int, default=DEFAULT["ctx"],
+                    help="context_length written to the GGUF (llama-server caps each slot at it); default %(default)s")
     a = ap.parse_args()
-    build(a.out, cfg=QUANT if a.quant_dims else DEFAULT, seed=a.seed, mtp=a.mtp)
+    cfg = dict(QUANT if a.quant_dims else DEFAULT, ctx=a.ctx, **({"n_vocab": N_TEXT_VOCAB} if a.text_vocab else {}))
+    build(a.out, cfg=cfg, seed=a.seed, mtp=a.mtp, text_vocab=a.text_vocab)
     print("wrote", a.out)
